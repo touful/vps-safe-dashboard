@@ -332,7 +332,9 @@ func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {
 	writeErr(w, 500, "查询失败: "+err.Error())
 }
 
-// activeConns 取 ss 快照最新计数（方案 3.7 口径：非 SQL 窗口差值）。
+// activeConns 活跃连接数（DEV-033，DEV-032 现场核查结论 8）：优先 conntrack count 文件值
+// （Cnt>=0，sysctl 接口模块加载即可读）；读取失败（Cnt=-1，如 fallback 模式无模块）回退
+// ss 快照连接数口径。
 func (s *Server) activeConns() int {
 	if s.snapshotFn == nil {
 		return 0
@@ -340,6 +342,9 @@ func (s *Server) activeConns() int {
 	snap := s.snapshotFn()
 	if snap == nil {
 		return 0
+	}
+	if snap.Cnt >= 0 {
+		return int(snap.Cnt)
 	}
 	return len(snap.Conn)
 }

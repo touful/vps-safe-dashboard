@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
@@ -278,6 +279,13 @@ func refreshBanned(ctx context.Context, dbPath string, sys chan<- event.SystemEv
 		banned, err := f2b.QueryBanned(ctx, dbPath)
 		if err != nil {
 			// 错误文案由 f2b 携带根因分类与修复指引（DEV-031 B.1.2）。
+			// DEV-033（DEV-032 现场核查结论 5）：hot journal 待恢复场景为预期瞬时状态
+			// （下轮 60s 自动重试），info 级留痕不告警；其余分类按 warn 告警。
+			var qe *f2b.BannedQueryError
+			if errors.As(err, &qe) && qe.Kind == "hotjournal" {
+				event.ReportSys(sys, "f2b", "info", "封禁名单暂不可用（hot journal 恢复中）: "+err.Error())
+				return
+			}
 			rep.Report(sys, "f2b", "warn", "封禁名单查询失败: "+err.Error())
 			return
 		}

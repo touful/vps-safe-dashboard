@@ -95,7 +95,8 @@ INSERT INTO meta(key, value) VALUES('schema_version', '1');
 
 	srv, err := NewServer(dbPath, filepath.Join(dir, "archive"), "http://127.0.0.1:8080", true,
 		func() *event.ConnSnapshot {
-			return &event.ConnSnapshot{TS: now, Conn: []event.SnapConn{
+			// Cnt=-1：count 文件不可读（测试环境无 /proc），回退 ss 口径（DEV-033）。
+			return &event.ConnSnapshot{TS: now, Cnt: -1, Conn: []event.SnapConn{
 				{Proto: 6, SrcIP: 0xCB007105, SrcPort: 50000, DstIP: 0x0A000002, DstPort: 22, State: "ESTAB"},
 			}}
 		})
@@ -138,7 +139,43 @@ func TestSummary(t *testing.T) {
 		t.Errorf("fw_events = %v, 期望 4", out["fw_events"])
 	}
 	if out["active_conns"].(float64) != 1 {
-		t.Errorf("active_conns = %v, 期望 1（ss 快照口径）", out["active_conns"])
+		t.Errorf("active_conns = %v, 期望 1（ss 快照回退口径，Cnt=-1）", out["active_conns"])
+	}
+}
+
+// TestActiveConnsCntPriority（DEV-033 新增测试，DEV-032 核查结论 8）：活跃连接数优先
+// conntrack count 文件值（Cnt>=0，含 0）；Cnt=-1（不可读）回退 ss 快照连接数。
+func TestActiveConnsCntPriority(t *testing.T) {
+	dir := t.TempDir()
+	mkSrv := func(snap *event.ConnSnapshot) *Server {
+		// NewServer 为惰性只读打开，本测试仅调用 activeConns（不触库查询）。
+		srv, err := NewServer(filepath.Join(dir, "state.db"), filepath.Join(dir, "archive"), "http://127.0.0.1:8080", true, func() *event.ConnSnapshot { return snap })
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { srv.Close() })
+		return srv
+	}
+	// Cnt 有值（含 0）→ 用 count。
+	for _, tc := range []struct {
+		cnt  int64
+		want int
+	}{
+		{31, 31}, {0, 0},
+	} {
+		srv := mkSrv(&event.ConnSnapshot{TS: 1, Cnt: tc.cnt, Conn: []event.SnapConn{{}, {}}})
+		if got := srv.activeConns(); got != tc.want {
+			t.Errorf("Cnt=%d: activeConns = %d, 期望 %d（count 优先）", tc.cnt, got, tc.want)
+		}
+	}
+	// Cnt=-1（不可读）→ 回退 ss 快照长度。
+	srv := mkSrv(&event.ConnSnapshot{TS: 1, Cnt: -1, Conn: []event.SnapConn{{}, {}, {}}})
+	if got := srv.activeConns(); got != 3 {
+		t.Errorf("Cnt=-1: activeConns = %d, 期望 3（ss 回退）", got)
+	}
+	// snapshotFn nil → 0。
+	if got := (&Server{}).activeConns(); got != 0 {
+		t.Errorf("nil snapshotFn: activeConns = %d, 期望 0", got)
 	}
 }
 

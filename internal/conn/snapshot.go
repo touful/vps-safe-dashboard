@@ -44,7 +44,10 @@ func snapshotOnce(latest *atomic.Value, sys chan<- event.SystemEvent) error {
 		event.ReportSys(sys, "conntrack", "warn", "解析 ss 输出失败: "+err.Error())
 		return err
 	}
-	latest.Store(&event.ConnSnapshot{TS: time.Now().Unix(), Conn: conns})
+	// DEV-033（DEV-032 现场核查结论 8）：活跃连接数改读 count 文件（/proc/net/nf_conntrack
+	// 因 CONFIG_NF_CONNTRACK_PROCFS not set 不存在，sysctl count 文件可读）；
+	// 读取失败 Cnt=-1（fallback 等无模块环境预期），API 回退 ss 口径，不告警。
+	latest.Store(&event.ConnSnapshot{TS: time.Now().Unix(), Conn: conns, Cnt: readConntrackCount(conntrackCountPath)})
 	return nil
 }
 

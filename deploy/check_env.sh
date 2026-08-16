@@ -52,13 +52,15 @@ else
   report C-04 BRANCH "journald 非持久，走分支 B2（setup_system.sh 启用 persistent 或转 B1）"
 fi
 
-# C-05 nf_conntrack 模块
-if [ -f /proc/net/nf_conntrack ]; then
-  report C-05 PASS "nf_conntrack 模块已加载"
-elif command -v modprobe >/dev/null 2>&1 && modprobe nf_conntrack 2>/dev/null && [ -f /proc/net/nf_conntrack ]; then
+# C-05 nf_conntrack 模块（DEV-033 调整：模块可用性判定以 sysctl count 文件为准——
+# /proc/net/nf_conntrack 不存在可能是 CONFIG_NF_CONNTRACK_PROCFS not set 内核编译配置，
+# 非模块缺失；count 文件为 sysctl 接口，模块加载即存在，现场验证可读）
+if [ -f /proc/sys/net/netfilter/nf_conntrack_count ] || [ -f /proc/net/nf_conntrack ]; then
+  report C-05 PASS "nf_conntrack 模块已加载（count 文件可读）"
+elif command -v modprobe >/dev/null 2>&1 && modprobe nf_conntrack 2>/dev/null; then
   report C-05 PASS "nf_conntrack 已通过 modprobe 加载"
 else
-  report C-05 BRANCH "nf_conntrack 不可用，走分支 B5（ss 快照近似降级）；宿主修复建议：sudo modprobe nf_conntrack 并写入 /etc/modules-load.d/ 持久化（重启不丢）；若为虚拟化限制无法加载，保持 B5 降级并可在 config.json 设 conntrack.mode=fallback 消除启动告警（DEV-031）"
+  report C-05 BRANCH "nf_conntrack 不可用（无 count 文件且 modprobe 失败），走分支 B5（ss 快照近似降级）；若为虚拟化限制无法加载，保持 B5 降级并可在 config.json 设 conntrack.mode=fallback 消除启动告警（DEV-031）"
 fi
 
 # C-06 宿主虚拟化形态（容器/OpenVZ 嵌套检测）

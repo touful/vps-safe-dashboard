@@ -87,9 +87,12 @@ type SnapConn struct {
 }
 
 // ConnSnapshot ss 快照（最新值经 atomic.Value 共享，供面板读取）。
+// Cnt 为 conntrack 当前连接数（nf_conntrack_count，DEV-033：/proc/net/nf_conntrack 因内核
+// 编译配置可能不存在，连接数改读 sysctl count 文件）；-1 表示不可读（调用方回退 ss 口径）。
 type ConnSnapshot struct {
 	TS   int64
 	Conn []SnapConn
+	Cnt  int64
 }
 
 // SSHAttempt SSH 登录尝试（M-03，方案 3.3）。

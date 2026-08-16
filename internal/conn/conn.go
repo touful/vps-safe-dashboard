@@ -24,6 +24,26 @@ const netlinkNetfilterProto = 12
 // netlinkBufferMax netlink 缓冲扩容上限（R-10：可扩至 8MB）。
 const netlinkBufferMax = 8 * 1024 * 1024
 
+// conntrackCountPath nf_conntrack 当前连接数（sysctl 接口，模块加载即存在）。
+// DEV-033（DEV-032 现场核查结论 7/8）：nf_conntrack 模块依赖链自动加载（无需 modprobe），
+// /proc/net/nf_conntrack 不存在是内核编译配置（CONFIG_NF_CONNTRACK_PROCFS not set）非故障；
+// 连接数改读本 count 文件（现场验证 count=31，sysctl 可读）。
+const conntrackCountPath = "/proc/sys/net/netfilter/nf_conntrack_count"
+
+// readConntrackCount 读取 conntrack 当前连接数（count 文件）；不可读/解析失败返回 -1
+// （调用方回退 ss 口径，DEV-033 结论 8）。
+func readConntrackCount(path string) int64 {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return -1
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil {
+		return -1
+	}
+	return n
+}
+
 // maxConntrackStartFails 启动失败降级阈值（DEV-031 B.4.3：连续 3 次启动失败放弃主通道）。
 const maxConntrackStartFails = 3
 
@@ -61,11 +81,11 @@ func (t *connStartTracker) record(isStartErr bool) (giveUp bool, fails int) {
 // receive 循环（监听死亡）；本实现检测到监听终止后自动重启（退避 2s→30s），
 // 并在每次重启时尝试扩大缓冲（上限 8MB），避免事件流静默中断。
 func RunConntrackListener(ctx context.Context, cfg config.ConntrackCfg, sink chan<- event.ConnEvent, overrun chan<- event.OverrunInfo, sys chan<- event.SystemEvent, counter *atomic.Uint64) error {
-	// 前置检查：nf_conntrack 模块已加载（C-05：/proc/net/nf_conntrack 存在）。
-	// DEV-031 优化④：错误文案补充根因建议（宿主 modprobe / 持久化 / 虚拟化限制走降级）。
-	if _, err := os.Stat("/proc/net/nf_conntrack"); err != nil {
-		return fmt.Errorf("nf_conntrack 模块不可用（/proc/net/nf_conntrack 不存在）: %w；宿主修复建议：sudo modprobe nf_conntrack 并写入 /etc/modules-load.d/ 持久化；若为虚拟化限制无法加载，请保持 B5 降级模式（conntrack.mode=fallback 可消除启动告警）", err)
-	}
+	// DEV-033（DEV-032 现场核查结论 7）：nf_conntrack 模块依赖链自动加载（无需 modprobe、
+	// 无需 /etc/modules-load.d）；/proc/net/nf_conntrack 不存在是内核编译配置
+	// （CONFIG_NF_CONNTRACK_PROCFS not set），与模块可用性无关——因此不做 procfs 存在性
+	// 前置检查（旧实现会在此误判"模块不可用"而降级，丢失真实事件流）；可用性由下方
+	// netlink Open/Register 直接探测（连续 3 次启动失败自动降级，B.4.3 防御保留）。
 	// 启用每流包/字节计数（方案 3.2）：sysctl 写入失败记 warn 不阻塞（包/字节字段为 0）。
 	if cfg.EnableAcct {
 		if err := os.WriteFile("/proc/sys/net/netfilter/nf_conntrack_acct", []byte("1"), 0o644); err != nil {

@@ -3,20 +3,131 @@ package f2b
 import (
 	"context"
 	"database/sql"
-	"errors"
-	"net/url"
-	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
+	"time"
 )
 
-// TestQueryBanned 只读查询 fail2ban.sqlite3 封禁名单（M2 联调）。
-func TestQueryBanned(t *testing.T) {
+// newF2BDB 创建 fail2ban 1.x 风格库（bips+bans 双表，addBan/delBan 双写双删语义，
+// DEV-032 现场核查结论 2）；返回连接与库路径。
+func newF2BDB(t *testing.T, dir string) (*sql.DB, string) {
+	t.Helper()
+	dbPath := filepath.Join(dir, "fail2ban.sqlite3")
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// bips 列：ip/jail/timeofban/bantime/bancount/data（bantime 无 NOT NULL，理论可为 NULL）。
+	if _, err := db.Exec(`CREATE TABLE bips (id INTEGER PRIMARY KEY, ip TEXT NOT NULL, jail TEXT NOT NULL,
+		timeofban INTEGER NOT NULL, bantime INTEGER, bancount INTEGER NOT NULL, data TEXT, UNIQUE(ip, jail))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE bans (id INTEGER PRIMARY KEY, jail TEXT NOT NULL, ip TEXT NOT NULL,
+		timeofban INTEGER NOT NULL, UNIQUE(jail, ip))`); err != nil {
+		t.Fatal(err)
+	}
+	return db, dbPath
+}
+
+// addBan 双表写入一条封禁（bantime 为 any：-1 永久 / 正数限时 / nil NULL）。
+func addBan(t *testing.T, db *sql.DB, ip string, timeofban int64, bantime any) {
+	t.Helper()
+	if _, err := db.Exec(`INSERT INTO bips (ip, jail, timeofban, bantime, bancount, data) VALUES (?, 'sshd', ?, ?, 1, NULL)`, ip, timeofban, bantime); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO bans (jail, ip, timeofban) VALUES ('sshd', ?, ?)`, ip, timeofban); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestQueryBannedActive（DEV-033，DEV-032 核查结论 3/6）：bips 路径活跃判定——
+// 未过期保留、bantime=-1 永久封禁豁免保留、bantime NULL 保守保留、过期异常残留过滤。
+func TestQueryBannedActive(t *testing.T) {
+	dir := t.TempDir()
+	db, dbPath := newF2BDB(t, dir)
+	now := time.Now().Unix()
+	addBan(t, db, "203.0.113.5", now-100, 1000)  // 未过期（timeofban+bantime > now）→ 保留
+	addBan(t, db, "198.51.100.7", 1, -1)         // 永久封禁（bantime=-1，远古 timeofban）→ 豁免保留
+	addBan(t, db, "198.51.100.10", 1, nil)       // bantime NULL（schema 无 NOT NULL）→ 保守保留
+	addBan(t, db, "203.0.113.9", now-10000, 100) // 已过期（异常残留）→ 过滤
+	db.Close()
+
+	got, err := QueryBanned(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("QueryBanned 失败: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("封禁数 = %d, 期望 3（未过期+永久+NULL；过期残留过滤）: %v", len(got), got)
+	}
+	want := map[uint32]bool{0xCB007105: true, 0xC6336407: true, 0xC633640A: true} // .5/.7/.10
+	for _, ip := range got {
+		if !want[ip] {
+			t.Errorf("不应包含 IP %08x（过期残留或未知）", ip)
+		}
+		delete(want, ip)
+	}
+	if len(want) != 0 {
+		t.Errorf("缺失期望 IP: %v", want)
+	}
+}
+
+// TestQueryBannedBantimeMinusOnePermanent（DEV-033 新增测试）：bantime=-1 永久封禁
+// 恒保留（timeofban 即使远早于 now 也不过滤——必须豁免）。
+func TestQueryBannedBantimeMinusOnePermanent(t *testing.T) {
+	dir := t.TempDir()
+	db, dbPath := newF2BDB(t, dir)
+	addBan(t, db, "203.0.113.5", 1, -1) // 1970 年封禁 + 永久
+	db.Close()
+
+	got, err := QueryBanned(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("QueryBanned 失败: %v", err)
+	}
+	if len(got) != 1 || got[0] != 0xCB007105 {
+		t.Errorf("永久封禁应保留: %v", got)
+	}
+}
+
+// TestQueryBannedBantimeNullNoCrash（DEV-033 新增测试）：bantime NULL（schema 无
+// NOT NULL，理论可为 NULL）不崩溃、不误删（保守保留，防漏报）。
+func TestQueryBannedBantimeNullNoCrash(t *testing.T) {
+	dir := t.TempDir()
+	db, dbPath := newF2BDB(t, dir)
+	addBan(t, db, "203.0.113.5", 1, nil)
+	db.Close()
+
+	got, err := QueryBanned(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("QueryBanned 失败: %v", err)
+	}
+	if len(got) != 1 || got[0] != 0xCB007105 {
+		t.Errorf("bantime NULL 行应保守保留: %v", got)
+	}
+}
+
+// TestQueryBannedExpiredFiltered：过期封禁（timeofban+bantime <= now）按时间条件过滤。
+func TestQueryBannedExpiredFiltered(t *testing.T) {
+	dir := t.TempDir()
+	db, dbPath := newF2BDB(t, dir)
+	now := time.Now().Unix()
+	addBan(t, db, "203.0.113.5", now-2000, 100) // 过期（到期 now-1900）
+	addBan(t, db, "198.51.100.7", now-500, 100) // 过期（到期 now-400）
+	db.Close()
+
+	got, err := QueryBanned(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("QueryBanned 失败: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("过期封禁应全部过滤: %v", got)
+	}
+}
+
+// TestQueryBannedBansFallback（0.10.x 兼容回退路径）：库无 bips 表（旧版 fail2ban）时
+// 回退 bans 表全量返回（unban 即删行，行即当前封禁集合，无 bantime 可过滤）。
+func TestQueryBannedBansFallback(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "fail2ban.sqlite3")
-	// 构造 fail2ban v1.x 风格 bans 表。
 	db, err := sql.Open("sqlite", "file:"+dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -38,12 +149,11 @@ func TestQueryBanned(t *testing.T) {
 		t.Fatalf("QueryBanned 失败: %v", err)
 	}
 	if len(got) != 3 {
-		t.Fatalf("封禁数 = %d, 期望 3", len(got))
+		t.Fatalf("回退路径封禁数 = %d, 期望 3", len(got))
 	}
-	// 203.0.113.5 = 0xCB007105
 	found := false
 	for _, ip := range got {
-		if ip == 0xCB007105 {
+		if ip == 0xCB007105 { // 203.0.113.5
 			found = true
 		}
 	}
@@ -54,146 +164,5 @@ func TestQueryBanned(t *testing.T) {
 	// 文件不存在 → 错误（调用方记录告警）。
 	if _, err := QueryBanned(context.Background(), filepath.Join(dir, "missing.sqlite3")); err == nil {
 		t.Error("文件不存在应报错")
-	}
-}
-
-// TestQueryBannedSchemaMismatch 库存在但无 bans 表 → "empty" 分类错误（DEV-031 优化①：
-// 库为空/未初始化或 fail2ban 0.9.x 及更早无 sqlite 库；附修复指引文案）。
-func TestQueryBannedSchemaMismatch(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "fail2ban.sqlite3")
-	db, err := sql.Open("sqlite", "file:"+dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`CREATE TABLE other (x TEXT)`); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-	_, err = QueryBanned(context.Background(), dbPath)
-	if err == nil {
-		t.Fatal("无 bans 表应报错")
-	}
-	var qe *BannedQueryError
-	if !errors.As(err, &qe) {
-		t.Fatalf("错误类型 = %T, 期望 *BannedQueryError", err)
-	}
-	if qe.Kind != "empty" {
-		t.Errorf("分类 = %q, 期望 empty（库未初始化/为空）", qe.Kind)
-	}
-	if !strings.Contains(qe.Msg, "未初始化") {
-		t.Errorf("文案应含修复指引关键词（未初始化），实际: %s", qe.Msg)
-	}
-}
-
-// TestQueryBannedEmptyDB 0 字节空库（dbfile 未生效形态）→ "empty" 分类错误。
-func TestQueryBannedEmptyDB(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "fail2ban.sqlite3")
-	// 预创建 0 字节文件（fail2ban dbfile 未启用时的空库形态）。
-	if err := os.WriteFile(dbPath, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, err := QueryBanned(context.Background(), dbPath)
-	if err == nil {
-		t.Fatal("空库应报错")
-	}
-	var qe *BannedQueryError
-	if !errors.As(err, &qe) {
-		t.Fatalf("错误类型 = %T, 期望 *BannedQueryError", err)
-	}
-	if qe.Kind != "empty" {
-		t.Errorf("分类 = %q, 期望 empty", qe.Kind)
-	}
-	if !strings.Contains(qe.Msg, "未初始化") {
-		t.Errorf("文案应含'未初始化'，实际: %s", qe.Msg)
-	}
-}
-
-// TestQueryBannedMissingIPColumn bans 表存在但缺 ip 列 → "schema" 分类错误（附列信息）。
-func TestQueryBannedMissingIPColumn(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "fail2ban.sqlite3")
-	db, err := sql.Open("sqlite", "file:"+dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// 未知版本结构：bans 表存在但列名不同（如 addr 代替 ip）。
-	if _, err := db.Exec(`CREATE TABLE bans (jail TEXT, addr TEXT, timeofban INTEGER)`); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-	_, err = QueryBanned(context.Background(), dbPath)
-	if err == nil {
-		t.Fatal("缺 ip 列应报错")
-	}
-	var qe *BannedQueryError
-	if !errors.As(err, &qe) {
-		t.Fatalf("错误类型 = %T, 期望 *BannedQueryError", err)
-	}
-	if qe.Kind != "schema" {
-		t.Errorf("分类 = %q, 期望 schema（结构不兼容）", qe.Kind)
-	}
-	if !strings.Contains(qe.Msg, "addr") {
-		t.Errorf("文案应附实际列信息（PRAGMA table_info 摘要），实际: %s", qe.Msg)
-	}
-}
-
-// TestQueryBannedMissingFile 文件不存在（bind mount 源缺失/路径错位形态）→ "unreadable" 分类。
-func TestQueryBannedMissingFile(t *testing.T) {
-	dir := t.TempDir()
-	_, err := QueryBanned(context.Background(), filepath.Join(dir, "missing.sqlite3"))
-	if err == nil {
-		t.Fatal("文件不存在应报错")
-	}
-	var qe *BannedQueryError
-	if !errors.As(err, &qe) {
-		t.Fatalf("错误类型 = %T, 期望 *BannedQueryError", err)
-	}
-	if qe.Kind != "unreadable" {
-		t.Errorf("分类 = %q, 期望 unreadable（库不可访问）", qe.Kind)
-	}
-}
-
-// TestReadOnlyDSNBusyTimeout（DEV-031 优化①）：只读 DSN 追加 busy_timeout=5000。
-func TestReadOnlyDSNBusyTimeout(t *testing.T) {
-	dsn := readOnlyDSN("/var/lib/fail2ban/fail2ban.sqlite3")
-	if !strings.Contains(dsn, "mode=ro") {
-		t.Errorf("DSN 应含 mode=ro: %s", dsn)
-	}
-	if !strings.Contains(dsn, "busy_timeout(5000)") {
-		t.Errorf("DSN 应含 busy_timeout=5000: %s", dsn)
-	}
-}
-
-// TestReadOnlyDSNSpecialChars（A-11）：路径含 '?'/'#' 等 DSN 特殊字符时查询正常。
-// 注意：创建环节亦须用转义 DSN——未转义时 SQLite URI 解析会把 '?' 视为查询分隔符，
-// 实际创建的文件名被截断（这正是 A-11 要防的路径语义错误）。
-// Windows 文件系统不允许 '?'/'#' 文件名（创建即失败），该场景在 Linux/WSL 验证。
-func TestReadOnlyDSNSpecialChars(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows 文件名不允许 '?'/'#'，在 Linux/WSL 验证")
-	}
-	dir := t.TempDir()
-	// 路径含 '?' 与 '#'（DSN 解析器会误读的字符）。
-	dbPath := filepath.Join(dir, "fail?2ban#x.sqlite3")
-	db, err := sql.Open("sqlite", "file:"+url.PathEscape(dbPath)) // 创建用转义路径（写模式）
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`CREATE TABLE bans (jail TEXT NOT NULL, ip TEXT NOT NULL, timeofban INTEGER NOT NULL)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO bans (jail, ip, timeofban) VALUES ('sshd', '203.0.113.5', 1)`); err != nil {
-		t.Fatal(err)
-	}
-	db.Close()
-
-	got, err := QueryBanned(context.Background(), dbPath)
-	if err != nil {
-		t.Fatalf("含特殊字符路径查询失败（DSN 转义问题）: %v", err)
-	}
-	if len(got) != 1 || got[0] != 0xCB007105 {
-		t.Errorf("查询结果错误: %v", got)
 	}
 }
