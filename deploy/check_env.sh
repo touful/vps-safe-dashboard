@@ -55,12 +55,14 @@ fi
 # C-05 nf_conntrack 模块（DEV-033 调整：模块可用性判定以 sysctl count 文件为准——
 # /proc/net/nf_conntrack 不存在可能是 CONFIG_NF_CONNTRACK_PROCFS not set 内核编译配置，
 # 非模块缺失；count 文件为 sysctl 接口，模块加载即存在，现场验证可读）
-if [ -f /proc/sys/net/netfilter/nf_conntrack_count ] || [ -f /proc/net/nf_conntrack ]; then
+# AUDIT-005 A-07：判定用 -r 测可读性（-f 仅测存在性，权限不足时误判可用）；
+# modprobe 分支成功后补 count 文件复查（加载成功但文件仍不可读=权限/挂载问题，不误报 PASS）。
+if [ -r /proc/sys/net/netfilter/nf_conntrack_count ] || [ -r /proc/net/nf_conntrack ]; then
   report C-05 PASS "nf_conntrack 模块已加载（count 文件可读）"
-elif command -v modprobe >/dev/null 2>&1 && modprobe nf_conntrack 2>/dev/null; then
-  report C-05 PASS "nf_conntrack 已通过 modprobe 加载"
+elif command -v modprobe >/dev/null 2>&1 && modprobe nf_conntrack 2>/dev/null && [ -r /proc/sys/net/netfilter/nf_conntrack_count ]; then
+  report C-05 PASS "nf_conntrack 已通过 modprobe 加载（count 文件可读）"
 else
-  report C-05 BRANCH "nf_conntrack 不可用（无 count 文件且 modprobe 失败），走分支 B5（ss 快照近似降级）；若为虚拟化限制无法加载，保持 B5 降级并可在 config.json 设 conntrack.mode=fallback 消除启动告警（DEV-031）"
+  report C-05 BRANCH "nf_conntrack 不可用（count 文件不可读且 modprobe 失败），走分支 B5（ss 快照近似降级）；若为虚拟化限制无法加载，保持 B5 降级并可在 config.json 设 conntrack.mode=fallback 消除启动告警（DEV-031）"
 fi
 
 # C-06 宿主虚拟化形态（容器/OpenVZ 嵌套检测）

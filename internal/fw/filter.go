@@ -15,8 +15,10 @@ import (
 )
 
 // defaultInternalCIDRs 内置默认内网网段列表（B.2.2：任务书列举 + 合理补充）。
-// 注意：不含 0.0.0.0/8——IPv6 行 SrcIP/DstIP 均为 0，含该段会误杀全部 IPv6 行
-// （守卫：判定前置 ip != 0，见 IsInternalSrc/IsInternalEither）。
+// 注意：不含 0.0.0.0/8——该段为"本网络"保留段，无真实来源语义；
+// IPv6 行（SrcIP/DstIP 均为 0）由守卫保证安全（判定前置 ip != 0，见
+// IsInternalSrc/IsInternalEither），即使 CIDRs 含 0.0.0.0/8 也不会误杀
+// （AUDIT-005 A-09：修正过时注释——守卫已保证 IPv6 行安全）。
 var defaultInternalCIDRs = []string{
 	"127.0.0.0/8",    // 回环
 	"10.0.0.0/8",     // RFC 1918
