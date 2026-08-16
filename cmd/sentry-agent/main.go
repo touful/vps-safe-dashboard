@@ -253,10 +253,20 @@ func main() {
 	fmt.Fprintln(os.Stderr, "sentry-agent 已退出")
 }
 
-// refreshBanned 每 60s 查询 fail2ban 当前封禁名单（M-05 联调，方案 3.5）。
-// 结果经 system_event 记录（条数变化信息/查询失败告警，限频）。
+// refreshBanned 查询 fail2ban 当前封禁名单（M-05 联调，方案 3.5；DEV-031 优化①）。
+// 启动后立即执行一次（不等 60s 周期）；结果经 system_event 记录（条数变化信息/查询失败告警，限频）。
 func refreshBanned(ctx context.Context, dbPath string, sys chan<- event.SystemEvent) {
 	rep := event.NewRateLimiter(5 * time.Minute)
+	query := func() {
+		banned, err := f2b.QueryBanned(ctx, dbPath)
+		if err != nil {
+			// 错误文案由 f2b 携带根因分类与修复指引（DEV-031 B.1.2）。
+			rep.Report(sys, "f2b", "warn", "封禁名单查询失败: "+err.Error())
+			return
+		}
+		event.ReportSys(sys, "f2b", "info", fmt.Sprintf("当前封禁 IP 数: %d", len(banned)))
+	}
+	query() // 启动后立即执行一次（DEV-031：首次封禁名单不再等 60s）
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -264,12 +274,7 @@ func refreshBanned(ctx context.Context, dbPath string, sys chan<- event.SystemEv
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			banned, err := f2b.QueryBanned(ctx, dbPath)
-			if err != nil {
-				rep.Report(sys, "f2b", "warn", "封禁名单查询失败: "+err.Error())
-				continue
-			}
-			event.ReportSys(sys, "f2b", "info", fmt.Sprintf("当前封禁 IP 数: %d", len(banned)))
+			query()
 		}
 	}
 }

@@ -3,9 +3,12 @@ package f2b
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/url"
+	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -54,7 +57,8 @@ func TestQueryBanned(t *testing.T) {
 	}
 }
 
-// TestQueryBannedSchemaMismatch 库存在但表结构不兼容 → 错误（版本差异留痕）。
+// TestQueryBannedSchemaMismatch 库存在但无 bans 表 → "empty" 分类错误（DEV-031 优化①：
+// 库为空/未初始化或 fail2ban 0.9.x 及更早无 sqlite 库；附修复指引文案）。
 func TestQueryBannedSchemaMismatch(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "fail2ban.sqlite3")
@@ -66,8 +70,99 @@ func TestQueryBannedSchemaMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	if _, err := QueryBanned(context.Background(), dbPath); err == nil {
-		t.Error("无 bans 表应报错")
+	_, err = QueryBanned(context.Background(), dbPath)
+	if err == nil {
+		t.Fatal("无 bans 表应报错")
+	}
+	var qe *BannedQueryError
+	if !errors.As(err, &qe) {
+		t.Fatalf("错误类型 = %T, 期望 *BannedQueryError", err)
+	}
+	if qe.Kind != "empty" {
+		t.Errorf("分类 = %q, 期望 empty（库未初始化/为空）", qe.Kind)
+	}
+	if !strings.Contains(qe.Msg, "未初始化") {
+		t.Errorf("文案应含修复指引关键词（未初始化），实际: %s", qe.Msg)
+	}
+}
+
+// TestQueryBannedEmptyDB 0 字节空库（dbfile 未生效形态）→ "empty" 分类错误。
+func TestQueryBannedEmptyDB(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "fail2ban.sqlite3")
+	// 预创建 0 字节文件（fail2ban dbfile 未启用时的空库形态）。
+	if err := os.WriteFile(dbPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := QueryBanned(context.Background(), dbPath)
+	if err == nil {
+		t.Fatal("空库应报错")
+	}
+	var qe *BannedQueryError
+	if !errors.As(err, &qe) {
+		t.Fatalf("错误类型 = %T, 期望 *BannedQueryError", err)
+	}
+	if qe.Kind != "empty" {
+		t.Errorf("分类 = %q, 期望 empty", qe.Kind)
+	}
+	if !strings.Contains(qe.Msg, "未初始化") {
+		t.Errorf("文案应含'未初始化'，实际: %s", qe.Msg)
+	}
+}
+
+// TestQueryBannedMissingIPColumn bans 表存在但缺 ip 列 → "schema" 分类错误（附列信息）。
+func TestQueryBannedMissingIPColumn(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "fail2ban.sqlite3")
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 未知版本结构：bans 表存在但列名不同（如 addr 代替 ip）。
+	if _, err := db.Exec(`CREATE TABLE bans (jail TEXT, addr TEXT, timeofban INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	_, err = QueryBanned(context.Background(), dbPath)
+	if err == nil {
+		t.Fatal("缺 ip 列应报错")
+	}
+	var qe *BannedQueryError
+	if !errors.As(err, &qe) {
+		t.Fatalf("错误类型 = %T, 期望 *BannedQueryError", err)
+	}
+	if qe.Kind != "schema" {
+		t.Errorf("分类 = %q, 期望 schema（结构不兼容）", qe.Kind)
+	}
+	if !strings.Contains(qe.Msg, "addr") {
+		t.Errorf("文案应附实际列信息（PRAGMA table_info 摘要），实际: %s", qe.Msg)
+	}
+}
+
+// TestQueryBannedMissingFile 文件不存在（bind mount 源缺失/路径错位形态）→ "unreadable" 分类。
+func TestQueryBannedMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	_, err := QueryBanned(context.Background(), filepath.Join(dir, "missing.sqlite3"))
+	if err == nil {
+		t.Fatal("文件不存在应报错")
+	}
+	var qe *BannedQueryError
+	if !errors.As(err, &qe) {
+		t.Fatalf("错误类型 = %T, 期望 *BannedQueryError", err)
+	}
+	if qe.Kind != "unreadable" {
+		t.Errorf("分类 = %q, 期望 unreadable（库不可访问）", qe.Kind)
+	}
+}
+
+// TestReadOnlyDSNBusyTimeout（DEV-031 优化①）：只读 DSN 追加 busy_timeout=5000。
+func TestReadOnlyDSNBusyTimeout(t *testing.T) {
+	dsn := readOnlyDSN("/var/lib/fail2ban/fail2ban.sqlite3")
+	if !strings.Contains(dsn, "mode=ro") {
+		t.Errorf("DSN 应含 mode=ro: %s", dsn)
+	}
+	if !strings.Contains(dsn, "busy_timeout(5000)") {
+		t.Errorf("DSN 应含 busy_timeout=5000: %s", dsn)
 	}
 }
 

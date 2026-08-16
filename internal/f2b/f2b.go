@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -56,22 +57,59 @@ func RunF2BListener(ctx context.Context, logPath string, sink chan<- event.BanEv
 	return fmt.Errorf("fail2ban 日志流提前结束: %v", waitErr)
 }
 
-// QueryBanned 查询 fail2ban.sqlite3 当前封禁名单（方案 3.5，每 60s 刷新）。
-// 只读打开（mode=ro），fail2ban v1.x 的 bans 表：bans(jail, ip, timeofban)，
-// unban 时行被删除——SELECT DISTINCT ip FROM bans 即当前封禁集合。
-// 已知限制：fail2ban 版本差异（旧版无 sqlite 库 / 表名不同）返回错误由调用方记录；
-// IPv6 封禁地址跳过（BanEvent.IP 为 uint32，M2 记录）。
-// DSN 参数化（A-11，auditor Note）：路径含 '?'/'#' 等 DSN 特殊字符时须 URL 编码，
-// 否则被 DSN 解析器误读（store 包 openDB 同规则）。
+// BannedQueryError 封禁名单查询分类错误（DEV-031 优化①：探测式适配，按根因分类）。
+// Kind 取值：
+//   - "unreadable"：库不可访问（打开/探测失败）——空目录挂载（Docker bind mount 源不存在
+//     形态）、权限/ACL 缺失、路径错位（附检查建议）
+//   - "empty"：bans 表不存在——库为空/未初始化（dbfile 配置未生效）、0.9.x 及更早无 sqlite 库
+//   - "schema"：bans 表存在但缺 ip 列——未知版本结构差异（附 PRAGMA table_info 摘要）
+type BannedQueryError struct {
+	Kind string
+	Msg  string
+	Err  error
+}
+
+func (e *BannedQueryError) Error() string { return e.Msg }
+func (e *BannedQueryError) Unwrap() error { return e.Err }
+
+// QueryBanned 探测式查询 fail2ban.sqlite3 当前封禁名单（方案 3.5，每 60s 刷新）。
+// 只读打开（mode=ro + busy_timeout=5000，缓解 fail2ban 写库瞬间 SQLITE_BUSY）。
+// 兼容策略（B.1.2）：不猜根因——先探测 bans 表存在性（sqlite_master），再探测列
+// （PRAGMA table_info），按实际列构造查询；适配 fail2ban 0.10.x~1.x 常见结构
+// （bans(jail, ip, timeofban)，unban 时行被删除——SELECT DISTINCT ip FROM bans
+// 即当前封禁集合，仅依赖 ip 列，不要求 timeofban 齐备，R-06）。
+// 错误按根因分类（BannedQueryError.Kind），调用方告警携带分类与修复指引。
+// 已知限制：IPv6 封禁地址跳过（BanEvent.IP 为 uint32，M2 记录）。
 func QueryBanned(ctx context.Context, dbPath string) ([]uint32, error) {
 	db, err := sql.Open("sqlite", readOnlyDSN(dbPath))
 	if err != nil {
-		return nil, fmt.Errorf("打开 fail2ban 库失败: %w", err)
+		return nil, &BannedQueryError{Kind: "unreadable", Msg: fmt.Sprintf("打开 fail2ban 库失败: %v", err), Err: err}
 	}
 	defer db.Close()
+	// 探测 1：bans 表是否存在（sqlite_master）。
+	var tableName string
+	err = db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type='table' AND name='bans'`).Scan(&tableName)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, &BannedQueryError{Kind: "empty",
+				Msg: "fail2ban 库未初始化或为空（bans 表不存在）：请宿主确认 fail2ban.conf 的 dbfile 配置已生效并重启 fail2ban 触发建表，或重跑 install_fail2ban.sh 的 ACL 设置（fail2ban 0.9.x 及更早无 sqlite 库，不适用）",
+				Err: err}
+		}
+		return nil, &BannedQueryError{Kind: "unreadable", Msg: fmt.Sprintf("探测 fail2ban 库表结构失败: %v", err), Err: err}
+	}
+	// 探测 2：bans 表列结构（PRAGMA table_info，兼容版本差异）。
+	cols, err := tableColumns(ctx, db, "bans")
+	if err != nil {
+		return nil, &BannedQueryError{Kind: "unreadable", Msg: fmt.Sprintf("读取 bans 表结构失败: %v", err), Err: err}
+	}
+	if !containsStr(cols, "ip") {
+		return nil, &BannedQueryError{Kind: "schema",
+			Msg:  fmt.Sprintf("fail2ban bans 表结构不兼容（缺 ip 列，实际列: %v）——请现场核查 schema 并反馈 fail2ban 版本号", cols),
+			Err:  nil}
+	}
 	rows, err := db.QueryContext(ctx, `SELECT DISTINCT ip FROM bans`)
 	if err != nil {
-		return nil, fmt.Errorf("查询 bans 表失败（fail2ban 库结构兼容性）: %w", err)
+		return nil, &BannedQueryError{Kind: "unreadable", Msg: fmt.Sprintf("查询 bans 表失败（fail2ban 库结构兼容性）: %v", err), Err: err}
 	}
 	defer rows.Close()
 	var out []uint32
@@ -89,8 +127,38 @@ func QueryBanned(ctx context.Context, dbPath string) ([]uint32, error) {
 	return out, rows.Err()
 }
 
+// tableColumns 读取表列名列表（PRAGMA table_info 输出摘要）。
+func tableColumns(ctx context.Context, db *sql.DB, table string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var cols []string
+	for rows.Next() {
+		var cid, name, typ string
+		var notnull, pk int
+		var dflt any // dflt_value 可为 NULL，用 any 接收
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return nil, err
+		}
+		cols = append(cols, name)
+	}
+	return cols, rows.Err()
+}
+
+// containsStr 判断切片是否含指定字符串。
+func containsStr(cols []string, want string) bool {
+	for _, c := range cols {
+		if c == want {
+			return true
+		}
+	}
+	return false
+}
+
 // readOnlyDSN 构造只读 DSN（A-11）：路径 URL 编码（PathEscape 保留 '/'，转义 '?'/'#' 等），
-// 追加 mode=ro 查询参数。
+// 追加 mode=ro + busy_timeout=5000（DEV-031 优化①：缓解 fail2ban 写库瞬间 SQLITE_BUSY）。
 func readOnlyDSN(path string) string {
-	return "file:" + url.PathEscape(path) + "?mode=ro"
+	return "file:" + url.PathEscape(path) + "?mode=ro&_pragma=busy_timeout(5000)"
 }
