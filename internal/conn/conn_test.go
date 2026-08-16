@@ -1,11 +1,18 @@
 package conn
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"net"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/florianl/go-conntrack"
 
+	"sentry-agent/internal/config"
 	"sentry-agent/internal/event"
 )
 
@@ -153,5 +160,131 @@ func TestDiffSnapshots(t *testing.T) {
 	evs2 := diffSnapshots(cur, map[string]event.SnapConn{}, 1)
 	if len(evs2) != 2 {
 		t.Errorf("消失事件数 = %d, 期望 2", len(evs2))
+	}
+}
+
+// TestConnStartTracker 启动失败计数状态机（DEV-031 B.4.3）：
+// 连续 3 次启动类失败 → giveUp；运行类错误清零计数；混合序列。
+func TestConnStartTracker(t *testing.T) {
+	var tr connStartTracker
+	// 连续 3 次启动失败 → 第 3 次 giveUp。
+	if giveUp, fails := tr.record(true); giveUp || fails != 1 {
+		t.Fatalf("第 1 次启动失败: giveUp=%v fails=%d, 期望 false/1", giveUp, fails)
+	}
+	if giveUp, fails := tr.record(true); giveUp || fails != 2 {
+		t.Fatalf("第 2 次启动失败: giveUp=%v fails=%d, 期望 false/2", giveUp, fails)
+	}
+	if giveUp, fails := tr.record(true); !giveUp || fails != 3 {
+		t.Fatalf("第 3 次启动失败应 giveUp: giveUp=%v fails=%d", giveUp, fails)
+	}
+
+	// 运行类错误清零计数（主通道曾成功启动，之后运行期错误不累计启动失败）。
+	tr = connStartTracker{}
+	tr.record(true) // 1 次启动失败
+	tr.record(true) // 2 次启动失败
+	if giveUp, fails := tr.record(false); giveUp || fails != 0 {
+		t.Fatalf("运行类错误应清零: giveUp=%v fails=%d, 期望 false/0", giveUp, fails)
+	}
+	// 清零后重新计数。
+	if giveUp, _ := tr.record(true); giveUp {
+		t.Fatal("清零后首次启动失败不应 giveUp")
+	}
+	if giveUp, fails := tr.record(true); giveUp || fails != 2 {
+		t.Fatalf("清零后第 2 次: giveUp=%v fails=%d, 期望 false/2", giveUp, fails)
+	}
+}
+
+// TestConnStartErrorWrap 启动类错误包装可被 errors.As 识别（外层分类依据）。
+func TestConnStartErrorWrap(t *testing.T) {
+	err := &connStartError{err: fmt.Errorf("打开 conntrack netlink 失败: %v", errors.New("permission denied"))}
+	var se *connStartError
+	if !errors.As(err, &se) {
+		t.Fatal("connStartError 应可被 errors.As 识别")
+	}
+	if !strings.Contains(err.Error(), "conntrack netlink") {
+		t.Errorf("错误文案应透传根因: %v", err)
+	}
+	// 普通错误不应被识别为启动类。
+	if errors.As(errors.New("netlink 监听循环终止"), &se) {
+		t.Fatal("普通错误不应被分类为启动类")
+	}
+}
+
+// mockOnce 构造可注入的 once 执行器（测试辅助）。
+func mockOnce(fn func() error) func(context.Context, config.ConntrackCfg, int, chan<- event.ConnEvent, chan<- event.OverrunInfo, chan<- event.SystemEvent, *atomic.Uint64) error {
+	return func(context.Context, config.ConntrackCfg, int, chan<- event.ConnEvent, chan<- event.OverrunInfo, chan<- event.SystemEvent, *atomic.Uint64) error {
+		return fn()
+	}
+}
+
+// TestRunConntrackLoopGiveUp（DEV-031 B.4.5）：Open 失败 ×3 → 第 3 次后放弃主通道，
+// 返回错误由 main 切换 B5 降级；告警文案含降级语义。
+func TestRunConntrackLoopGiveUp(t *testing.T) {
+	ctx := context.Background()
+	sys := make(chan event.SystemEvent, 16)
+	once := mockOnce(func() error {
+		return &connStartError{err: fmt.Errorf("打开 conntrack netlink 失败: %v", errors.New("operation not permitted"))}
+	})
+	// 退避 2s→4s：3 次启动失败总等待 = 2+4 = 6s（可接受）。
+	start := time.Now()
+	err := runConntrackLoop(ctx, config.ConntrackCfg{}, 2048, nil, nil, sys, nil, once)
+	if err == nil {
+		t.Fatal("连续 3 次启动失败应返回错误（触发降级）")
+	}
+	if !strings.Contains(err.Error(), "放弃主通道") {
+		t.Errorf("错误应含放弃主通道语义: %v", err)
+	}
+	// 3 次失败 = 2 条重启告警（第 3 次直接返回，不告警）+ 3 次等待（2+4s）。
+	if time.Since(start) < 5*time.Second {
+		t.Errorf("应经历退避等待（>=5s），实际 %v", time.Since(start))
+	}
+	// 告警文案含"放弃并降级"提示。
+	found := false
+	for i := 0; i < len(sys); i++ {
+		ev := <-sys
+		if strings.Contains(ev.Message, "放弃并降级") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("重启告警应含'连续 N 次后放弃并降级'提示")
+	}
+}
+
+// TestRunConntrackLoopRuntimeReset（B.4.3）：运行类错误清零启动失败计数——
+// 启动失败×2 后出现运行类错误（主通道曾成功），再启动失败×2 仍不放弃。
+func TestRunConntrackLoopRuntimeReset(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sys := make(chan event.SystemEvent, 16)
+	calls := 0
+	once := mockOnce(func() error {
+		calls++
+		switch calls {
+		case 1, 2, 4, 5:
+			return &connStartError{err: fmt.Errorf("打开 conntrack netlink 失败: %v", errors.New("denied"))}
+		case 3:
+			return errors.New("netlink 监听循环终止（运行类）") // 运行类：清零计数
+		default:
+			cancel() // 第 6 次前取消，退出循环
+			return nil
+		}
+	})
+	err := runConntrackLoop(ctx, config.ConntrackCfg{}, 2048, nil, nil, sys, nil, once)
+	if err != nil {
+		t.Fatalf("运行类错误清零后不应放弃主通道，实际: %v", err)
+	}
+	if calls != 6 {
+		t.Errorf("调用次数 = %d, 期望 6（2 失败 + 1 运行 + 2 失败 + 1 取消）", calls)
+	}
+}
+
+// TestRunConntrackLoopCtxCancel ctx 取消即退出（nil）。
+func TestRunConntrackLoopCtxCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	once := mockOnce(func() error { return nil })
+	if err := runConntrackLoop(ctx, config.ConntrackCfg{}, 2048, nil, nil, nil, nil, once); err != nil {
+		t.Errorf("ctx 取消应返回 nil: %v", err)
 	}
 }

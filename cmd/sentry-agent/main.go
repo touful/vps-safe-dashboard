@@ -186,13 +186,10 @@ func main() {
 	})
 
 	// M-02 连接监听：conntrack 主通道；不可用自动切换 B5 降级（ss diff 近似）。
+	// DEV-031 优化④：mode=fallback 跳过主通道直接降级；主通道连续 3 次启动失败
+	// 自动放弃并降级（修复 NET_ADMIN 缺失导致无限重启、B5 永不触发的缺陷）。
 	startProducer(func() {
-		if err := conn.RunConntrackListener(ctx, cfg.Conntrack, ch.Conn, ch.Overrun, ch.System, &overrunTotal); err != nil {
-			event.ReportSys(ch.System, "conntrack", "warn", "conntrack 通道不可用，切换 B5 降级: "+err.Error())
-			if err2 := conn.RunFallbackConnListener(ctx, time.Duration(cfg.Conntrack.FallbackIntervalS)*time.Second, ch.Conn, ch.System); err2 != nil && ctx.Err() == nil {
-				event.ReportSys(ch.System, "conntrack", "error", "降级通道退出: "+err2.Error())
-			}
-		}
+		runConnChannel(ctx, cfg, ch, &overrunTotal)
 	})
 
 	// M-02 ss 快照（展示通道，不落库）。
@@ -251,6 +248,26 @@ func main() {
 		fmt.Fprintln(os.Stderr, "协程退出超时（60s），强制结束")
 	}
 	fmt.Fprintln(os.Stderr, "sentry-agent 已退出")
+}
+
+// runConnChannel 启动连接采集通道（M-02，DEV-031 优化④）。
+// 决策：conntrack.mode=fallback → 跳过主通道尝试直接走 B5 降级（消除预期降级告警噪音）；
+// auto → 尝试主通道，失败（含连续 3 次启动失败，见 conn.connStartTracker）切换 B5 降级。
+func runConnChannel(ctx context.Context, cfg *config.Config, ch *out.Channels, counter *atomic.Uint64) {
+	if cfg.Conntrack.Mode == "fallback" {
+		event.ReportSys(ch.System, "conntrack", "info",
+			"conntrack.mode=fallback：跳过主通道尝试，直接使用 B5 ss 快照 diff 降级模式")
+		if err := conn.RunFallbackConnListenerQuiet(ctx, time.Duration(cfg.Conntrack.FallbackIntervalS)*time.Second, ch.Conn, ch.System); err != nil && ctx.Err() == nil {
+			event.ReportSys(ch.System, "conntrack", "error", "降级通道退出: "+err.Error())
+		}
+		return
+	}
+	if err := conn.RunConntrackListener(ctx, cfg.Conntrack, ch.Conn, ch.Overrun, ch.System, counter); err != nil {
+		event.ReportSys(ch.System, "conntrack", "warn", "conntrack 通道不可用，切换 B5 降级: "+err.Error())
+		if err2 := conn.RunFallbackConnListener(ctx, time.Duration(cfg.Conntrack.FallbackIntervalS)*time.Second, ch.Conn, ch.System); err2 != nil && ctx.Err() == nil {
+			event.ReportSys(ch.System, "conntrack", "error", "降级通道退出: "+err2.Error())
+		}
+	}
 }
 
 // refreshBanned 查询 fail2ban 当前封禁名单（M-05 联调，方案 3.5；DEV-031 优化①）。

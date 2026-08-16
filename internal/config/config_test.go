@@ -17,6 +17,9 @@ func TestDefaults(t *testing.T) {
 		t.Error("f2b.enabled 默认应为 true（D-02）")
 	}
 	// DEV-031 新增默认项。
+	if cfg.Conntrack.Mode != "auto" {
+		t.Errorf("conntrack.mode 默认应为 auto，实际 %q", cfg.Conntrack.Mode)
+	}
 	if !cfg.FW.ExcludeInternal {
 		t.Error("fw.exclude_internal 默认应为 true（只显示真实威胁）")
 	}
@@ -38,6 +41,8 @@ func TestValidate(t *testing.T) {
 		{"f2b.db_path 空", func(c *Config) { c.F2B.DBPath = "" }}, // TEST-001 整改（R-05）
 		{"overrun_warn_interval 小于 5", func(c *Config) { c.Conntrack.OverrunWarnIntervalS = 3 }}, // TEST-001 整改（R-05）
 		{"fallback_interval 小于 5", func(c *Config) { c.Conntrack.FallbackIntervalS = 1 }},        // TEST-001 整改（R-05）
+		{"conntrack.mode 非法", func(c *Config) { c.Conntrack.Mode = "main" }},                      // DEV-031
+		{"conntrack.mode 空串", func(c *Config) { c.Conntrack.Mode = "" }},                          // DEV-031
 		{"internal_cidrs 无掩码", func(c *Config) { c.FW.InternalCIDRs = []string{"10.0.0.0"} }},    // DEV-031
 		{"internal_cidrs 非 CIDR", func(c *Config) { c.FW.InternalCIDRs = []string{"abc"} }},        // DEV-031
 		{"internal_cidrs 混入非法项", func(c *Config) { c.FW.InternalCIDRs = []string{"10.0.0.0/8", "bad"} }}, // DEV-031

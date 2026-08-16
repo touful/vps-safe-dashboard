@@ -14,8 +14,25 @@ import (
 // ss -tanup 快照，对比相邻快照差异，近似产出 NEW（新增）/UPDATE（状态变化）/DESTROY（消失）事件。
 // 明确语义：近似通道、非全量（快照间隔内发生又消失的短连接无法记录）；
 // 降级原因与影响以 system_event 留痕，面板标注"近似通道"由 M3 实现。
+// 本函数为被动降级入口（主通道失败后调用）：启动报 warn。
 func RunFallbackConnListener(ctx context.Context, interval time.Duration, sink chan<- event.ConnEvent, sys chan<- event.SystemEvent) error {
-	event.ReportSys(sys, "conntrack", "warn", "conntrack 通道不可用，连接记录降级为 ss 快照 diff 近似模式（B5，非全量）")
+	return runFallbackConnListener(ctx, interval, sink, sys, true)
+}
+
+// RunFallbackConnListenerQuiet 主动降级变体（DEV-031 B.4.3 项 3：conntrack.mode=fallback
+// 显式声明环境不支持时使用）：不报"conntrack 通道不可用"启动 warn（消除预期降级告警噪音），
+// 改为 info 说明当前通道模式。
+func RunFallbackConnListenerQuiet(ctx context.Context, interval time.Duration, sink chan<- event.ConnEvent, sys chan<- event.SystemEvent) error {
+	return runFallbackConnListener(ctx, interval, sink, sys, false)
+}
+
+// runFallbackConnListener 降级监听实现；announce=true 报被动降级 warn，false 报主动模式 info。
+func runFallbackConnListener(ctx context.Context, interval time.Duration, sink chan<- event.ConnEvent, sys chan<- event.SystemEvent, announce bool) error {
+	if announce {
+		event.ReportSys(sys, "conntrack", "warn", "conntrack 通道不可用，连接记录降级为 ss 快照 diff 近似模式（B5，非全量）")
+	} else {
+		event.ReportSys(sys, "conntrack", "info", "连接记录使用 ss 快照 diff 近似模式（B5，非全量；conntrack.mode=fallback 主动降级）")
+	}
 	prev := map[string]event.SnapConn{} // key: 五元组 → 快照连接（含状态）
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

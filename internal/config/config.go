@@ -48,6 +48,9 @@ type ConntrackCfg struct {
 	OverrunWarnIntervalS int `json:"overrun_warn_interval_s"`
 	// FallbackIntervalS 降级模式（B5）下 ss 快照 diff 近似间隔（秒），默认 5。
 	FallbackIntervalS int `json:"fallback_interval_s"`
+	// Mode conntrack 通道模式（DEV-031 优化④）：auto（默认，探测可用性自动降级）
+	// | fallback（强制走 ss 快照 diff 降级——环境已知不支持时消除启动告警噪音）。
+	Mode string `json:"mode"`
 }
 
 // SSHCfg SSH 登录解析（M-03）。
@@ -150,6 +153,7 @@ func Defaults() *Config {
 			EnableAcct:           true,
 			OverrunWarnIntervalS: 60,
 			FallbackIntervalS:    5,
+			Mode:                 "auto",
 		},
 		SSH: SSHCfg{Source: "journald", VerboseFingerprint: true},
 		FW:  FWCfg{Source: "journald-kernel", Prefix: "SENTRY_FW:", RateLimitPktS: 5, ExcludeInternal: true},
@@ -200,6 +204,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Conntrack.FallbackIntervalS < 5 {
 		return fmt.Errorf("conntrack.fallback_interval_s=%d 小于下限 5s", c.Conntrack.FallbackIntervalS)
+	}
+	if c.Conntrack.Mode != "auto" && c.Conntrack.Mode != "fallback" {
+		return fmt.Errorf("conntrack.mode=%q 非法，仅支持 auto|fallback（DEV-031）", c.Conntrack.Mode)
 	}
 	if c.SSH.Source != "journald" && c.SSH.Source != "rsyslog" {
 		return fmt.Errorf("ssh.source=%q 非法，仅支持 journald|rsyslog", c.SSH.Source)

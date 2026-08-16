@@ -4,6 +4,7 @@ package conn
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -23,6 +24,34 @@ const netlinkNetfilterProto = 12
 // netlinkBufferMax netlink 缓冲扩容上限（R-10：可扩至 8MB）。
 const netlinkBufferMax = 8 * 1024 * 1024
 
+// maxConntrackStartFails 启动失败降级阈值（DEV-031 B.4.3：连续 3 次启动失败放弃主通道）。
+const maxConntrackStartFails = 3
+
+// connStartError 启动类错误标记（Open/Register 失败）——区别于运行类错误（netlink
+// 监听终止/溢出）：外层对启动类错误连续计数，达阈值即放弃主通道进入 B5 降级。
+type connStartError struct{ err error }
+
+func (e *connStartError) Error() string { return e.err.Error() }
+func (e *connStartError) Unwrap() error { return e.err }
+
+// connStartTracker 启动失败计数状态机（DEV-031 B.4.3，可单测）。
+// 连续 maxConntrackStartFails 次启动类失败 → giveUp=true（放弃主通道）；
+// 一次运行类错误（说明主通道曾成功启动）清零计数。
+type connStartTracker struct {
+	fails int
+}
+
+// record 记录一次 runConntrackOnce 返回结果。
+// isStartErr=true 表示启动类错误（Open/Register 失败）；返回 giveUp 表示应放弃主通道。
+func (t *connStartTracker) record(isStartErr bool) (giveUp bool, fails int) {
+	if isStartErr {
+		t.fails++
+		return t.fails >= maxConntrackStartFails, t.fails
+	}
+	t.fails = 0 // 主通道曾成功启动，运行期错误不累计启动失败
+	return false, 0
+}
+
 // RunConntrackListener 订阅内核 conntrack 事件流（M-02 主通道，方案 3.2）。
 // sink 为有界 channel（背压：channel 满时阻塞读取 netlink，内核缓冲溢出经 overrun 留痕）；
 // overrun 上报 R-10 溢出信息；sys 上报 system_event。
@@ -33,8 +62,9 @@ const netlinkBufferMax = 8 * 1024 * 1024
 // 并在每次重启时尝试扩大缓冲（上限 8MB），避免事件流静默中断。
 func RunConntrackListener(ctx context.Context, cfg config.ConntrackCfg, sink chan<- event.ConnEvent, overrun chan<- event.OverrunInfo, sys chan<- event.SystemEvent, counter *atomic.Uint64) error {
 	// 前置检查：nf_conntrack 模块已加载（C-05：/proc/net/nf_conntrack 存在）。
+	// DEV-031 优化④：错误文案补充根因建议（宿主 modprobe / 持久化 / 虚拟化限制走降级）。
 	if _, err := os.Stat("/proc/net/nf_conntrack"); err != nil {
-		return fmt.Errorf("nf_conntrack 模块不可用（/proc/net/nf_conntrack 不存在）: %w", err)
+		return fmt.Errorf("nf_conntrack 模块不可用（/proc/net/nf_conntrack 不存在）: %w；宿主修复建议：sudo modprobe nf_conntrack 并写入 /etc/modules-load.d/ 持久化；若为虚拟化限制无法加载，请保持 B5 降级模式（conntrack.mode=fallback 可消除启动告警）", err)
 	}
 	// 启用每流包/字节计数（方案 3.2）：sysctl 写入失败记 warn 不阻塞（包/字节字段为 0）。
 	if cfg.EnableAcct {
@@ -48,16 +78,39 @@ func RunConntrackListener(ctx context.Context, cfg config.ConntrackCfg, sink cha
 	}
 
 	bufSize := cfg.BufferSizeKB * 1024
+	// DEV-031 B.4.3（reviewer R-04 整改）：启动失败连续计数，达阈值放弃主通道——
+	// 修复"前置检查通过但 Open/Register 失败（如 NET_ADMIN 缺失）→ 无限重启空转、
+	// B5 降级永不触发"的现状缺陷（conn.go 原 55-74）。once 注入便于单测 mock。
+	return runConntrackLoop(ctx, cfg, bufSize, sink, overrun, sys, counter, runConntrackOnce)
+}
+
+// runConntrackLoop 主通道运行循环（启动失败状态机，可注入 once 供单测 mock）。
+// 返回错误语义：ctx 取消 → nil；连续 maxConntrackStartFails 次启动类错误 → 放弃主通道错误
+// （调用方切换 B5 降级）；运行类错误 → 无限重启+扩容（R-10 恢复路径）。
+func runConntrackLoop(ctx context.Context, cfg config.ConntrackCfg, bufSize int, sink chan<- event.ConnEvent, overrun chan<- event.OverrunInfo, sys chan<- event.SystemEvent, counter *atomic.Uint64, once func(context.Context, config.ConntrackCfg, int, chan<- event.ConnEvent, chan<- event.OverrunInfo, chan<- event.SystemEvent, *atomic.Uint64) error) error {
 	backoff := 2 * time.Second
 	// A-05（auditor Note）：重启告警限频（5 分钟）——持续溢出场景下重启频繁，
 	// 未限频将产生告警风暴淹没 system_events。
 	restartRep := event.NewRateLimiter(5 * time.Minute)
+	var tracker connStartTracker
 	for {
-		err := runConntrackOnce(ctx, cfg, bufSize, sink, overrun, sys, counter)
+		err := once(ctx, cfg, bufSize, sink, overrun, sys, counter)
 		if ctx.Err() != nil {
 			return nil
 		}
-		restartRep.Report(sys, "conntrack", "warn", fmt.Sprintf("conntrack 监听异常终止，%.0fs 后自动重启（R-10 恢复路径）: %v", backoff.Seconds(), err))
+		var se *connStartError
+		isStartErr := errors.As(err, &se)
+		if giveUp, fails := tracker.record(isStartErr); giveUp {
+			return fmt.Errorf("conntrack 主通道连续 %d 次启动失败（Open/Register），放弃主通道并切换 B5 降级: %w", fails, err)
+		}
+		if isStartErr {
+			restartRep.Report(sys, "conntrack", "warn",
+				fmt.Sprintf("conntrack 主通道启动失败（第 %d 次，连续 %d 次后放弃并降级），%.0fs 后重试: %v",
+					tracker.fails, maxConntrackStartFails, backoff.Seconds(), err))
+		} else {
+			restartRep.Report(sys, "conntrack", "warn",
+				fmt.Sprintf("conntrack 监听异常终止，%.0fs 后自动重启（R-10 恢复路径）: %v", backoff.Seconds(), err))
+		}
 		// 重启伴随缓冲扩容（上限 8MB，R-10 动态扩容语义）。
 		bufSize *= 2
 		if bufSize > netlinkBufferMax {
@@ -81,7 +134,8 @@ func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 		DisableNSLockThread:     true, // 本进程始终处于目标 netns，关闭 OS 线程锁以降低开销
 	})
 	if err != nil {
-		return fmt.Errorf("打开 conntrack netlink 失败: %w", err)
+		// 启动类错误（DEV-031 B.4.3）：外层连续计数，达阈值放弃主通道降级。
+		return &connStartError{fmt.Errorf("打开 conntrack netlink 失败: %w", err)}
 	}
 	defer nfct.Close()
 
@@ -124,7 +178,8 @@ func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 	}
 	groups := conntrack.NetlinkCtNew | conntrack.NetlinkCtUpdate | conntrack.NetlinkCtDestroy
 	if err := nfct.Register(ctx, conntrack.Conntrack, groups, hook); err != nil {
-		return fmt.Errorf("注册 conntrack 事件订阅失败: %w", err)
+		// 启动类错误（DEV-031 B.4.3）：同上——Register 失败多为权限/NET_ADMIN 缺失。
+		return &connStartError{fmt.Errorf("注册 conntrack 事件订阅失败: %w", err)}
 	}
 
 	// R-10 溢出监控：每 OverrunWarnIntervalS 检查本进程 netfilter 套接字的 Drops 累计差值。
