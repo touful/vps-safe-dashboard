@@ -138,6 +138,12 @@ header h1 {
 .range-btn.active { color: var(--accent); border-color: rgba(76, 154, 255, 0.45); background: rgba(76, 154, 255, 0.08); }
 .range-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
+/* 数据保留提示（AUDIT-005 A-04）：30d 视图与 retention 窗口不匹配的显式提示 */
+#retention-note {
+  font-size: 11px; color: var(--text-faint); letter-spacing: 0.2px;
+  white-space: nowrap; margin-left: 8px;
+}
+
 /* 过滤 chip（DEV-FE-002：移入 header 全局可见，方案 3.5；文案带过滤来源） */
 #filter-chip {
   display: none; font-size: 12px; color: var(--accent);
@@ -522,7 +528,7 @@ tr.row-warn { color: var(--warn); }
 <header>
   <h1><svg class="logo-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 1.8l6 2.4v4.3c0 3.7-2.4 6.4-6 8-3.6-1.6-6-4.3-6-8V4.2z"/><path d="M7.6 10l1.7 1.7 3.1-3.4"/></svg>VPS安全态势</h1>
   <span id="conn-status">连接中…</span>
-  <span id="sample-note">⚠ 防火墙日志为限速采样视图（默认 5 包/s，已排除内网/自身流量），完整记录见连接事件</span>
+  <span id="sample-note">⚠ 外部威胁事件为限速采样视图（默认 5 包/s，已排除内网/自身流量），完整记录见连接事件</span>
   <span id="freshness" class="freshness">更新于 --:--:--</span>
   <span id="filter-chip" title="点击清除过滤"></span>
   <span id="range-bar">
@@ -531,6 +537,7 @@ tr.row-warn { color: var(--warn); }
     <button class="range-btn" data-range="7d">7d</button>
     <button class="range-btn" data-range="30d">30d</button>
   </span>
+  <span id="retention-note" class="retention-note" title="超过保留期的历史事件会被自动清理；30d 视图仅展示保留窗口内数据">数据保留 7 天</span>
 </header>
 <div id="error-banner" style="display:none;">数据加载异常，请检查 agent 运行状态</div>
 <nav>

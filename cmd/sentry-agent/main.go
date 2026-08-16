@@ -155,6 +155,8 @@ func main() {
 			}
 			defer srv.Close()
 			srv.SetDBPath(cfg.DB.Path)
+			// A-04（AUDIT-005）：注入数据保留天数（health 返回，前端 range 提示）。
+			srv.SetRetentionDays(cfg.DB.RetentionDays)
 			// VS-03/VS-04（DEV-P1-001）：注入 WS 连接数上限与速率限制（config 默认
 			// 100 连接 / 全局 10 rps burst 20 / 重聚合 1 rps；前端 5s 轮询 9 请求/轮
 			// ≈ 1.8 rps 峰值 burst 9，全局桶余量充足不误伤正常轮询）。

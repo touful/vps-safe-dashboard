@@ -179,6 +179,63 @@ func TestActiveConnsCntPriority(t *testing.T) {
 	}
 }
 
+// TestActiveConnsFallbackTrace（AUDIT-005 A-03）：Cnt=-1 回退 ss 口径时限频留痕一次
+// （info，1/小时）；Cnt>=0 不产生回退留痕。
+func TestActiveConnsFallbackTrace(t *testing.T) {
+	dir := t.TempDir()
+	ch := make(chan event.SystemEvent, 8)
+	srv, err := NewServer(filepath.Join(dir, "state.db"), filepath.Join(dir, "archive"),
+		"http://127.0.0.1:8080", true, func() *event.ConnSnapshot {
+			return &event.ConnSnapshot{TS: 1, Cnt: -1, Conn: []event.SnapConn{{}, {}}}
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	srv.SetSystemChannel(ch)
+
+	// 首次回退 → 留痕。
+	if got := srv.activeConns(); got != 2 {
+		t.Errorf("activeConns = %d, 期望 2（ss 回退口径）", got)
+	}
+	select {
+	case ev := <-ch:
+		if ev.Level != "info" || !strings.Contains(ev.Message, "回退") {
+			t.Errorf("回退留痕异常: %+v", ev)
+		}
+	default:
+		t.Error("Cnt=-1 回退应产生留痕（AUDIT-005 A-03）")
+	}
+	// 限频内再次回退 → 不重复留痕。
+	if got := srv.activeConns(); got != 2 {
+		t.Errorf("activeConns = %d, 期望 2", got)
+	}
+	select {
+	case ev := <-ch:
+		t.Errorf("限频内不应重复留痕: %+v", ev)
+	default:
+	}
+}
+
+// TestHealthRetentionDays（AUDIT-005 A-04）：health 返回 retention_days（前端提示数据源）。
+func TestHealthRetentionDays(t *testing.T) {
+	srv, _ := newTestServer(t)
+	srv.SetRetentionDays(7)
+	code, out := doGet(t, srv, "/api/v1/health")
+	if code != 200 {
+		t.Fatalf("code = %d", code)
+	}
+	if out["retention_days"].(float64) != 7 {
+		t.Errorf("retention_days = %v, 期望 7", out["retention_days"])
+	}
+	// 未注入（默认 0）→ 返回 0（前端显示"数据永久保留"）。
+	srv2, _ := newTestServer(t)
+	code2, out2 := doGet(t, srv2, "/api/v1/health")
+	if code2 != 200 || out2["retention_days"].(float64) != 0 {
+		t.Errorf("默认 retention_days 异常: %d %v", code2, out2["retention_days"])
+	}
+}
+
 func TestTopPortsDPT(t *testing.T) {
 	srv, _ := newTestServer(t)
 	code, out := doGet(t, srv, "/api/v1/attacks/top_ports?range=24h&top=5")

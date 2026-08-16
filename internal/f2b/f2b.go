@@ -85,9 +85,11 @@ const readonlyRecoveryCode = 264
 // bipsActiveWhere bips 表活跃封禁判定 WHERE 片段（DEV-033，DEV-032 现场核查结论 3/5）：
 //   - bantime = -1：永久封禁恒保留（豁免，必须）
 //   - bantime IS NULL：schema 无 NOT NULL，理论可为 NULL——未知时长保守保留（防漏报，不误删）
+//   - timeofban IS NULL：schema 无 NOT NULL，理论可为 NULL——未知封禁时刻保守保留
+//     （AUDIT-005 A-02：与 bantime NULL 豁免对称，防漏报）
 //   - timeofban + bantime > ?：未过期保留（now 为 Unix 秒参数）
 //   - 其余（已过期/异常残留）：过滤。bans 非历史表（unban 即删行，结论 6），bips 同理双删。
-const bipsActiveWhere = `bantime = -1 OR bantime IS NULL OR (timeofban + bantime) > ?`
+const bipsActiveWhere = `bantime = -1 OR bantime IS NULL OR timeofban IS NULL OR (timeofban + bantime) > ?`
 
 // QueryBanned 探测式查询 fail2ban.sqlite3 当前封禁名单（方案 3.5，每 60s 刷新）。
 // 只读打开（mode=ro + busy_timeout=5000，缓解 fail2ban 写库瞬间 SQLITE_BUSY）。

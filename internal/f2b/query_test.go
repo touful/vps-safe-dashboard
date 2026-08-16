@@ -17,9 +17,10 @@ func newF2BDB(t *testing.T, dir string) (*sql.DB, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// bips 列：ip/jail/timeofban/bantime/bancount/data（bantime 无 NOT NULL，理论可为 NULL）。
+	// bips 列：ip/jail/timeofban/bantime/bancount/data（timeofban/bantime 均无 NOT NULL，
+	// 理论可为 NULL——AUDIT-005 A-02 用例依赖 timeofban 可空）。
 	if _, err := db.Exec(`CREATE TABLE bips (id INTEGER PRIMARY KEY, ip TEXT NOT NULL, jail TEXT NOT NULL,
-		timeofban INTEGER NOT NULL, bantime INTEGER, bancount INTEGER NOT NULL, data TEXT, UNIQUE(ip, jail))`); err != nil {
+		timeofban INTEGER, bantime INTEGER, bancount INTEGER NOT NULL, data TEXT, UNIQUE(ip, jail))`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`CREATE TABLE bans (id INTEGER PRIMARY KEY, jail TEXT NOT NULL, ip TEXT NOT NULL,
@@ -102,6 +103,31 @@ func TestQueryBannedBantimeNullNoCrash(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != 0xCB007105 {
 		t.Errorf("bantime NULL 行应保守保留: %v", got)
+	}
+}
+
+// TestQueryBannedTimeofbanNull（AUDIT-005 A-02 新增测试）：timeofban NULL（schema 无
+// NOT NULL，理论可为 NULL）保守保留——与 bantime NULL 豁免对称，防漏报。
+func TestQueryBannedTimeofbanNull(t *testing.T) {
+	dir := t.TempDir()
+	db, dbPath := newF2BDB(t, dir)
+	// timeofban NULL + bantime 有值：无封禁时刻无法判定过期，保守保留。
+	if _, err := db.Exec(`INSERT INTO bips (ip, jail, timeofban, bantime, bancount, data) VALUES ('203.0.113.5', 'sshd', NULL, 3600, 1, NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	// 对照：timeofban 有值且已过期（bantime 有值）→ 正常过滤（NULL 豁免不误伤时间判定）。
+	now := time.Now().Unix()
+	if _, err := db.Exec(`INSERT INTO bips (ip, jail, timeofban, bantime, bancount, data) VALUES ('198.51.100.7', 'sshd', ?, 100, 1, NULL)`, now-10000); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	got, err := QueryBanned(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("QueryBanned 失败: %v", err)
+	}
+	if len(got) != 1 || got[0] != 0xCB007105 {
+		t.Errorf("timeofban NULL 行应保守保留、过期行应过滤: %v", got)
 	}
 }
 

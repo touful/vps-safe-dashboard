@@ -39,6 +39,10 @@ type Server struct {
 	heavyLimiter *tokenBucket // 重聚合端点限流（默认 1 rps / burst 6）
 	sysCh        chan<- event.SystemEvent // system_event 通道（限流拒绝留痕，main 注入）
 	limitWarn    *event.RateLimiter       // 限流拒绝留痕限频（1/分钟）
+	// connFallbackRep activeConns 回退 ss 口径留痕限频（AUDIT-005 A-03：1/小时）。
+	connFallbackRep *event.RateLimiter
+	// retentionDays 数据保留天数（AUDIT-005 A-04：health 返回，前端 range 提示）。
+	retentionDays int
 }
 
 // NewServer 创建 API 服务。
@@ -66,6 +70,8 @@ func NewServer(dbPath, archiveDir, wsOrigin string, allowNoOrigin bool, snapshot
 		apiLimiter:   newTokenBucket(10, 20),
 		heavyLimiter: newTokenBucket(1, 6),
 		limitWarn:    event.NewRateLimiter(time.Minute),
+		// A-03：activeConns 回退 ss 口径留痕限频（1/小时，fallback 等无模块环境为预期常态）。
+		connFallbackRep: event.NewRateLimiter(time.Hour),
 	}
 	s.routes()
 	return s, nil
@@ -280,17 +286,23 @@ func (s *Server) hHealth(w http.ResponseWriter, r *http.Request) {
 	var seCount int64
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM system_events`).Scan(&seCount)
 	writeJSON(w, 200, map[string]any{
-		"ok":                     true,
-		"uptime_s":               int64(time.Since(s.startTime).Seconds()),
-		"db_size_mb":             float64(dbSize) / 1024 / 1024,
-		"system_events_total":    seCount,
+		"ok":                      true,
+		"uptime_s":                int64(time.Since(s.startTime).Seconds()),
+		"db_size_mb":              float64(dbSize) / 1024 / 1024,
+		"system_events_total":     seCount,
 		"conntrack_overrun_total": s.overrunCounter.Load(),
-		"schema_version":         schemaVer,
+		"schema_version":          schemaVer,
+		// A-04（AUDIT-005）：数据保留天数（前端 range 提示"数据保留 N 天"；
+		// <=0 表示禁用清理=永久保留）。
+		"retention_days": s.retentionDays,
 	})
 }
 
 // SetDBPath 设置主库路径（health 的 db_size_mb 使用）。
 func (s *Server) SetDBPath(p string) { s.dbPath = p }
+
+// SetRetentionDays 注入数据保留天数（AUDIT-005 A-04：health 返回，前端 range 提示）。
+func (s *Server) SetRetentionDays(days int) { s.retentionDays = days }
 
 // hSummary 总览聚合（方案 3.7/4.4）。
 func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {
@@ -335,6 +347,8 @@ func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {
 // activeConns 活跃连接数（DEV-033，DEV-032 现场核查结论 8）：优先 conntrack count 文件值
 // （Cnt>=0，sysctl 接口模块加载即可读）；读取失败（Cnt=-1，如 fallback 模式无模块）回退
 // ss 快照连接数口径。
+// AUDIT-005 A-03：回退口径切换限频留痕（info，1/小时）——运维可观测口径变化；
+// fallback 等无模块环境为预期常态，不告警。
 func (s *Server) activeConns() int {
 	if s.snapshotFn == nil {
 		return 0
@@ -346,6 +360,8 @@ func (s *Server) activeConns() int {
 	if snap.Cnt >= 0 {
 		return int(snap.Cnt)
 	}
+	s.connFallbackRep.Report(s.sysCh, "api", "info",
+		"活跃连接数回退 ss 快照口径（conntrack count 文件不可读，Cnt=-1）")
 	return len(snap.Conn)
 }
 

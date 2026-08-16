@@ -1521,6 +1521,17 @@
   if (exportBtnEl) { exportBtnEl.addEventListener('click', doExport); }
   initCustomRange();
 
+  // A-04（AUDIT-005）：数据保留提示——从 health 读取 retention_days（跟随配置，
+  // 默认 7 天；<=0 表示禁用清理=永久保留）。失败保持静态默认文案。
+  fetch('/api/v1/health').then(function (r) { return r.json(); }).then(function (d) {
+    if (d && typeof d.retention_days === 'number') {
+      var el = document.getElementById('retention-note');
+      if (el) {
+        el.textContent = d.retention_days > 0 ? ('数据保留 ' + d.retention_days + ' 天') : '数据永久保留';
+      }
+    }
+  }).catch(function () {});
+
   // 态势头折叠（折叠按钮与状态点分离——仅按钮触发；button 原生键盘可达）
   var sitToggle = document.getElementById('sit-toggle');
   if (sitToggle) {
