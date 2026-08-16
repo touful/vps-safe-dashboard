@@ -58,7 +58,7 @@ if [ -f /proc/net/nf_conntrack ]; then
 elif command -v modprobe >/dev/null 2>&1 && modprobe nf_conntrack 2>/dev/null && [ -f /proc/net/nf_conntrack ]; then
   report C-05 PASS "nf_conntrack 已通过 modprobe 加载"
 else
-  report C-05 BRANCH "nf_conntrack 不可用，走分支 B5（ss 快照近似降级）"
+  report C-05 BRANCH "nf_conntrack 不可用，走分支 B5（ss 快照近似降级）；宿主修复建议：sudo modprobe nf_conntrack 并写入 /etc/modules-load.d/ 持久化（重启不丢）；若为虚拟化限制无法加载，保持 B5 降级并可在 config.json 设 conntrack.mode=fallback 消除启动告警（DEV-031）"
 fi
 
 # C-06 宿主虚拟化形态（容器/OpenVZ 嵌套检测）

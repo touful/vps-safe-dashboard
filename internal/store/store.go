@@ -304,8 +304,8 @@ func (s *Store) Run(ctx context.Context) error {
 			if err := s.runRetentionOnce(ctx); err != nil {
 				event.ReportSys(s.ch.System, "store", "error", "retention 定时清理失败: "+err.Error())
 			}
-			// 重置为下一个 02:30（timer 已触发，Reset 需保证 channel 已排空——
-			// 单写线程内串行执行，无并发消费，直接 Reset 安全）。
+			// 重置为下一个 02:30：time.After 新建 channel 替换（触发后旧 channel 已消费，
+			// 无 Reset 语义需求，避免 timer.Reset 的排空前提，reviewer R-07）。
 			retentionC = time.After(time.Until(nextRetentionTime(time.Now())))
 		case req := <-s.archiveReq:
 			// 归档在写线程内同步执行（方案 3.9）；期间事件继续进入 pending 积压，不丢失。

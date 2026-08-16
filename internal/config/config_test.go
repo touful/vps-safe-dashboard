@@ -52,6 +52,7 @@ func TestValidate(t *testing.T) {
 		{"internal_cidrs 无掩码", func(c *Config) { c.FW.InternalCIDRs = []string{"10.0.0.0"} }},    // DEV-031
 		{"internal_cidrs 非 CIDR", func(c *Config) { c.FW.InternalCIDRs = []string{"abc"} }},        // DEV-031
 		{"internal_cidrs 混入非法项", func(c *Config) { c.FW.InternalCIDRs = []string{"10.0.0.0/8", "bad"} }}, // DEV-031
+		{"internal_cidrs IPv6 段", func(c *Config) { c.FW.InternalCIDRs = []string{"fc00::/7"} }},   // DEV-031 R-04：当前仅支持 IPv4
 		{"db.path 空", func(c *Config) { c.DB.Path = "" }},
 		{"db.archive_dir 空", func(c *Config) { c.DB.ArchiveDir = "" }},
 		{"db.batch_interval_ms 过小", func(c *Config) { c.DB.BatchIntervalMS = 50 }},

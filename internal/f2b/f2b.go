@@ -116,7 +116,8 @@ func QueryBanned(ctx context.Context, dbPath string) ([]uint32, error) {
 	for rows.Next() {
 		var ipStr string
 		if err := rows.Scan(&ipStr); err != nil {
-			return nil, err
+			// 分类一致性（reviewer R-05）：扫描错误归 unreadable（罕见路径：列类型异常）。
+			return nil, &BannedQueryError{Kind: "unreadable", Msg: fmt.Sprintf("读取 bans 行失败: %v", err), Err: err}
 		}
 		ip := net.ParseIP(ipStr)
 		if ip == nil || ip.To4() == nil {
@@ -124,7 +125,10 @@ func QueryBanned(ctx context.Context, dbPath string) ([]uint32, error) {
 		}
 		out = append(out, event.IPv4ToUint32(ip))
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, &BannedQueryError{Kind: "unreadable", Msg: fmt.Sprintf("遍历 bans 表失败: %v", err), Err: err}
+	}
+	return out, nil
 }
 
 // tableColumns 读取表列名列表（PRAGMA table_info 输出摘要）。

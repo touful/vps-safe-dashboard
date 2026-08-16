@@ -110,11 +110,12 @@ func runConntrackLoop(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 		} else {
 			restartRep.Report(sys, "conntrack", "warn",
 				fmt.Sprintf("conntrack 监听异常终止，%.0fs 后自动重启（R-10 恢复路径）: %v", backoff.Seconds(), err))
-		}
-		// 重启伴随缓冲扩容（上限 8MB，R-10 动态扩容语义）。
-		bufSize *= 2
-		if bufSize > netlinkBufferMax {
-			bufSize = netlinkBufferMax
+			// 运行类错误伴随缓冲扩容（上限 8MB，R-10 动态扩容语义；启动类失败与
+			// 缓冲溢出无关，不扩容——reviewer R-08）。
+			bufSize *= 2
+			if bufSize > netlinkBufferMax {
+				bufSize = netlinkBufferMax
+			}
 		}
 		select {
 		case <-ctx.Done():

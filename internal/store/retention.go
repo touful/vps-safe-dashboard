@@ -72,6 +72,11 @@ func cleanupTable(ctx context.Context, db *sql.DB, table string, cutoff int64, b
 // 触发表：archive.ArchivedTables() 全量（meta 不清理）；
 // 留痕：system_event info（合计行数/耗时）+ meta.last_retention_ts（幂等/可观测）。
 func (s *Store) runRetentionOnce(ctx context.Context) error {
+	// 防御（reviewer R-06）：禁用态（<=0）直接返回——Run 已守卫，此处防内部误调用
+	// 计算出未来 cutoff（会删 0 行但产生无意义 meta 写入）。
+	if s.retentionDays <= 0 {
+		return nil
+	}
 	cutoff := time.Now().AddDate(0, 0, -s.retentionDays).Unix()
 	start := time.Now()
 	var total int64
