@@ -1,0 +1,26 @@
+=== DEV-017 firewall/timeline API 实测（TEST-006 取证，重新播种后）===
+range=1h -> 回显=1h buckets=2 首桶=1786780800 末桶=1786784400
+range=24h -> 回显=24h buckets=25 首桶=1786698000 末桶=1786784400
+range=7d -> 回显=7d buckets=169 首桶=1786179600 末桶=1786784400
+range=30d -> 回显=30d buckets=721 首桶=1784192400 末桶=1786784400
+range=2d -> 回显=24h buckets=25 首桶=1786698000 末桶=1786784400
+range= -> 回显=24h buckets=25 首桶=1786698000 末桶=1786784400
+  ts=1786698000 drop=12 accept=1
+  ts=1786701600 drop=6 accept=1
+  ts=1786705200 drop=11 accept=3
+  ts=1786777200 drop=12 accept=2
+  ts=1786780800 drop=11 accept=4
+  ts=1786784400 drop=1 accept=2
+--- SQL 对照 ---
+SQL 有数据桶数: 25
+  1786698000 drop= 12 accept= 1
+  1786701600 drop= 6 accept= 1
+  1786705200 drop= 11 accept= 3
+  1786708800 drop= 10 accept= 2
+  1786712400 drop= 7 accept= 2
+聚合合计 drop/accept: 229 51
+明细 COUNT drop/accept: 229 51
+一致性: PASS
+期望桶数(含当前小时): 25
+
+注（Q-3 整改）：以上桶列表为部分展示（仅首 3 + 末 3 桶），非全量；完整聚合以 SQL 对照合计为准（drop/accept 合计 == 明细 COUNT）。

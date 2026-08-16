@@ -1,0 +1,8 @@
+=== TestBatchLatency 负载结束后补档复跑（TEST-007，3 次）===
+    store_test.go:198: 1000 行批量写入耗时: 16.459252ms
+--- PASS: TestBatchLatency (0.05s)
+    store_test.go:198: 1000 行批量写入耗时: 20.817226ms
+--- PASS: TestBatchLatency (0.05s)
+    store_test.go:198: 1000 行批量写入耗时: 17.98579ms
+--- PASS: TestBatchLatency (0.04s)
+PASS

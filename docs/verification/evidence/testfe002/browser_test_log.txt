@@ -1,0 +1,97 @@
+# TEST-FE-002 浏览器实测记录（DEV-FE-005 五项调整回归）
+
+- 测试环境：Windows 本机，Chrome DevTools MCP，受测实例 8090（PID 40852，种子库 dev015 重建）
+- 候选基线：082bbbd（main，工作区 clean）
+- 二进制：`go build -o bin/sentry-agent.exe ./cmd/sentry-agent` 重建自基线（go:embed 含前端改动）
+- API 预检：`GET /api/v1/summary?range=24h` HTTP 200（fw_events=268, ssh_fail=171）；`GET /api/v1/archive` HTTP 200（后端端点存活，rows=null）
+
+## 1. 五项调整验证（TC-01~TC-05）
+
+### TC-01 总览 KPI 无"攻击/系统"标签 + 2×2 布局
+- `.kpi-group-label` 元素数 = 0（DOM 查询为空数组）
+- `.kpi-row` = 2 行；行 0：防火墙事件 (24,529,650,132) / SSH 失败 (686,529,650,132)；行 1：当前活跃连接 (24,670,650,132) / 磁盘使用率 (686,670,650,132)
+- 每行 2 卡等高（h=132）、等宽（w=650）、x 对齐（24/686，间距 12px），y 行距 141px——2×2 布局正常
+- 视觉证据：`evidence/testfe002/01_overview_kpi.png`、`03_overview_final.png`
+
+### TC-02 标题
+- `document.title` = "VPS安全态势"；`h1.textContent` = "VPS安全态势"
+- a11y 树 RootWebArea "VPS安全态势"、heading level=1 "VPS安全态势"
+
+### TC-03 攻击页三列并列
+- 桌面（内容宽 1312px）：被攻击端口 TOP (24,126,429,307) / 攻击源 IP TOP (465,126,429,307) / SSH 失败时间线 (907,126,429,307)——三卡同排一行（y=126）、等高（h=307）、等宽（w=429）；chart-ssh canvas 渲染（canvasW=742）
+- 中间宽度 801px：卡0 (24,166,368,329) / 卡1 (404,166,368,329) 同行，卡2 (24,507,368,307) 第二行——2+1 布局（预期行为，记录）
+- 中间宽度 721px：同样 2+1（卡2 y=507）
+- 窄屏 481px：卡0 (12,212,451,307) / 卡1 (12,531,451,307) / 卡2 (12,851,451,307)——单列降级（预期行为，记录）
+- 视觉证据：`evidence/testfe002/02_attack_page.png`
+
+### TC-04 归档前端隐藏
+- nav 按钮 = 3（总览/连接/攻击），无归档
+- panel 元素 = 3（panel-overview/panel-conn/panel-attack），无 panel-archive
+- DOM 清理：archive-table / disk-water / dw-fill / panel-archive / 归档 nav 按钮均不存在（getElementById 返回 null）
+- Network 面板全程 79 个请求（1h/24h/7d/30d 切换 + 轮询），无任何 `/api/v1/archive` 请求
+- 后端端点仍存活：`GET /api/v1/archive` HTTP 200（浏览器外 API 直连验证）
+- 控制台：全程（除 kill/重启测试窗口）零 JS 错误；kill agent 期间的 ERR_CONNECTION_REFUSED 为测试操作预期产物
+
+### TC-05 折线平滑
+- ECharts 实例级验证（echarts.getInstanceByDom + getOption）：
+  - chart-attack-trend：防火墙 drop smooth=true（25 点）、SSH 失败 smooth=true（25 点）
+  - chart-cpu / chart-mem / chart-disk：smooth=true（各 11 点）
+  - chart-net：Rx smooth=true、Tx smooth=true（各 11 点）
+- 柱状图（chart-ports/chart-sources/chart-ssh）为 bar 类型，smooth 不适用（预期）
+
+## 2. 关键回归点（TC-06~TC-12）
+
+### TC-06 3 页签切换
+- 总览/连接/攻击逐页切换：active 类正确转移；连接页 snapshot 表 + conn 事件表渲染（snapshot 空为环境态：本机无 ss 命令，conntrack 降级）；攻击页三图 + 3 明细表渲染
+
+### TC-07 明细表渲染 + 排序 + 过滤联动
+- 5 表渲染：ban（26 行）/ ssh（60 行）/ fw（60 行）/ snap（空态）/ conn（大量行）
+- SSH 表排序：点击时间列 → aria-sort=ascending + sorted 类 → 再点 descending；升序首行 08-15 12:53:40（最早）
+- SSH 结果过滤：value=0（仅失败）→ 全部行"失败"（10/10 抽查）
+- FW 表排序：点击时间列 → ascending + sorted 类
+- FW 动作过滤：value=drop → 全部行 drop（10/10 抽查）
+- SSH 行点击过滤：chip "过滤：源 IP 91.240.118.77 ✕（来自攻击页）" + SSH 表收窄全部为该 IP
+
+### TC-08 时间范围切换
+- 1h/24h/7d/30d 依次切换：active 正确；Network 对应 range 参数请求全部 200
+- 30d：rate-hint 显示"30 天视图聚合较重，攻击数据刷新频率自动降至 30 秒"（display=block）；30d 图表带 dataZoom（ports 8 点 / sources 10 点 / ssh 31 点）
+- 其他范围 hint display=none
+
+### TC-09 WS 状态徽章 + 新鲜度
+- 正常：徽章"WS 实时"（ok 类）；新鲜度"更新于 HH:MM:SS"随轮询刷新
+- kill agent：徽章"WS 断开，轮询兜底"（error 类）+ "降级轮询 · 更新于 HH:MM:SS"（warn）
+- 重启 agent（8s 内）：自动恢复"WS 实时" + "更新于 12:56:39"
+
+### TC-10 TOP 柱条点击联动过滤
+- 调用 ECharts 实例注册的 click 处理器（params.dataIndex=0 → 端口 :22，56 次）：
+  - chip 显示 block，文案"过滤：端口 :22 ✕（来自攻击页）"
+  - FW 明细收窄：抽查 8 行目的列全部 203.0.113.10:22
+  - chip 点击（applyFilter(null)）→ display=none 清除
+
+### TC-11 折叠区展开折叠 + sessionStorage 记忆
+- 折叠 fold-resources → 刷新页面 → 保持折叠（open=false）；fold-events 保持展开（open=true）
+
+### TC-12 窄屏无横向溢出
+- 481px：docW=475 ≤ winW=481，无横向滚动
+- 721px：docW=715 ≤ winW=721
+- 801px：docW=795 ≤ winW=801
+
+## 3. 环境观察
+- 本机无 ss 命令：conntrack 降级（"执行 ss -tanup 失败"），snapshot 空态——环境限制非缺陷（与 TEST-FE-001 OBS 一致）
+- summary.disk_percent=-1（本机无法采集），KPI 磁盘使用率 61.1% 由 WS resource 帧覆盖——环境态（与 TEST-FE-001 OBS-2 一致）
+
+## 4. 整改补充（reviewer 第 1 轮后）
+
+### TC-10 事件级验证（R-01 整改）
+- 方式：zrender 事件分发层派发真实事件序列（mousemove→mousedown→mouseup→click），坐标取自柱条 shape 几何中心（displayList 查询）
+- 柱条 1（x=48..66, y=31..218，中心 57,125）：findHover 命中 rect → click 触发 → chip"过滤：端口 :22 ✕（来自攻击页）"display=block
+- 清除后柱条 2（x=74.6..92.9, y=115..218，中心 83.75,166.33）：命中 rect → click 触发 → chip"过滤：端口 :443 ✕（来自攻击页）"display=block
+- 结论：dataIndex 0/1 多点映射正确，重复点击/清除链路完整，事件分发层命中柱条有效
+
+### TC-03 断点补测（N-01 整改）
+- 820px viewport：卡 0 (24,80,377,329) / 卡 1 (413,80,377,329) 同行，卡 2 (24,421,377,307) 第二行——2+1 布局（落在 800-1024 区间内），docW=814≤820 无溢出
+
+### 静态核对（R-02/N-02 整改）
+- app.js：renderArchive/pollArchive/renderDiskWater 零残留（grep 0 匹配）；switchPanel 仅 overview/conn/attack 三分支；无 location.hash/hashchange 路由
+- disk24/disk24Ts：app.js:590-592（sparkSVG/trendArrow）、1112-1113（赋值）正常引用，非死代码
+- index.html：无 archive 相关元素/样式残留（disk-water CSS 已删）

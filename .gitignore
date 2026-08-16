@@ -1,0 +1,108 @@
+# ===== 环境与敏感文件 =====
+.env
+.env.*
+*.env
+!.env.example
+
+# ===== 测试临时目录（如 .dev015-test/；根级锚定，勿改成裸规则）=====
+/.dev*-test/
+
+# ===== 临时与备份文件 =====
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+*.old
+
+# ===== 日志文件 =====
+*.log
+logs/
+# 例外：验证证据日志（不可再生的执行证据，需入库保护；仅限 evidence 目录）
+!docs/verification/evidence/*.log
+!docs/verification/evidence/**/*.log
+# 例外：大文件证据以 gzip 形式归档（DEV-CLEAN-001：63.5MB trace 压缩为 .gz 后，
+# 原始 .json 不再入库；精确规则仅限该文件，不误伤其他证据文件）
+docs/verification/evidence/testfe001/trace_attack30s.json
+# 例外：DEV-RELEASE-001 发布排除——trace gz 含机器指纹（AUD-PUSH-001 S-01），公开仓库不推送
+docs/verification/evidence/testfe001/trace_attack30s.json.gz
+
+# ===== 操作系统生成文件 =====
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+.DS_Store
+$RECYCLE.BIN/
+
+# ===== IDE 与编辑器配置 =====
+.vscode/
+.idea/
+*.suo
+*.user
+*.sln.docstates
+
+# ===== 构建产物与输出目录 =====
+dist/
+build/
+/out/
+target/
+release/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# ===== Python 缓存与字节码 =====
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Node.js 依赖（根目录级别防护）=====
+node_modules/
+
+# ===== 包管理锁文件（按需启用）=====
+# pnpm-lock.yaml
+# yarn.lock
+# package-lock.json
+
+# ===== 缓存与临时大文件夹 =====
+.cache/
+*.cache
+
+# ===== 安全删除审计日志 =====
+.safe-delete/
+
+# ===== 外部项目目录（不属于当前项目）=====
+网络安全专项智能体V2/
+pyghidra_mcp_projects/
+
+# ===== Agent 运行基础设施（内部目录，不入库）=====
+.opencode/
+
+# ===== 内部过程文档（DEV-RELEASE-001：运维细节不公开）=====
+docs/发布推送方案.md
+docs/verification/AUD-PUSH-001_发布安全审计.md
+
+# ===== 运行时数据（采集工具本地存储）=====
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+# 注（DEV-005）：archive/ 曾为裸规则误伤 internal/archive/ 源码目录；
+# 运行时归档目录由配置 db.archive_dir 指定（默认 /var/lib/sentry-agent/archive，
+# 不在仓库内），故删除该规则，不做根级保留。
+
+# ===== Go =====
+*.exe
+# 注（DEV-005）：sentry-agent 曾为裸规则误伤 cmd/sentry-agent/ 源码目录；
+# 改为根级限定——构建产物实际位于 bin/（bin/ 规则覆盖），根级规则仅防御根目录误产物。
+/sentry-agent
+/sentry-agent.exe
+bin/
+

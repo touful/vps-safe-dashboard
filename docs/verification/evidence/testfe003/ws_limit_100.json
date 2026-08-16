@@ -1,0 +1,8 @@
+{
+  "ok": 99,
+  "rejected": 6,
+  "other": [
+    "HTTP 503: {'content-type': 'application/json; charset=utf-8', 'date': 'Sun, 16 Aug 2026 10:36:10 GMT', 'content-length': '37'}"
+  ],
+  "first_reject_at": 100
+}

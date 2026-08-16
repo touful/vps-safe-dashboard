@@ -1,0 +1,49 @@
+===== M4 本地验证汇总 2026-08-14T13:44:34Z =====
+
+--- 1. bash -n 语法检查 ---
+  check_env.sh: OK
+  setup_firewall.sh: OK
+  setup_system.sh: OK
+  install_fail2ban.sh: OK
+  deploy.sh: OK
+
+--- 2. check_env.sh 退出码（正常环境应为 0） ---
+  check_env.sh 退出码: 1（期望 0 或按 FAIL 项判定）
+
+--- 3. setup_firewall.sh nft 插入/回滚实测（WSL 临时 nft 表） ---
+  测试规则集（插入前）:
+table inet sentry_test { # handle 17
+	chain input { # handle 1
+		type filter hook input priority filter; policy accept;
+		tcp dport 9999 drop # handle 2
+	}
+}
+===== 模式 B 防火墙 LOG 规则（方案 6.5.3） =====
+防火墙后端: nft
+--- nftables：在现有 drop/reject 规则前插入限速 LOG ---
+已插入 LOG（inet sentry_test/input 于 handle 2 前）
+--- 回读校验 ---
+SENTRY_FW 规则数: 1
+===== 模式 B 规则生成完成（零策略变更：仅记录不拦截） =====
+提示：规则持久化（nft: /etc/nftables.d/ 导出；iptables: iptables-persistent/firewalld direct）见部署手册
+  插入后 SENTRY_FW 规则数: 1
+table inet sentry_test {
+	chain input { # handle 1
+		type filter hook input priority filter; policy accept;
+		log prefix "SENTRY_FW:" flags all limit rate 5/second burst 10 packets # handle 3
+		tcp dport 9999 drop # handle 2
+	}
+}
+===== 模式 B 防火墙 LOG 规则（方案 6.5.3） =====
+防火墙后端: nft
+回滚模式：删除本脚本插入的 SENTRY_FW LOG 规则
+已删除 SENTRY_FW 规则（inet sentry_test/input handle 3）
+回滚删除规则数: 1
+回滚完成
+  回滚后 SENTRY_FW 规则数: 0
+  回滚后原 drop 规则保留: 1（期望 1）
+
+--- 4. install_fail2ban.sh 参数校验 ---
+  非法参数退出码: 2（期望 2）
+
+===== M4 本地验证汇总结束 =====

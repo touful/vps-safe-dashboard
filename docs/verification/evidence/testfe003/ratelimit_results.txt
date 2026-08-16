@@ -1,0 +1,6 @@
+=== GLOBAL BUCKET: /api/v1/resources x25 rapid ===
+  200=21 429=4 other=0 first429At=20 retryAfter=False
+=== HEAVY BUCKET: /api/v1/summary x7 rapid ===
+  200=6 429=1 other=0 first429At=6
+=== HEALTH EXEMPT: /api/v1/health x25 rapid ===
+  200=25 429=0 other=0

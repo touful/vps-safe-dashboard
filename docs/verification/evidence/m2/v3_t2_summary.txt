@@ -1,0 +1,20 @@
+=== v3_t2 落库统计与资源 ===
+resources: 359
+connections: 22401
+ssh_attempts: 210
+firewall_events: 524
+ban_events: 116
+system_events: 9
+journal_mode: wal
+=== system_events ===
+(1786631241, 'f2b', 'warn', '封禁名单查询失败: 查询 bans 表失败（fail2ban 库结构兼容性）: unable to open database file (14)')
+(1786631496, 'conntrack', 'error', 'netlink 接收错误: netlink receive: recvmsg: no buffer space available')
+(1786631496, 'conntrack', 'warn', 'conntrack 监听异常终止，2s 后自动重启（R-10 恢复路径）: netlink 监听循环终止（大概率因缓冲溢出）')
+(1786631498, 'conntrack', 'error', 'netlink 接收错误: netlink receive: recvmsg: no buffer space available')
+(1786631498, 'conntrack', 'warn', 'conntrack 监听异常终止，4s 后自动重启（R-10 恢复路径）: netlink 监听循环终止（大概率因缓冲溢出）')
+(1786631619, 'f2b', 'warn', '封禁名单查询失败: 查询 bans 表失败（fail2ban 库结构兼容性）: unable to open database file (14)')
+(1786631996, 'f2b', 'warn', '封禁名单查询失败: 查询 bans 表失败（fail2ban 库结构兼容性）: unable to open database file (14)')
+(1786632311, 'f2b', 'warn', '封禁名单查询失败: 查询 bans 表失败（fail2ban 库结构兼容性）: unable to open database file (14)')
+(1786632688, 'f2b', 'warn', '封禁名单查询失败: 查询 bans 表失败（fail2ban 库结构兼容性）: unable to open database file (14)')
+=== agent_res.log 统计 ===
+样本=183 CPU均值=0.20% RSS均值=17.1MB 最小=8.5MB 峰值=18.6MB

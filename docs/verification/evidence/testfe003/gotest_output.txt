@@ -1,0 +1,6 @@
+ok  	sentry-agent/internal/api	41.811s
+ok  	sentry-agent/internal/fw	0.139s
+ok  	sentry-agent/internal/store	0.597s
+ok  	sentry-agent/internal/archive	2.246s
+ok  	sentry-agent/internal/config	0.115s
+ok  	sentry-agent/internal/event	0.111s

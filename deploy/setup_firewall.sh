@@ -1,0 +1,156 @@
+#!/bin/bash
+# 模式 B 防火墙 LOG 规则生成（方案 6.5.3/D-05 定稿：在现有 DROP 规则前插入限速 LOG，
+# 不改变包流向；SENTRY_FW 前缀；限速 5/s 突发 10）
+# 用法：sudo bash setup_firewall.sh [--rollback]
+# 依赖：check_env.sh 的 C-07 判定（FW_BACKEND）；C-07b 盘点在脚本内执行
+set -u
+
+# M4B-01（DEV-009，auditor Blocker）：LOG 前缀必须为 `SENTRY_FW:<chain>:<action> `
+# （解析器 internal/fw/parse.go:43-47 按此前缀结构提取 chain/action，action 恒为 drop/reject）；
+# 配置 fw.prefix="SENTRY_FW:" 与解析器均不动，此处仅控制写入内核规则的前缀。
+PREFIX_BASE="SENTRY_FW:"
+LIMIT="5/s"; BURST=10
+
+echo "===== 模式 B 防火墙 LOG 规则（方案 6.5.3） ====="
+
+# C-07b：盘点现有 drop/reject 规则（nft / iptables）
+detect_backend() {
+  if command -v nft >/dev/null 2>&1 && nft list ruleset >/dev/null 2>&1; then echo nft; return; fi
+  echo iptables
+}
+BACKEND=$(detect_backend)
+echo "防火墙后端: $BACKEND"
+
+if [ "${1:-}" = "--rollback" ]; then
+  echo "回滚模式：删除本脚本插入的 SENTRY_FW LOG 规则"
+  if [ "$BACKEND" = "nft" ]; then
+    # R-04 修订（DEV-008 reviewer）：回滚按上下文跟踪解析 SENTRY_FW 规则的真实
+    # family/table/chain/handle 并精确删除单条规则（绝不按 table/chain 删整链）
+    nft -a list ruleset > /tmp/sentry_nft_rules.txt
+    CUR_FAMILY=""; CUR_TABLE=""; CUR_CHAIN=""; DELETED=0; FAILED=0
+    while IFS= read -r line; do
+      if echo "$line" | grep -qE '^\s*table [a-z]+ '; then
+        CUR_FAMILY=$(echo "$line" | awk '{print $2}'); CUR_TABLE=$(echo "$line" | awk '{print $3}')
+        CUR_CHAIN=""; continue
+      fi
+      if echo "$line" | grep -qE '^\s*chain [A-Za-z0-9_-]+ \{'; then
+        CUR_CHAIN=$(echo "$line" | sed -E 's/^\s*chain ([A-Za-z0-9_-]+) \{.*/\1/'); continue
+      fi
+      if echo "$line" | grep -q 'SENTRY_FW' && echo "$line" | grep -q 'handle [0-9]'; then
+        handle=$(echo "$line" | grep -oE 'handle [0-9]+' | awk '{print $2}')
+        if [ -n "$handle" ] && [ -n "$CUR_FAMILY" ] && [ -n "$CUR_TABLE" ] && [ -n "$CUR_CHAIN" ]; then
+          if nft delete rule "$CUR_FAMILY" "$CUR_TABLE" "$CUR_CHAIN" handle "$handle" 2>/dev/null; then
+            echo "已删除 SENTRY_FW 规则（$CUR_FAMILY $CUR_TABLE/$CUR_CHAIN handle $handle）"
+            DELETED=$((DELETED+1))
+          else
+            # F-05（DEV-009）：删除失败显式告警并列出未删规则（不再静默）
+            echo "[警告] 删除失败（$CUR_FAMILY $CUR_TABLE/$CUR_CHAIN handle $handle）：$line"
+            FAILED=$((FAILED+1))
+          fi
+        fi
+      fi
+    done < /tmp/sentry_nft_rules.txt
+    echo "回滚删除规则数: $DELETED，删除失败: $FAILED"
+    [ "$FAILED" -gt 0 ] && echo "[警告] 存在未删除的 SENTRY_FW 规则，请人工核对：nft -a list ruleset | grep SENTRY_FW"
+  else
+    iptables-save | grep -E 'SENTRY_FW' | sed 's/^-A/-D/' | while read -r rule; do
+      if iptables $rule 2>/dev/null; then
+        echo "已删除: $rule"
+      else
+        echo "[警告] 删除失败: $rule"
+      fi
+    done
+  fi
+  echo "回滚完成"
+  exit 0
+fi
+
+mkdir -p /var/lib/sentry-agent
+
+if [ "$BACKEND" = "nft" ]; then
+  echo "--- nftables：在现有 drop/reject 规则前插入限速 LOG ---"
+  # M4B-01：前缀带 <chain>:<action>（nft 分支 chain 取自跟踪链名，action 取自规则行）
+  # F-01（DEV-009）：幂等保护——规则集已含 SENTRY_FW 时跳过（重复执行不叠加）
+  # 边界披露（reviewer R-03）：检查为全局粒度——若部分链首轮插入失败后重跑将整体跳过；
+  # 此时依赖回读校验告警人工介入；链级幂等评估列入 V-08 复验。
+  if nft list ruleset 2>/dev/null | grep -q 'SENTRY_FW'; then
+    echo "[提示] 规则集已含 SENTRY_FW LOG 规则（幂等：跳过插入）"
+    nft list ruleset | grep -c 'SENTRY_FW' | xargs echo "现有 SENTRY_FW 规则数:"
+    exit 0
+  fi
+  nft -a list ruleset > /tmp/sentry_nft_rules.txt
+  CUR_FAMILY=""; CUR_TABLE=""; CUR_CHAIN=""
+  INSERTED=0
+  while IFS= read -r line; do
+    # 跟踪 family/table/chain 上下文
+    if echo "$line" | grep -qE '^\s*table [a-z]+ '; then
+      CUR_FAMILY=$(echo "$line" | awk '{print $2}')
+      CUR_TABLE=$(echo "$line" | awk '{print $3}')
+      CUR_CHAIN=""
+      continue
+    fi
+    if echo "$line" | grep -qE '^\s*chain [A-Za-z0-9_-]+ \{'; then
+      CUR_CHAIN=$(echo "$line" | sed -E 's/^\s*chain ([A-Za-z0-9_-]+) \{.*/\1/')
+      continue
+    fi
+    # 规则行含 drop/reject 且带 handle；提取 action（M4B-01 前缀用）
+    if echo "$line" | grep -qE '\b(drop|reject)\b' && echo "$line" | grep -q 'handle [0-9]'; then
+      [ -z "$CUR_FAMILY" ] || [ -z "$CUR_TABLE" ] || [ -z "$CUR_CHAIN" ] && continue
+      HANDLE=$(echo "$line" | grep -oE 'handle [0-9]+' | awk '{print $2}')
+      if echo "$line" | grep -qE '\breject\b'; then ACTION="reject"; else ACTION="drop"; fi
+      # R-07 边界记录：action 判定为先 reject 后 drop——规则行同时含两词（极端注释场景）时
+      # 取 reject；概率极低，如出现可人工核对前缀（nft -a list ruleset 回读）。
+      LOGPREFIX="${PREFIX_BASE}${CUR_CHAIN}:${ACTION} "
+      if nft insert rule "$CUR_FAMILY" "$CUR_TABLE" "$CUR_CHAIN" position "$HANDLE" log prefix "\"$LOGPREFIX\"" flags all limit rate 5/second burst $BURST packets 2>/dev/null; then
+        echo "已插入 LOG（$CUR_FAMILY $CUR_TABLE/$CUR_CHAIN 于 handle $HANDLE 前，前缀 $LOGPREFIX）"
+        INSERTED=$((INSERTED+1))
+      else
+        echo "[警告] 插入失败（$CUR_FAMILY $CUR_TABLE/$CUR_CHAIN handle $HANDLE）：规则可能已变，人工核对 nft -a list ruleset"
+      fi
+    fi
+  done < /tmp/sentry_nft_rules.txt
+  # R-08：无 drop/reject 规则时提示（C-07b 文案）
+  if [ "$INSERTED" -eq 0 ]; then
+    echo "[提示] 未发现任何 drop/reject 规则（C-07b）：防火墙通道数据将稀疏，攻击统计依赖 conntrack + fail2ban 日志"
+  fi
+  echo "--- 回读校验 ---"
+  CNT=$(nft list ruleset | grep -c 'SENTRY_FW' || true)
+  echo "SENTRY_FW 规则数: $CNT"
+  [ "$CNT" -gt 0 ] || echo "[警告] 回读为 0：插入未生效（检查后端判定与规则集格式）"
+else
+  echo "--- iptables：在 INPUT 链 DROP 规则前插入限速 LOG ---"
+  # F-01（DEV-009）：幂等保护
+  if iptables -S INPUT | grep -q 'SENTRY_FW'; then
+    echo "[提示] INPUT 链已含 SENTRY_FW LOG 规则（幂等：跳过插入）"
+    iptables -S INPUT | grep -c 'SENTRY_FW' | xargs echo "现有 SENTRY_FW 规则数:"
+    exit 0
+  fi
+  # M4B-02（DEV-009，auditor Major）：`iptables -S INPUT` 首行为 `-P INPUT <policy>`，
+  # grep 行号 = 规则编号 + 1——插入位置须减 1（否则"首条规则即 DROP"时 LOG 插到 DROP 之后）。
+  # R-04（reviewer）：多条 DROP 规则时按编号降序插入（从后往前）——顺序插入会因
+  # LOG 占位导致后续编号偏移、LOG 聚集于首条 DROP 前（限速叠加放大日志量）。
+  iptables -S INPUT | grep -nE '\-j (DROP|REJECT)' | awk -F: '{print $1}' | sort -rn > /tmp/sentry_iptables_lines.txt
+  INSERTED=0
+  while IFS= read -r ln; do
+    RULE_NO=$((ln - 1))   # M4B-02：排除 -P 行后为真实规则编号
+    # 取原始规则行判定 action（从 -S 输出按行号取）
+    ORIG=$(iptables -S INPUT | sed -n "${ln}p")
+    if echo "$ORIG" | grep -qE '\-j REJECT'; then ACTION="reject"; else ACTION="drop"; fi
+    LOGPREFIX="${PREFIX_BASE}input:${ACTION} "   # M4B-01：INPUT 链映射为 input
+    if iptables -I INPUT "$RULE_NO" -m limit --limit "$LIMIT" --limit-burst "$BURST" -j LOG --log-prefix "$LOGPREFIX" 2>/dev/null; then
+      echo "已插入 LOG（INPUT 第 ${RULE_NO} 条 DROP 前，前缀 $LOGPREFIX）"
+      INSERTED=$((INSERTED+1))
+    fi
+  done < /tmp/sentry_iptables_lines.txt
+  rm -f /tmp/sentry_iptables_lines.txt
+  # C-07b：无 drop/reject 规则时提示（与 nft 分支一致）
+  if [ "$INSERTED" -eq 0 ]; then
+    echo "[提示] 未发现任何 drop/reject 规则（C-07b）：防火墙通道数据将稀疏，攻击统计依赖 conntrack + fail2ban 日志"
+  fi
+  echo "--- 回读校验 ---"
+  iptables -S INPUT | grep -c 'SENTRY_FW' | xargs echo "SENTRY_FW 规则数:"
+fi
+
+echo "===== 模式 B 规则生成完成（零策略变更：仅记录不拦截） ====="
+echo "提示：规则持久化（nft: /etc/nftables.d/ 导出；iptables: iptables-persistent/firewalld direct）见部署手册"
+echo "提示：多条 LOG 规则对同一连接重复计数属 D-05 设计固有语义（面板 top_ports 为采样视图）"

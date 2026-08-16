@@ -1,0 +1,25 @@
+=== Retry-After header check ===
+=== HEAVY ENDPOINT: /api/v1/firewall/timeline?range=24h x7 rapid ===
+  200=6 429=1 first429At=6 other=0
+=== HEAVY ENDPOINT: /api/v1/ssh/timeline?range=24h x7 rapid ===
+  200=6 429=1 first429At=6 other=0
+=== HEAVY ENDPOINT: /api/v1/export/csv?range=1h x7 rapid ===
+  200=6 429=1 first429At=6 other=0
+=== EXPORT range=1h/24h/7d/30d ===
+  range=1h : HTTP/1.1 200 OK | Content-Type: text/csv; charset=utf-8 | Content-Disposition: attachment; filename="sentry_export_20260816_181138.csv" | lines=12
+  range=24h : HTTP/1.1 200 OK | Content-Type: text/csv; charset=utf-8 | Content-Disposition: attachment; filename="sentry_export_20260816_181146.csv" | lines=423
+  range=7d : HTTP/1.1 200 OK | Content-Type: text/csv; charset=utf-8 | Content-Disposition: attachment; filename="sentry_export_20260816_181154.csv" | lines=541
+  range=30d : HTTP/1.1 200 OK | Content-Type: text/csv; charset=utf-8 | Content-Disposition: attachment; filename="sentry_export_20260816_181202.csv" | lines=541
+=== EXPORT from/to valid (25h-1h) ===
+=== EXPORT from>to (1h->25h) expect 400 ===
+  {"error":"鍙傛暟閿欒锛歠rom 涓嶈兘鏅氫簬 to"}  HTTPCODE:400
+=== EXPORT span>90d expect 400 ===
+  {"error":"鍙傛暟閿欒锛氳嚜瀹氫箟鏃堕棿璺ㄥ害涓嶈兘瓒呰繃 90 澶?}  HTTPCODE:400
+=== EXPORT future range expect 200 empty ===
+  future file size=0 bytes
+=== EXPORT both range+from/to expect 400 ===
+  {"error":"鍙傛暟閿欒锛歳ange 涓?from/to 椤讳簩閫変竴"}  HTTPCODE:400
+=== EXPORT neither expect 400 ===
+  {"error":"鍙傛暟閿欒锛歳ange 涓?from/to 椤讳簩閫変竴"}  HTTPCODE:400
+=== EXPORT non-numeric from expect 400 ===
+  {"error":"鍙傛暟閿欒锛歠rom 椤讳负 Unix 绉?}  HTTPCODE:400

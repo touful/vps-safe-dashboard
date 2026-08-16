@@ -1,0 +1,11 @@
+from>to: HTTP 400 | body={"error":"参数错误：from 不能晚于 to"}
+ | retry-after=None
+span>90d: HTTP 400 | body={"error":"参数错误：自定义时间跨度不能超过 90 天"}
+ | retry-after=None
+both range+from/to: HTTP 400 | body={"error":"参数错误：range 与 from/to 须二选一"}
+ | retry-after=None
+neither: HTTP 400 | body={"error":"参数错误：range 与 from/to 须二选一"}
+ | retry-after=None
+non-numeric from: HTTP 400 | body={"error":"参数错误：from 须为 Unix 秒"}
+ | retry-after=None
+future range (expect 200 empty): HTTP 200 | bytes=0

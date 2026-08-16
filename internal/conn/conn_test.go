@@ -1,0 +1,157 @@
+package conn
+
+import (
+	"net"
+	"testing"
+
+	"github.com/florianl/go-conntrack"
+
+	"sentry-agent/internal/event"
+)
+
+// 构造 go-conntrack 的 Con 对象辅助函数（仅测试用）。
+func tuple(src, dst string, proto uint8, sport, dport uint16) *conntrack.IPTuple {
+	s, d := net.ParseIP(src), net.ParseIP(dst)
+	return &conntrack.IPTuple{
+		Src: &s, Dst: &d,
+		Proto: &conntrack.ProtoTuple{Number: &proto, SrcPort: &sport, DstPort: &dport},
+	}
+}
+
+func u32(v uint32) *uint32      { return &v }
+func u16(v uint16) *uint16      { return &v }
+func u8(v uint8) *uint8         { return &v }
+func u64(v uint64) *uint64      { return &v }
+
+func TestConnEventFromConIPv4TCPNew(t *testing.T) {
+	c := conntrack.Con{
+		Info:   &conntrack.InfoSource{NetlinkGroup: conntrack.NetlinkCtNew},
+		Origin: tuple("203.0.113.5", "10.0.0.2", event.ProtoTCP, 50022, 22),
+		CounterOrigin: &conntrack.Counter{Packets: u64(3), Bytes: u64(120)},
+		Mark: u32(0x1),
+	}
+	ev, ok := connEventFromCon(c)
+	if !ok {
+		t.Fatal("应转换成功")
+	}
+	if ev.EvType != event.EvNew {
+		t.Errorf("EvType = %d, 期望 1", ev.EvType)
+	}
+	if ev.Proto != event.ProtoTCP || ev.SrcIP != 0xCB007105 || ev.DstIP != 0x0A000002 {
+		t.Errorf("五元组错误: proto=%d src=%x dst=%x", ev.Proto, ev.SrcIP, ev.DstIP)
+	}
+	if ev.SrcPort != 50022 || ev.DstPort != 22 {
+		t.Errorf("端口错误: %d/%d", ev.SrcPort, ev.DstPort)
+	}
+	if ev.Packets != 3 || ev.Bytes != 120 {
+		t.Errorf("计数错误: %d/%d", ev.Packets, ev.Bytes)
+	}
+	if ev.Mark != 1 {
+		t.Errorf("Mark = %d, 期望 1", ev.Mark)
+	}
+	if ev.SrcIP6 != "" || ev.DstIP6 != "" {
+		t.Error("IPv4 事件不应有 IPv6 字段")
+	}
+}
+
+func TestConnEventFromConIPv6(t *testing.T) {
+	c := conntrack.Con{
+		Info:   &conntrack.InfoSource{NetlinkGroup: conntrack.NetlinkCtUpdate},
+		Origin: tuple("2001:db8::1", "2001:db8::2", event.ProtoTCP, 443, 22),
+	}
+	ev, ok := connEventFromCon(c)
+	if !ok {
+		t.Fatal("应转换成功")
+	}
+	if ev.EvType != event.EvUpdate {
+		t.Errorf("EvType = %d, 期望 2", ev.EvType)
+	}
+	if ev.SrcIP6 != "2001:db8::1" || ev.DstIP6 != "2001:db8::2" {
+		t.Errorf("IPv6 字段错误: %q/%q", ev.SrcIP6, ev.DstIP6)
+	}
+	if ev.SrcIP != 0 || ev.DstIP != 0 {
+		t.Error("IPv6 事件 IPv4 字段应为 0")
+	}
+}
+
+func TestConnEventFromConICMP(t *testing.T) {
+	c := conntrack.Con{
+		Info:   &conntrack.InfoSource{NetlinkGroup: conntrack.NetlinkCtDestroy},
+		Origin: tuple("203.0.113.9", "10.0.0.2", event.ProtoICMP, 0, 0),
+	}
+	ev, ok := connEventFromCon(c)
+	if !ok {
+		t.Fatal("应转换成功")
+	}
+	if ev.EvType != event.EvDestroy {
+		t.Errorf("EvType = %d, 期望 3", ev.EvType)
+	}
+	if ev.Proto != event.ProtoICMP {
+		t.Errorf("Proto = %d, 期望 1", ev.Proto)
+	}
+	// 口径：ICMP 端口为 0（即使原 tuple 带端口也清零）。
+	if ev.SrcPort != 0 || ev.DstPort != 0 {
+		t.Errorf("ICMP 端口应为 0: %d/%d", ev.SrcPort, ev.DstPort)
+	}
+}
+
+func TestConnEventFromConIncomplete(t *testing.T) {
+	// 缺五元组（Origin nil / Proto nil）→ ok=false，不 panic。
+	var cases = []conntrack.Con{
+		{},
+		{Origin: &conntrack.IPTuple{}},
+		{Origin: &conntrack.IPTuple{Proto: &conntrack.ProtoTuple{}}},
+	}
+	for i, c := range cases {
+		if _, ok := connEventFromCon(c); ok {
+			t.Errorf("case %d 应返回 ok=false", i)
+		}
+	}
+}
+
+func TestConnEventFromConNilPointers(t *testing.T) {
+	// 可选字段为 nil（无计数器/无 mark）→ 零值，不 panic。
+	s, d := net.ParseIP("203.0.113.5"), net.ParseIP("10.0.0.2")
+	proto := uint8(event.ProtoTCP)
+	c := conntrack.Con{
+		Info: &conntrack.InfoSource{NetlinkGroup: conntrack.NetlinkCtNew},
+		Origin: &conntrack.IPTuple{Src: &s, Dst: &d, Proto: &conntrack.ProtoTuple{Number: &proto}},
+	}
+	ev, ok := connEventFromCon(c)
+	if !ok {
+		t.Fatal("应转换成功")
+	}
+	if ev.Packets != 0 || ev.Bytes != 0 || ev.Mark != 0 {
+		t.Error("nil 可选字段应为零值")
+	}
+}
+
+func TestDiffSnapshots(t *testing.T) {
+	sc := func(proto uint8, sip uint32, sport uint16, dip uint32, dport uint16, state string) event.SnapConn {
+		return event.SnapConn{Proto: proto, SrcIP: sip, SrcPort: sport, DstIP: dip, DstPort: dport, State: state}
+	}
+	a := sc(event.ProtoTCP, 0x0A000002, 22, 0x0A000001, 50542, "ESTAB")
+	b := sc(event.ProtoTCP, 0x0A000002, 22, 0x0A000001, 50543, "ESTAB")
+	prev := map[string]event.SnapConn{snapKey(a): a}
+	cur := map[string]event.SnapConn{
+		snapKey(a): sc(event.ProtoTCP, 0x0A000002, 22, 0x0A000001, 50542, "TIME_WAIT"), // 状态变化
+		snapKey(b): b, // 新增
+	}
+	evs := diffSnapshots(prev, cur, 1700000000)
+	got := map[int]int{}
+	for _, e := range evs {
+		got[e.EvType]++
+		if e.TS != 1700000000 {
+			t.Error("事件 TS 应为入参")
+		}
+	}
+	// 1 个 NEW（b）+ 1 个 UPDATE（a 状态变化）；a 未消失。
+	if got[event.EvNew] != 1 || got[event.EvUpdate] != 1 || got[event.EvDestroy] != 0 {
+		t.Errorf("事件分布错误: %v", got)
+	}
+	// 全部消失 → 2 个 DESTROY。
+	evs2 := diffSnapshots(cur, map[string]event.SnapConn{}, 1)
+	if len(evs2) != 2 {
+		t.Errorf("消失事件数 = %d, 期望 2", len(evs2))
+	}
+}

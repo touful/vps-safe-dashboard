@@ -1,0 +1,9 @@
+{
+  "collect": {"resource_interval_seconds": 5},
+  "ss": {"snapshot_interval_s": 20},
+  "conntrack": {"buffer_size_kb": 2048, "enable_acct": true, "overrun_warn_interval_s": 60, "fallback_interval_s": 5},
+  "ssh": {"source": "rsyslog", "verbose_fingerprint": true},
+  "fw": {"source": "kmsg", "prefix": "SENTRY_FW:", "rate_limit_pkt_s": 5},
+  "f2b": {"enabled": false, "log_path": "/tmp/f2b.log", "db_path": "/tmp/f2b.db"},
+  "log": {"level": "info"}
+}

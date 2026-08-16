@@ -1,0 +1,17 @@
+===== M4 容器冒烟 v4 =====
+2026-08-14 13:38:17 UTC
+375f96b39d3578ca28f8c4ac13dd69d655e28175235113dc3a6a7ce927aec727
+--- 容器状态 ---
+Up 10 seconds
+--- journalctl 可用性（R-01 核心） ---
+systemd 252 (252.39-1~deb12u2)
+/usr/bin/ss
+--- health（/dev/tcp，bash） ---
+{"conntrack_overrun_total":0,"db_size_mb":0.00390625,"ok":true,"schema_version":"1","system_events_total":2,"uptime_s":11}
+
+--- 资源通道数据 ---
+{"points":[{"ts":1786714680,"cpu":12.659542179837384,"mem":19.314111570410162,"disk":7.7912431373746704,"net_rx_bps":9719,"net_tx_bps":9933}],"step_s":60}
+
+--- agent 日志（ssh/fw 通道：无 journal 挂载时应有告警但不退出） ---
+--- 清理 ---
+===== 冒烟 v4 结束 =====

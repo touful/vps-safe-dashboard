@@ -1,0 +1,5 @@
+2026-08-13 12:00:00,123 fail2ban.actions [2912]: NOTICE  [sshd] Ban 192.168.1.1
+2026-08-13 12:00:01,456 fail2ban.filter  [2912]: INFO    [sshd] Found 192.168.1.2
+2026-08-13 12:00:02,789 fail2ban.actions [2912]: NOTICE  [sshd] Unban 192.168.1.1
+2026-08-13 12:00:03,111 fail2ban.actions [2912]: NOTICE  [sshd] Ban 10.0.0.9 (5 failures)
+2026-08-13 12:00:04,222 random noise line

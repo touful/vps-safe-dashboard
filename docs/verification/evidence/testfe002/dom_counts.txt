@@ -1,0 +1,8 @@
+DOM 计数（总览页激活，桌面宽度 1089px，基线 082bbbd 二进制）：
+- tables = snap-table / conn-table / ban-table / ssh-table / fw-table（5 张，archive-table 不存在）
+- charts = chart-attack-trend / chart-cpu / chart-mem / chart-disk / chart-net / chart-ports / chart-sources / chart-ssh（8 个）
+- details = 2（fold-resources / fold-events）
+- buttons = 19
+- nav = overview / conn / attack（3 页签）
+- archive DOM：archive-table / panel-archive / disk-water 均不存在
+- docW=1083 ≤ winW=1089（无横向溢出）

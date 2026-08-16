@@ -1,0 +1,41 @@
+TEST-FE-001 AX-1 Tab 键盘可达性——代码静态确认记录
+====================================================
+确认方式：浏览器键盘事件注入（press_key Tab）失效（焦点停留在 BODY，无法驱动实测），
+转为代码静态确认（index.html/app.js 逐项核对原生语义与 tabindex/focus-visible）。
+确认时间：2026-08-16
+受测基线：b95e914
+
+一、可达性结论（按 AX-1 验收：可达态势条折叠按钮/折叠区/表格/页签；焦点可见）
+
+1. 态势条折叠按钮 sit-toggle —— 可达 ✅
+   - index.html:520  <button id="sit-toggle" class="sit-toggle" title="折叠/展开态势条" aria-label="折叠/展开态势条">▾</button>
+   - 原生 button 自动进入 Tab 顺序；aria-label 提供可访问名称
+   - index.html:260  #situation-bar .sit-toggle:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }（焦点可见样式）
+
+2. 折叠区（系统资源/最近事件）—— 可达 ✅
+   - index.html:571  <details class="fold" id="fold-resources" open> ... </details>
+   - index.html:583  <details class="fold" id="fold-events" open ...> ... </details>
+   - 原生 details/summary：summary 自动进入 Tab 顺序，Enter/Space 原生切换 open 状态（无需 JS）
+   - index.html:360  details.fold summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }（焦点可见样式）
+   - 折叠记忆（NF-2）通过 JS 读写 sessionStorage，不改变原生可达性
+
+3. 页签（总览/连接/攻击/归档）—— 可达 ✅
+   - app.js:1489  btn.addEventListener('click', ...) 绑定于 nav 内 button 元素（快照确认 4 个 button）
+   - 原生 button Tab 可达；active 态由 class 呈现（既有 FR-1 验证）
+
+4. 表格 —— 部分可达（存在 Minor 缺陷，见下）
+   - 表格本身为非交互容器，不在 Tab 顺序中属正常行为
+   - 表格内原生 button（如 TOP 攻击源"复制"按钮）可达 ✅
+   - 缺陷：行点击过滤/单元格点击（NF-3~NF-7 核心交互）与表头排序（FR-6）无键盘等价路径：
+     * app.js:871  tr.addEventListener('click', function () { d.click(tr.__row); })   —— tr 无 tabindex、无 role、无 keydown
+     * app.js:864  td.addEventListener('click', function (ev) { ... cell.click(tr.__row, ev); }) —— td 同左（FW 表 src/dst 单元格）
+     * app.js:1386 th.addEventListener('click', ...)（bindSort 表头排序）—— th 无 tabindex，键盘不可触发
+   - 影响：键盘用户无法执行行过滤、单元格过滤、列排序；鼠标路径全部正常
+
+二、焦点可见性
+   - 所有可聚焦原生交互元素均有 :focus-visible 焦点环样式（sit-toggle 260 / summary 360 / 按钮类通用样式）
+   - tabindex="-1" 仅用于页签切换后编程聚焦卡片标题（index.html:526/592/602/631，IN-6 设计），不进 Tab 顺序
+
+三、结论
+   - AX-1 验收主体达成（折叠按钮/折叠区/页签键盘可达且焦点可见）
+   - 表格行内点击交互键盘等价缺失 → 记 Minor 缺陷 DEF-FE-001-01（见测试报告缺陷清单）

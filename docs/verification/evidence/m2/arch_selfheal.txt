@@ -1,0 +1,13 @@
+=== FT-05 .tmp 自愈集成实测（干净环境）===
+--- 预置 2026-08 .tmp 残留 + 当前月 5 行数据 ---
+残留 .tmp 已放置: 2026-08.db.tmp
+--- 执行归档（应自愈清理 .tmp 并生成副本）---
+归档完成: 2026-08 → /path/to/sentry-agent/arch_drill/archive
+--- 归档目录（.tmp 应已清理）---
+total 16
+drwxr-xr-x 2 root root 4096 Aug 13 23:14 .
+drwxr-xr-x 3 root root 4096 Aug 13 23:14 ..
+-rw-r--r-- 1 root root 2540 Aug 13 23:09 2026-07.db.gz
+-rw-r--r-- 1 root root 1417 Aug 13 23:14 2026-08.db.gz
+--- 副本解压校验 ---
+2026-08 副本 resources: 16（期望 = 短跑11 + 注入5 = 16）

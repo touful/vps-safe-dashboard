@@ -1,0 +1,55 @@
+{
+  "collect": {
+    "resource_interval_seconds": 5
+  },
+  "ss": {
+    "snapshot_interval_s": 20
+  },
+  "conntrack": {
+    "buffer_size_kb": 2048,
+    "enable_acct": true,
+    "overrun_warn_interval_s": 60,
+    "fallback_interval_s": 5
+  },
+  "ssh": {
+    "source": "journald",
+    "verbose_fingerprint": true
+  },
+  "fw": {
+    "source": "journald-kernel",
+    "prefix": "SENTRY_FW:",
+    "rate_limit_pkt_s": 5
+  },
+  "f2b": {
+    "enabled": true,
+    "log_path": "/var/log/fail2ban.log",
+    "db_path": "/var/lib/fail2ban/fail2ban.sqlite3"
+  },
+  "db": {
+    "path": "/var/lib/sentry-agent/state.db",
+    "batch_interval_ms": 1000,
+    "batch_size": 500,
+    "archive_dir": "/var/lib/sentry-agent/archive"
+  },
+  "archive": {
+    "monthly_hour": "02:00",
+    "gzip_level": 6,
+    "copy_after_days": 60
+  },
+  "web": {
+    "listen": "127.0.0.1:8080",
+    "ws_origin_allow": "http://127.0.0.1:8080",
+    "ws_max_conns": 100,
+    "rate_limit_rps": 10,
+    "rate_limit_burst": 20,
+    "heavy_limit_rps": 1
+  },
+  "disk": {
+    "warn_percent": 80,
+    "critical_percent": 90,
+    "emergency_percent": 95
+  },
+  "log": {
+    "level": "info"
+  }
+}

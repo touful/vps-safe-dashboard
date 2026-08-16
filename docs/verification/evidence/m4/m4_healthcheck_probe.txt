@@ -1,0 +1,8 @@
+=== D-14/F-02 健康检查 /dev/tcp 探活实测（TEST-007）===
+命令: docker exec sentry-smoke8 bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf GET...head -c 300 <&3'
+HTTP/1.0 200 OK
+Content-Type: application/json; charset=utf-8
+Date: Fri, 14 Aug 2026 14:33:08 GMT
+Content-Length: 122
+
+{"conntrack_overrun_total":0,"db_size_mb":0.00390625,"ok":true,"schema_version":"1","system_events_total":2,"uptime_s":7}

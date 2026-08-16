@@ -1,0 +1,19 @@
+{
+  "csv_lines": 423,
+  "window": {
+    "from": 1786789161,
+    "to": 1786873569
+  },
+  "db": {
+    "fw_drop": 224,
+    "ssh_fail": 173,
+    "ban": 26,
+    "total": 423
+  },
+  "match": true,
+  "missing": 0,
+  "extra": 0,
+  "asc": true,
+  "empty_port_rows": 26,
+  "empty_port_in_ban": true
+}

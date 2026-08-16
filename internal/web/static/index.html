@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>VPS安全态势</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- DEV-FE-003：内联 data URI favicon（方案 8.3，SC-04：消除 /favicon.ico 404；盾形冷石墨+冰蓝，与 logo-ico 同源） -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M10 1.8l6 2.4v4.3c0 3.7-2.4 6.4-6 8-3.6-1.6-6-4.3-6-8V4.2z' fill='%230E1319' stroke='%2358A6FF' stroke-width='1.6'/%3E%3Cpath d='M7.6 10l1.7 1.7 3.1-3.4' stroke='%2358A6FF' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<script src="echarts.min.js"></script>
+<style>
+/* ===== DEV-019 设计系统："冷石墨 · 冰蓝"（战术遥测 × 精密工程） =====
+ * 方向：深色安全监控面板，四层背景明度阶梯 + 三层文字对比 + hairline 边框分层。
+ * 反 AI 味红线保持：无霓虹发光、无玻璃态模糊、无渐变标题、无发光阴影、无过饱和色、无纯黑。
+ * 动效纪律：一次性入场 + 交互响应（hover/active 150-220ms），禁止持续循环动画（1C1G 性能红线）。
+ * 规范来源：high-end-visual-design（面板内芯高光/双层结构）、minimalist-ui（克制动效与过渡曲线）、
+ *          design-taste（反 AI 默认/圆角锁定/对比度纪律）、industrial-brutalist（战术遥测气质/等宽数字）、
+ *          redesign-existing-projects（focus 可见性/状态完备）、stitch-design-taste（密度>7 数字全等宽）。
+ * 语义色（ok/warn/danger）保持 DEV-014 基线不变——用户认知资产，不更换。
+ */
+:root {
+  /* 背景四层（冷石墨）：页面底 → 下沉层 → 卡片 → hover → 悬浮 */
+  --bg-page: #0A0E14;
+  --bg-sunken: #0E1319;
+  --bg-card: #11161D;
+  --bg-hover: #1B232D;
+  --bg-raised: #232C38;
+  /* 边框：hairline 低对比，靠明度差分层 */
+  --border: #2A3441;
+  --border-soft: rgba(42, 52, 65, 0.55);
+  /* 文字三层：主 / 次级 / 弱化 */
+  --text: #E8EEF5;
+  --text-dim: #8A94A3;
+  --text-faint: #6A7482;
+  /* 强调与语义：UI 交互强调冰蓝；语义三色保持基线 */
+  --accent: #4C9AFF;
+  --accent-strong: #58A6FF; /* DEV-FE-002：图表主色/数据强调（与 TI.accent 统一，方案 4.1） */
+  --ok: #3FB950;
+  --warn: #D29922;
+  --danger: #F85149;
+  /* DEV-FE-002 补充 token（方案 4.1 表） */
+  --text-code: #B9C4D1; /* 等宽数字常规色（介于 --text 与 --text-dim 之间，补层级断层） */
+  --bg-inset: #0C1118; /* 表格 zebra 交替行 / 折叠区底色 */
+  --border-strong: rgba(76, 154, 255, 0.55); /* 激活/焦点态描边统一 */
+  --danger-soft: rgba(248, 81, 73, 0.10); /* 危险行背景微染 */
+  /* 字体：系统栈（零外部资源红线）；数字一律等宽 */
+  --font-ui: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  --font-num: Consolas, "Cascadia Mono", "SF Mono", ui-monospace, monospace;
+  /* 圆角锁定：6px 面板 / 4px 内件 / 2px 微件（单一尺度体系） */
+  --radius: 6px;
+  --radius-sm: 4px;
+  --radius-xs: 2px;
+  /* 间距尺度：4 的倍数基座 */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px;
+  /* 动效：统一缓动曲线（minimalist 推荐），短时程 */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast: 150ms;
+  --t-med: 220ms;
+  /* 面板内芯顶高光（Double-Bezel 简化：hairline 外框 + 内侧 1px 高光） */
+  --hl-inset: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  /* tooltip 浮层投影在 app.js baseOption 内联实现（此处不留死变量） */
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-ui);
+  background: var(--bg-page);
+  color: var(--text);
+  font-size: 13px; /* DEV-FE-003：D4 正文档（方案 4.2 全尺度化） */
+  line-height: 1.55;
+  min-height: 100vh;
+}
+
+/* ---- 一次性入场（页面加载 stagger，无循环；prefers-reduced-motion 关闭） ---- */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  header, nav, #situation-bar { animation: fade-up 420ms var(--ease) both; }
+  nav { animation-delay: 60ms; }
+  #situation-bar { animation-delay: 120ms; }
+}
+
+/* ---- 顶部栏：实色分层 + hairline（无毛玻璃）；h1 图标为内联 SVG 盾牌 ---- */
+header {
+  position: sticky; top: 0; z-index: 10;
+  padding: 8px var(--space-6); /* DEV-FE-002：chrome 压缩（方案 8.1） */
+  background: var(--bg-page);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap;
+}
+header h1 {
+  font-size: 15px; margin: 0; font-weight: 600; letter-spacing: 0.3px;
+  color: var(--text); display: flex; align-items: center; gap: 8px;
+}
+.logo-ico { width: 18px; height: 18px; color: var(--accent); flex: none; }
+
+/* 连接状态徽章：状态点 + 实色文字 + hairline（无发光） */
+#conn-status {
+  font-size: 12px; padding: 3px 10px; border-radius: 999px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--text-dim); font-family: var(--font-num);
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+#conn-status::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--text-faint); flex: none;
+}
+#conn-status.ok { color: var(--ok); border-color: rgba(63, 185, 80, 0.5); }
+#conn-status.ok::before { background: var(--ok); }
+#conn-status.degraded { color: var(--warn); border-color: rgba(210, 153, 34, 0.5); }
+#conn-status.degraded::before { background: var(--warn); }
+#conn-status.error { color: var(--danger); border-color: rgba(248, 81, 73, 0.5); }
+#conn-status.error::before { background: var(--danger); }
+
+/* 采样标注条：低饱和警告文字 + 细边框 */
+#sample-note {
+  font-size: 11.5px; color: var(--warn);
+  background: var(--bg-card); border: 1px solid var(--border-soft);
+  padding: 3px 10px; border-radius: var(--radius-sm);
+  letter-spacing: 0.2px;
+}
+
+/* 时间范围选择器：按钮组，激活态冰蓝描边 */
+#range-bar { display: flex; gap: 2px; margin-left: auto; }
+.range-btn {
+  background: none; border: 1px solid transparent; color: var(--text-dim);
+  padding: 4px 11px; cursor: pointer; font-size: 12px; font-family: var(--font-num);
+  border-radius: var(--radius-sm);
+  transition: color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.range-btn:hover { color: var(--text); background: var(--bg-card); border-color: var(--border-soft); }
+.range-btn:active { transform: translateY(1px); }
+.range-btn.active { color: var(--accent); border-color: rgba(76, 154, 255, 0.45); background: rgba(76, 154, 255, 0.08); }
+.range-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+/* 过滤 chip（DEV-FE-002：移入 header 全局可见，方案 3.5；文案带过滤来源） */
+#filter-chip {
+  display: none; font-size: 12px; color: var(--accent);
+  background: rgba(76, 154, 255, 0.08); border: 1px solid rgba(76, 154, 255, 0.45);
+  padding: 4px 12px; border-radius: 999px;
+  cursor: pointer; font-family: var(--font-num);
+  transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+#filter-chip:hover { background: var(--bg-hover); border-color: rgba(76, 154, 255, 0.7); }
+#filter-chip:active { transform: translateY(1px); }
+#filter-chip:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+/* 总览被攻击端口 TOP5 迷你榜：横向条 + 排名 + 等宽命中数 */
+.mini-top { list-style: none; margin: 0; padding: 0; }
+.mini-top li {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: 5px 6px; border-bottom: 1px solid var(--border-soft);
+  cursor: pointer; font-size: 12.5px; border-radius: var(--radius-xs);
+  transition: background-color var(--t-fast) var(--ease);
+}
+.mini-top li:last-child { border-bottom: none; }
+.mini-top li:hover { background: var(--bg-hover); }
+.mini-top .rank { width: 18px; color: var(--text-faint); font-family: var(--font-num); font-size: 11.5px; }
+.mini-top .port { width: 64px; font-family: var(--font-num); color: var(--danger); font-weight: 600; }
+.mini-top .bar-wrap { flex: 1; height: 6px; background: var(--bg-sunken); border-radius: 3px; overflow: hidden; }
+.mini-top .bar { height: 100%; background: var(--danger); opacity: 0.8; border-radius: 3px; transition: opacity var(--t-fast) var(--ease); }
+.mini-top li:hover .bar { opacity: 1; }
+.mini-top .hits { width: 56px; text-align: right; font-family: var(--font-num); color: var(--text-code); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* 表格三态占位行（空/加载/错误） */
+.empty-row, .loading-row, .error-row { color: var(--text-dim); text-align: center; padding: 16px 0 !important; font-size: 12px; letter-spacing: 0.3px; }
+.error-row { color: var(--danger); }
+
+/* 表头排序指示 */
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--text); }
+th.sorted { color: var(--text); }
+th .sort-arrow { color: var(--accent); font-size: 10px; margin-left: 3px; }
+
+/* 表内过滤下拉（原生 select 轻量化） */
+.table-filter {
+  margin-left: var(--space-3); font-size: 12px; color: var(--text-dim);
+  background: var(--bg-sunken); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 2px 6px; font-family: var(--font-ui); cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.table-filter:hover { border-color: var(--border); color: var(--text); }
+.table-filter:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+/* ===== DEV-017 精修基线保留并升级 ===== */
+
+/* 字体层级：时间戳列 12px 等宽次级色（tabular-nums 对齐） */
+td.ts-cell {
+  font-family: var(--font-num); font-size: 12px; color: var(--text-dim);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* 字体层级：KPI 大数字 28px/600 等宽 tabular-nums，负 tracking 显精炼 */
+.stat .v {
+  font-size: 28px; font-family: var(--font-num); font-weight: 600; color: var(--text);
+  font-variant-numeric: tabular-nums; line-height: 1.25; display: inline-block;
+  letter-spacing: -0.5px;
+}
+/* KPI 卡升级：左侧 2px 语义色条（跟随 .v 语义色，:has 现代浏览器；旧浏览器回退冰蓝） */
+.kpi { position: relative; min-width: 150px; overflow: hidden; }
+.kpi::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  background: var(--accent-strong); opacity: 0.55; /* DEV-FE-003：--accent-strong 数据强调（方案 4.1 token 完整引用） */
+}
+.kpi:has(.v.danger)::before { background: var(--danger); }
+.kpi:has(.v.warn)::before { background: var(--warn); }
+.kpi:has(.v.ok)::before { background: var(--ok); }
+.kpi .l { letter-spacing: 0.3px; }
+.kpi .v.danger { color: var(--danger); }
+.kpi .v.warn { color: var(--warn); }
+.kpi .v.ok { color: var(--ok); }
+.kpi .trend { font-size: 11px; font-family: var(--font-num); margin-left: 8px; font-variant-numeric: tabular-nums; }
+.kpi .trend.up { color: var(--danger); }
+.kpi .trend.down { color: var(--ok); }
+.kpi .trend.flat { color: var(--text-code); } /* DEV-FE-003：--text-code 等宽数字常规色 */
+.kpi .spark { display: block; margin-top: 6px; height: 26px; }
+.kpi .spark svg { display: block; width: 100%; height: 26px; }
+.kpi .note { display: block; font-size: 11px; color: var(--text-faint); margin-top: 2px; letter-spacing: 0.2px; }
+/* DEV-FE-003：D6 弱化注行距 1.5→1.6（方案 4.2）——11px 档统一 */
+.risk-note, .ev-group-title, .ev-time, .fold-hint, #freshness, .rate-hint, .kpi .note, .mini-top .rank { line-height: 1.6; }
+/* DEV-FE-002 4.3.2：KPI 骨架加载样式；DEV-FE-003（P1 启用）：shimmer 一次性入场（animation 1 次，非循环——
+ * 1C1G 红线 + 任务书"灰底 shimmer 一次性入场"；骨架期隐藏 trend/spark，仅 .v 显示骨架块 */
+.kpi-skeleton .v {
+  display: inline-block; width: 72px; height: 26px; margin-top: 4px; border-radius: var(--radius-xs);
+  background: linear-gradient(90deg, var(--bg-sunken) 25%, var(--bg-hover) 50%, var(--bg-sunken) 75%);
+  background-size: 200% 100%;
+  animation: kpi-shimmer 1.1s var(--ease) 1;
+}
+.kpi-skeleton .trend, .kpi-skeleton .spark { visibility: hidden; }
+@keyframes kpi-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .kpi-skeleton .v { animation: none; background: var(--bg-sunken); }
+}
+
+/* ===== 态势头（DEV-FE-002：态势条升级，方案 4.2 D2/D3 + VI-1 提权） =====
+ * 主文本 D3 14px；主数字 D2 18px/600 等宽；状态点与折叠按钮分离（方案 8.1）。 */
+#situation-bar {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 7px var(--space-6); font-size: 14px; font-weight: 500; /* DEV-FE-003：D3 态势条正文（方案 4.2） */
+  background: var(--bg-card); border-bottom: 1px solid var(--border);
+  user-select: none;
+  transition: background-color var(--t-fast) var(--ease);
+}
+#situation-bar:hover { background: var(--bg-hover); }
+#situation-bar .sit-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04); }
+#situation-bar.ok .sit-dot { background: var(--ok); }
+#situation-bar.warn .sit-dot { background: var(--warn); }
+#situation-bar .sit-num { font-size: 18px; font-weight: 600; font-family: var(--font-num); color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: -0.5px; line-height: 1; margin: 0 2px; }
+#situation-bar .sit-toggle {
+  margin-left: auto; background: none; border: 1px solid var(--border-soft); color: var(--text-dim);
+  width: 22px; height: 22px; border-radius: var(--radius-xs); cursor: pointer;
+  font-size: 11px; line-height: 1; padding: 0; flex: none;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), transform var(--t-med) var(--ease);
+}
+#situation-bar .sit-toggle:hover { color: var(--text); border-color: var(--border); }
+#situation-bar .sit-toggle:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+#situation-bar.collapsed { padding: 4px var(--space-6); }
+#situation-bar.collapsed #situation-text { display: none; }
+#situation-bar.collapsed .sit-toggle { transform: rotate(180deg); }
+
+/* 风险评分卡：分解条 + 等宽数值 */
+.risk-note { font-size: 11px; color: var(--text-faint); font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: var(--space-2); }
+.risk-wrap { display: flex; gap: var(--space-6); align-items: center; flex-wrap: wrap; }
+.risk-detail { flex: 1; min-width: 240px; }
+.risk-item { display: flex; align-items: center; gap: var(--space-3); margin-bottom: 9px; font-size: 12px; }
+.risk-item .l { width: 88px; color: var(--text-dim); flex: none; letter-spacing: 0.2px; }
+.risk-item .bar-wrap { flex: 1; height: 6px; background: var(--bg-sunken); border-radius: 3px; overflow: hidden; }
+.risk-item .bar { height: 100%; border-radius: 3px; min-width: 0; transition: width 300ms var(--ease); }
+.risk-item .v { width: 42px; text-align: right; font-family: var(--font-num); color: var(--text-dim); flex: none; font-variant-numeric: tabular-nums; }
+
+/* 零攻击状态（DEV-FE-002 VI-3：去遮罩，改为图表区下方绿色文字行，不遮挡坐标轴） */
+.zero-line { color: var(--ok); font-size: 12px; padding: 6px 2px 0; letter-spacing: 0.2px; }
+.chart-wrap { position: relative; }
+
+/* ===== 事件摘要流（DEV-FE-002 IA-3：圆点 + 左侧 2px 语义色条 + 关键字段高亮 + 点击跳转明细） ===== */
+.event-stream { max-height: 340px; overflow-y: auto; }
+.ev-group { margin-bottom: var(--space-3); }
+.ev-group-title { font-size: 11px; color: var(--text-faint); font-family: var(--font-num); margin-bottom: 3px; letter-spacing: 0.4px; }
+.ev-item {
+  position: relative; display: flex; align-items: center; gap: var(--space-2);
+  padding: 4px 6px 4px 12px; border-radius: var(--radius-xs); font-size: 12px;
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: background-color var(--t-fast) var(--ease);
+}
+.ev-item:hover { background: var(--bg-hover); }
+.ev-bar { position: absolute; left: 0; top: 2px; bottom: 2px; width: 2px; border-radius: 1px; }
+.ev-bar.ssh { background: var(--warn); }
+.ev-bar.fw { background: var(--danger); }
+.ev-bar.ban { background: var(--ok); }
+.ev-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.ev-dot.ssh { background: var(--warn); }
+.ev-dot.fw { background: var(--danger); }
+.ev-dot.ban { background: var(--ok); }
+.ev-time { font-family: var(--font-num); font-size: 11px; color: var(--text-faint); flex: none; }
+.ev-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.ev-text b { color: var(--text); font-weight: 600; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.ev-empty { color: var(--text-faint); font-size: 12px; padding: 10px 2px; letter-spacing: 0.3px; }
+.ev-count { margin-left: auto; font-family: var(--font-num); font-size: 11px; color: var(--text-faint); flex: none; }
+/* WS 新事件列表项高亮淡入 600ms 消退（仅事件流，非持续动画；减弱动效时关闭） */
+@media (prefers-reduced-motion: no-preference) {
+  .ev-item.stream-new { animation: ev-fade 600ms ease-out; }
+}
+@keyframes ev-fade {
+  0% { background: rgba(63, 185, 80, 0.22); }
+  100% { background: transparent; }
+}
+
+/* 攻击源迷你榜（横向条 + 复制按钮） */
+.mini-top .src-ip { width: auto; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text); font-family: var(--font-num); }
+.mini-top .copy-btn {
+  background: none; border: 1px solid var(--border-soft); color: var(--text-dim);
+  border-radius: var(--radius-sm); font-size: 11px; padding: 1px 7px; cursor: pointer; font-family: var(--font-ui);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  flex: none;
+}
+.mini-top .copy-btn:hover { color: var(--text); border-color: var(--border); }
+.mini-top .copy-btn:active { transform: translateY(1px); }
+.mini-top .copy-btn.copied { color: var(--ok); border-color: rgba(63, 185, 80, 0.5); }
+/* ===== DEV-FE-002 P0 新增组件样式（数据新鲜度 / 错误横幅 / 30d 降频提示 / KPI 分组 / 折叠区 / zebra / 行点击） ===== */
+#freshness { font-size: 11px; color: var(--text-faint); font-family: var(--font-num); letter-spacing: 0.2px; }
+#freshness.warn { color: var(--warn); }
+#error-banner {
+  background: var(--danger-soft); border-bottom: 1px solid rgba(248, 81, 73, 0.4);
+  color: var(--danger); font-size: 12px; padding: 6px var(--space-6); letter-spacing: 0.3px;
+}
+/* DEV-FE-003 IN-4：WS system 帧独立浮条（右下角 5s 自动消失；不覆盖连接徽章语义） */
+#sys-toast {
+  position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 30;
+  max-width: 360px; background: var(--bg-raised); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--hl-inset), 0 6px 20px rgba(0, 0, 0, 0.4);
+  color: var(--text); font-size: 12px; line-height: 1.55; padding: 10px 14px;
+  overflow-wrap: break-word; letter-spacing: 0.2px;
+}
+.rate-hint { font-size: 11px; color: var(--text-faint); margin-bottom: var(--space-3); letter-spacing: 0.2px; }
+
+/* KPI 2×2 卡组行（方案 9.4） */
+.kpi-row { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+.kpi-row .kpi { flex: 1; min-width: 220px; }
+
+/* 折叠区（方案 3.2：系统资源 / 最近事件；details/summary 原生语义，样式低饱和） */
+details.fold {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--hl-inset); margin-bottom: var(--space-3);
+}
+details.fold summary {
+  cursor: pointer; padding: var(--space-2) var(--space-4); display: flex; align-items: center; gap: var(--space-2);
+  font-size: 12px; font-weight: 600; color: var(--text-dim); letter-spacing: 0.6px; text-transform: uppercase;
+  user-select: none; list-style: none;
+}
+details.fold summary::-webkit-details-marker { display: none; }
+details.fold summary::before { content: "▸"; color: var(--text-faint); transition: transform var(--t-fast) var(--ease); }
+details.fold[open] summary::before { transform: rotate(90deg); }
+details.fold summary:hover { color: var(--text); }
+details.fold summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.fold-title { flex: 1; }
+.fold-hint { font-size: 11px; color: var(--text-faint); font-weight: 400; text-transform: none; letter-spacing: 0.2px; }
+.fold-body { padding: 0 var(--space-3) var(--space-3); }
+.more-btn {
+  display: block; margin: var(--space-2) auto 0; background: none; border: 1px solid var(--border);
+  color: var(--text-dim); border-radius: var(--radius-sm); font-size: 12px; padding: 4px 16px;
+  cursor: pointer; font-family: var(--font-ui);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.more-btn:hover { color: var(--text); border-color: var(--border-strong); background: rgba(76, 154, 255, 0.06); }
+
+/* 表格 zebra 交替行（--bg-inset）+ 行点击过滤（方案 3.5/7.5） */
+tbody tr:nth-child(even) { background: var(--bg-inset); }
+tbody tr:hover { background: var(--bg-hover); }
+tr.row-clickable { cursor: pointer; }
+tr.row-clickable:hover td { color: var(--text); }
+tr.row-highlight { background: rgba(88, 166, 255, 0.12) !important; } /* DEV-FE-003：跟随 --accent-strong（#58A6FF）数据强调 */
+td.clickable { cursor: pointer; }
+td.clickable:hover { color: var(--text); background: rgba(76, 154, 255, 0.06); }
+
+@media (max-width: 720px) {
+  #situation-bar { padding-left: var(--space-3); padding-right: var(--space-3); }
+}
+
+/* ===== 页签导航：激活态冰蓝实色下划线 + 内联 SVG 图标（无发光） ===== */
+nav { padding: 0 var(--space-6); background: var(--bg-page); border-bottom: 1px solid var(--border); display: flex; gap: 2px; }
+nav button {
+  background: none; border: none; color: var(--text-dim);
+  padding: 7px var(--space-4); cursor: pointer; font-size: 13px; font-family: var(--font-ui); /* DEV-FE-002：chrome 压缩 */
+  position: relative; display: inline-flex; align-items: center; gap: 6px;
+  transition: color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.nav-ico { width: 14px; height: 14px; opacity: 0.7; flex: none; }
+nav button:hover { color: var(--text); background: var(--bg-card); }
+nav button:hover .nav-ico { opacity: 1; }
+nav button.active { color: var(--text); font-weight: 500; }
+nav button.active .nav-ico { opacity: 1; color: var(--accent); }
+nav button.active::after {
+  content: ""; position: absolute; left: var(--space-4); right: var(--space-4); bottom: -1px; height: 2px;
+  background: var(--accent);
+}
+nav button:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+main { padding: var(--space-4) var(--space-6) var(--space-8); }
+.panel { display: none; }
+.panel.active { display: block; }
+/* DEV-FE-003 IN-5：页签切换 150ms 淡入（方案 7.3；reduced-motion 关闭） */
+@keyframes panel-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: no-preference) {
+  .panel.active { animation: panel-fade 150ms var(--ease); }
+}
+/* DEV-FE-003 IN-6：页签切换后焦点移至该页首个卡片标题（tabindex="-1"，编程聚焦无焦点环） */
+.panel-title:focus { outline: none; }
+
+/* ===== 卡片体系：Double-Bezel 简化版 =====
+ * 外框：1px hairline + 6px 圆角；内芯：顶部 1px 内高光（--hl-inset）；
+ * hover：背景明度提升 + 边框微亮（无抬升/阴影——保持平面分层纪律）。
+ * 面板头：标题 12px/600 + 下方 hairline 分隔线，形成"头 + 内容区"工程分区。 */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--space-3); }
+/* DEV-019 R-03：grid 子卡允许收缩（min-width:0），避免 ECharts canvas 内联宽度撑开 1fr 轨道导致窄屏横向溢出 */
+.grid > .card { min-width: 0; }
+.card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--hl-inset);
+  padding: var(--space-3) var(--space-4);
+  transition: background-color var(--t-med) var(--ease), border-color var(--t-med) var(--ease);
+}
+.card:hover { background: var(--bg-hover); border-color: rgba(42, 52, 65, 0.9); }
+.card h3 {
+  margin: 0 0 var(--space-3); font-size: 14px; font-weight: 500; color: var(--text-dim); /* DEV-FE-003：D3 卡片主标题档（方案 4.2） */
+  letter-spacing: 0.6px; text-transform: uppercase;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border-soft);
+  display: flex; align-items: center; flex-wrap: wrap;
+}
+.chart { width: 100%; height: 240px; }
+/* 攻击页图表空数据占位（DEV-019：与表格空态文案一致，ECharts 空画布之上覆盖） */
+.chart-empty { position: relative; }
+.chart-empty::after {
+  content: "暂无数据"; position: absolute; inset: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim); font-size: 12px; letter-spacing: 0.3px;
+  pointer-events: none;
+}
+
+/* KPI 卡容器（DEV-FE-002：2×2 语义分组，方案 3.2/IA-2；卡片样式作用于 .kpi） */
+.stat { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4); }
+.kpi-row .kpi {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--hl-inset);
+  padding: var(--space-3) var(--space-4);
+  transition: background-color var(--t-med) var(--ease), border-color var(--t-med) var(--ease);
+}
+.kpi-row .kpi:hover { background: var(--bg-hover); }
+.stat .l { font-size: 12px; color: var(--text-dim); display: block; margin-bottom: 2px; }
+
+/* ===== 表格：紧凑密度、细分隔线、sticky 表头下沉底、hover 行高亮 ===== */
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th, td { padding: 5px 10px; text-align: left; border-bottom: 1px solid var(--border-soft); }
+thead th {
+  background: var(--bg-sunken); color: var(--text-dim); font-weight: 400; /* DEV-FE-003：D5 表头档（方案 4.2） */
+  position: sticky; top: 0; z-index: 1; letter-spacing: 0.4px; font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+tbody tr { transition: background-color 100ms ease; }
+tbody tr:hover { background: var(--bg-hover); }
+tr.row-danger { color: var(--danger); }
+tr.row-warn { color: var(--warn); }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; color: var(--text-code); } /* DEV-FE-003：--text-code 等宽数字常规色（方案 4.1 token 完整引用） */
+/* DEV-FE-003：表格隐藏式 caption（IN-6/§7.5 表格语义；读屏可见，视觉隐藏） */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* DEV-FE-003 §3.4/IA-4：归档页磁盘水位条已随 DEV-FE-005 前端静默归档删除，规则同步清理 */
+.scroll { max-height: 420px; overflow-y: auto; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-sunken); }
+.scroll table { min-width: 560px; }
+
+/* ===== 数据导出页（DEV-EXPORT-001）：预设按钮组 + 自定义起止 + 导出按钮 + 提示区 ===== */
+.export-block { display: flex; flex-direction: column; gap: var(--space-4); max-width: 640px; }
+.export-label { font-size: 12px; color: var(--text-dim); letter-spacing: 0.3px; }
+.export-presets { display: flex; gap: 2px; }
+.export-custom { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.export-custom input[type="datetime-local"] {
+  color-scheme: dark; /* 原生选择器深色适配（零外部资源） */
+  background: var(--bg-sunken); border: 1px solid var(--border); color: var(--text);
+  border-radius: var(--radius-sm); padding: 5px 8px; font-family: var(--font-num); font-size: 12px;
+}
+.export-custom input[type="datetime-local"]:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.export-sep { color: var(--text-faint); font-size: 12px; }
+.export-btn {
+  align-self: flex-start; background: rgba(76, 154, 255, 0.08);
+  border: 1px solid rgba(76, 154, 255, 0.45); color: var(--accent);
+  border-radius: var(--radius-sm); font-size: 13px; padding: 7px 24px; cursor: pointer;
+  font-family: var(--font-ui); letter-spacing: 0.3px;
+  transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.export-btn:hover { background: var(--bg-hover); border-color: rgba(76, 154, 255, 0.7); }
+.export-btn:active { transform: translateY(1px); }
+.export-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+.export-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.export-msg { font-size: 12px; min-height: 18px; letter-spacing: 0.2px; }
+.export-msg.ok { color: var(--ok); }
+.export-msg.err { color: var(--danger); }
+.export-msg.warn { color: var(--warn); }
+.export-note {
+  font-size: 11.5px; color: var(--text-faint); line-height: 1.6; letter-spacing: 0.2px;
+  border-top: 1px solid var(--border-soft); padding-top: var(--space-3);
+}
+
+/* 暗色滚动条（细、低调） */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--bg-raised); }
+
+/* 响应式：窄屏单列 */
+@media (max-width: 720px) {
+  main, nav, header { padding-left: var(--space-3); padding-right: var(--space-3); }
+  .grid { grid-template-columns: 1fr; }
+  header { gap: var(--space-2); }
+  #sample-note { width: 100%; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1><svg class="logo-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 1.8l6 2.4v4.3c0 3.7-2.4 6.4-6 8-3.6-1.6-6-4.3-6-8V4.2z"/><path d="M7.6 10l1.7 1.7 3.1-3.4"/></svg>VPS安全态势</h1>
+  <span id="conn-status">连接中…</span>
+  <span id="sample-note">⚠ 防火墙日志为限速采样视图（默认 5 包/s），完整记录见连接事件</span>
+  <span id="freshness" class="freshness">更新于 --:--:--</span>
+  <span id="filter-chip" title="点击清除过滤"></span>
+  <span id="range-bar">
+    <button class="range-btn" data-range="1h">1h</button>
+    <button class="range-btn active" data-range="24h">24h</button>
+    <button class="range-btn" data-range="7d">7d</button>
+    <button class="range-btn" data-range="30d">30d</button>
+  </span>
+</header>
+<div id="error-banner" style="display:none;">数据加载异常，请检查 agent 运行状态</div>
+<nav>
+  <button class="active" data-panel="overview"><svg class="nav-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></svg>总览</button>
+  <button data-panel="conn"><svg class="nav-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="3.5" cy="8" r="1.8"/><circle cx="12.5" cy="8" r="1.8"/><path d="M5.5 8h5"/></svg>连接</button>
+  <button data-panel="attack"><svg class="nav-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.8l4.8 1.9v3.4c0 2.9-1.9 5-4.8 6.2-2.9-1.2-4.8-3.3-4.8-6.2V3.7z"/><path d="M6.2 8l1.2 1.2 2.4-2.6"/></svg>攻击</button>
+  <button data-panel="export"><svg class="nav-ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8"/><path d="M4.5 6.5L8 10l3.5-3.5"/><path d="M2 13.5h12"/></svg>数据导出</button>
+</nav>
+<div id="situation-bar" class="warn">
+  <span class="sit-dot"></span><span id="situation-text">态势计算中…</span>
+  <button id="sit-toggle" class="sit-toggle" title="折叠/展开态势条" aria-label="折叠/展开态势条">▾</button>
+</div>
+<main>
+  <div id="panel-overview" class="panel active">
+    <!-- L2 决策证据：风险评分 + 攻击双通道趋势同排（方案 3.2/5.1） -->
+    <div class="grid" style="margin-bottom:12px;">
+      <div class="card"><h3 class="panel-title" tabindex="-1">风险评分（本机攻击行为 + 资源维度，无漏洞/CVSS/情报字段）
+        <span class="risk-note">按所选时间范围累计，跨范围不可直接比较</span></h3>
+        <div class="risk-wrap">
+          <div id="chart-risk" role="img" aria-label="风险评分图：数据加载中" style="width:200px;height:150px;"></div>
+          <div class="risk-detail">
+            <div class="risk-item"><span class="l">SSH 失败率</span><div class="bar-wrap"><div class="bar" id="risk-ssh-bar"></div></div><span class="v" id="risk-ssh-v">-</span></div>
+            <div class="risk-item"><span class="l">防火墙 drop</span><div class="bar-wrap"><div class="bar" id="risk-fw-bar"></div></div><span class="v" id="risk-fw-v">-</span></div>
+            <div class="risk-item"><span class="l">封禁数</span><div class="bar-wrap"><div class="bar" id="risk-ban-bar"></div></div><span class="v" id="risk-ban-v">-</span></div>
+            <div class="risk-item"><span class="l">磁盘水位</span><div class="bar-wrap"><div class="bar" id="risk-disk-bar"></div></div><span class="v" id="risk-disk-v">-</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="grid-column: span 2;"><h3>攻击趋势（SSH 失败 vs 防火墙 drop，点击图例隐藏通道）</h3>
+        <div class="chart-wrap">
+          <div id="chart-attack-trend" class="chart" role="img" aria-label="攻击趋势图：数据加载中" style="height:220px;"></div>
+          <div id="zero-attack-badge" class="zero-line" style="display:none;">✓ 所选范围无攻击记录</div>
+        </div>
+      </div>
+    </div>
+    <!-- L3 关键计数：KPI 2×2 卡组（卡内结构不变，方案 3.2） -->
+    <div class="stat">
+      <div class="kpi-row">
+        <div class="kpi"><span class="l">防火墙事件</span><span class="v" id="today-fw">-</span>
+          <span class="trend flat" id="trend-fw"></span>
+          <span class="spark" id="spark-fw"></span><span class="note">含 drop/accept</span></div>
+        <div class="kpi"><span class="l">SSH 失败</span><span class="v" id="today-sshfail">-</span>
+          <span class="trend flat" id="trend-ssh"></span>
+          <span class="spark" id="spark-ssh"></span><span class="note">失败次数</span></div>
+      </div>
+      <div class="kpi-row">
+        <div class="kpi"><span class="l">当前活跃连接</span><span class="v" id="active-conns">-</span>
+          <span class="note">实时值（无历史序列）</span></div>
+        <div class="kpi"><span class="l">磁盘使用率</span><span class="v" id="disk-pct">-</span>
+          <span class="trend flat" id="trend-disk"></span>
+          <span class="spark" id="spark-disk"></span><span class="note">磁盘分区水位</span></div>
+      </div>
+    </div>
+    <!-- L3 TOP 攻击源 + 被攻击端口（迷你榜，保留点击联动；方案 3.2） -->
+    <div class="grid" style="margin-bottom:12px;">
+      <div class="card"><h3>TOP 攻击源（点击复制 IP）</h3><ul id="top-sources-mini" class="mini-top"></ul></div>
+      <div class="card"><h3>被攻击端口 TOP5（点击跳转攻击页过滤）</h3><ul id="top-ports-mini" class="mini-top"></ul></div>
+    </div>
+    <!-- L4 系统资源：默认折叠区（初始展开，手动折叠后 sessionStorage 记忆；方案 3.2/9.4） -->
+    <details class="fold" id="fold-resources" open>
+      <summary><span class="fold-title">系统资源（CPU/内存/磁盘/网络）</span><span class="fold-hint">点击折叠</span></summary>
+      <div class="fold-body">
+        <div class="grid">
+          <div class="card"><h3>CPU 使用率</h3><div id="chart-cpu" class="chart" role="img" aria-label="CPU 使用率图：数据加载中"></div></div>
+          <div class="card"><h3>内存使用率</h3><div id="chart-mem" class="chart" role="img" aria-label="内存使用率图：数据加载中"></div></div>
+          <div class="card"><h3>磁盘使用率</h3><div id="chart-disk" class="chart" role="img" aria-label="磁盘使用率图：数据加载中"></div></div>
+          <div class="card"><h3>网络速率 (B/s)</h3><div id="chart-net" class="chart" role="img" aria-label="网络速率图：数据加载中"></div></div>
+        </div>
+      </div>
+    </details>
+    <!-- L5 最近事件：默认折叠区 + 默认 3 条 + 展开全部（方案 3.2/3.3） -->
+    <details class="fold" id="fold-events" open style="margin-top:12px;">
+      <summary><span class="fold-title">最近事件（SSH 失败 / 防火墙 drop / 封禁）</span><span id="event-fold-summary" class="fold-hint"></span></summary>
+      <div class="fold-body">
+        <div id="event-stream" class="event-stream"></div>
+        <button id="event-expand-btn" class="more-btn" style="display:none;">展开全部</button>
+      </div>
+    </details>
+  </div>
+  <div id="panel-conn" class="panel">
+    <div class="card"><h3 class="panel-title" tabindex="-1">当前连接（ss 快照 20s 采集 / 页面 5s 轮询）</h3>
+      <div class="scroll"><table id="snap-table"><caption class="sr-only">当前连接快照</caption><thead><tr><th>协议</th><th>状态</th><th>源</th><th>目的</th><th>Pid</th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="card" style="margin-top:12px;"><h3>最近连接事件（NEW/UPDATE/DESTROY）</h3>
+      <div class="scroll"><table id="conn-table"><caption class="sr-only">最近连接事件</caption><thead><tr><th>时间</th><th>类型</th><th>协议</th><th>源</th><th>目的</th><th>包/字节</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </div>
+  <div id="panel-attack" class="panel">
+    <div id="rate-hint" class="rate-hint" style="display:none;">30 天视图聚合较重，攻击数据刷新频率自动降至 30 秒</div>
+    <div class="grid">
+      <div class="card"><h3 class="panel-title" tabindex="-1">被攻击端口 TOP（防火墙 DPT 口径，点击柱条过滤）</h3><div id="chart-ports" class="chart" role="img" aria-label="被攻击端口 TOP 图：数据加载中"></div></div>
+      <div class="card"><h3>攻击源 IP TOP（点击柱条过滤）</h3><div id="chart-sources" class="chart" role="img" aria-label="攻击源 IP TOP 图：数据加载中"></div></div>
+      <div class="card"><h3>SSH 失败时间线（每小时）</h3><div id="chart-ssh" class="chart" role="img" aria-label="SSH 失败时间线图：数据加载中"></div></div>
+      <div class="card" style="grid-column: 1 / -1;"><h3>fail2ban 封禁记录</h3>
+        <div class="scroll"><table id="ban-table"><caption class="sr-only">fail2ban 封禁记录</caption><thead><tr><th>时间</th><th>IP</th><th>类型</th><th>Jail</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card" style="grid-column: 1 / -1;"><h3>SSH 登录尝试（失败红色，点击时间列排序）
+        <select id="ssh-result-filter" class="table-filter" title="按结果过滤">
+          <option value="">全部结果</option>
+          <option value="0">仅失败</option>
+          <option value="1">仅成功</option>
+        </select></h3>
+        <div class="scroll"><table id="ssh-table"><caption class="sr-only">SSH 登录尝试明细</caption><thead><tr>
+          <th>时间</th><th>源 IP</th><th>用户名</th><th>认证方式</th><th>结果</th><th>指纹</th><th>详情</th>
+        </tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card" style="grid-column: 1 / -1;"><h3>防火墙事件明细（drop 红色，点击时间列排序）
+        <select id="fw-action-filter" class="table-filter" title="按动作过滤">
+          <option value="">全部动作</option>
+          <option value="drop">仅 drop</option>
+          <option value="accept">仅 accept</option>
+        </select></h3>
+        <div class="scroll"><table id="fw-table"><caption class="sr-only">防火墙事件明细</caption><thead><tr>
+          <th>时间</th><th>动作</th><th>链</th><th>协议</th><th>源</th><th>目的</th><th>raw</th>
+        </tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+  </div>
+  <div id="panel-export" class="panel">
+    <div class="card">
+      <h3 class="panel-title" tabindex="-1">数据导出（CSV）</h3>
+      <div class="export-block">
+        <div class="export-label">时间段（预设）</div>
+        <div class="export-presets">
+          <button class="range-btn export-range" data-export-range="1h">1h</button>
+          <button class="range-btn export-range active" data-export-range="24h">24h</button>
+          <button class="range-btn export-range" data-export-range="7d">7d</button>
+          <button class="range-btn export-range" data-export-range="30d">30d</button>
+        </div>
+        <div class="export-label">自定义起止（选择后自动切换；跨度上限 90 天）</div>
+        <div class="export-custom">
+          <input type="datetime-local" id="export-from" aria-label="开始时间">
+          <span class="export-sep">至</span>
+          <input type="datetime-local" id="export-to" aria-label="结束时间">
+        </div>
+        <button id="export-btn" class="export-btn">导出 CSV</button>
+        <div id="export-msg" class="export-msg" role="status" aria-live="polite"></div>
+        <div class="export-note">数据范围：防火墙 drop（源 IP / 事件时间 / 目标端口）+ SSH 失败尝试（源 IP / 事件时间 / 端口固定 22）+ fail2ban 封禁（IP / 时间 / 端口为空）。CSV 无表头，每行三列：攻击者 IP、攻击时间、攻击端口。</div>
+      </div>
+    </div>
+  </div>
+</main>
+<!-- DEV-FE-003 IN-4：WS system 帧独立浮条（右下角，5s 自动消失；aria-live 供读屏播报） -->
+<div id="sys-toast" role="status" aria-live="polite" style="display:none;"></div>
+<script src="app.js"></script>
+</body>
+</html>

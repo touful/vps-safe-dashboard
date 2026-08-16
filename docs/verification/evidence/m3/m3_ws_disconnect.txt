@@ -1,0 +1,5 @@
+=== 断连兜底实测（TEST-004）===
+--- agent 已退出（pkill），8080 无监听 ---
+连接被拒: ConnectionRefusedError: [Errno 111] Connect call failed ("127.0.0.1", 8080)
+--- 前端兜底链路（app.js L179/L185 代码审查）---
+ws.onclose -> wsMode=false + setTimeout(connectWS, 3000)；setInterval(pollAll, 5000) 恒在

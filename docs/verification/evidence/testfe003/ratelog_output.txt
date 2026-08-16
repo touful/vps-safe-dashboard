@@ -1,0 +1,7 @@
+限流留痕总数（最近30条，运行时刻 now=1786878161）:
+  age=799s ts=1786877362 api warn 聚合限流拒绝: /api/v1/export/csv
+  age=2380s ts=1786875781 api warn 聚合限流拒绝: /api/v1/export/csv
+  age=2935s ts=1786875226 api warn API 限流拒绝: /api/v1/resources
+  age=3079s ts=1786875082 api warn 聚合限流拒绝: /api/v1/export/csv
+  age=3143s ts=1786875018 api warn API 限流拒绝: /api/v1/resources
+最近 90s 内限流留痕条数: 0

@@ -1,0 +1,29 @@
+TEST-FE-001 performance trace analysis v3 (trace_attack30s.json)
+window: TracingStartedInBrowser ts=101517535260 -> end ts=101571038944 (source: found event)
+recording window span: 53503.7 ms (53.50 s)
+trace events total: 164290; in-window events: 163985
+
+timeline anchors:
+  firstContentfulPaint ts=101517555277 offset=20.0 ms
+  8090 first /api/v1/summary request ts=101519233294 offset=1698.0 ms
+
+Long tasks (RunTask/Task >=50ms): 4 (windowed)
+  grouped by page (tid->port):
+    dur=61.0 ms offset=0.0 s tid=39992 pid=15888 page=8080
+    dur=50.9 ms offset=41.8 s tid=11828 pid=29936 page=8090
+    dur=101.1 ms offset=41.9 s tid=11828 pid=29936 page=8090
+    dur=69.8 ms offset=43.7 s tid=11828 pid=29936 page=8090
+  page group counts: {'8080': 1, '8090': 3}
+  note: 8090 = 受测实例（隔离端口）；8080 = 旧实例（非受测，其长任务不计入 PF-2）
+
+Layout events (>=1ms): count=33 total=140.8 ms max=19.7 ms
+  19.7 ms
+  12.0 ms
+  10.7 ms
+  10.4 ms
+  8.0 ms
+  7.5 ms
+  6.3 ms
+  6.1 ms
+  5.2 ms
+  5.1 ms

@@ -1,0 +1,30 @@
+===== M2 归档演练开始 =====
+2026-08-13 15:08:37 UTC
+--- 1. agent 短跑建主库（60s） ---
+-rw-r--r-- 1 root root 90112 Aug 13 23:09 /path/to/sentry-agent/arch_drill/state.db
+--- 2. 构造上月跨月数据（resources/connections 各 100 行） ---
+插入完成: 2026-07, 100 行 × 2 表
+--- 3. archive-trigger 归档 ---
+归档完成: 2026-07 → /path/to/sentry-agent/arch_drill/archive
+--- 4. 校验 ---
+主库行数（归档后，应保持 100×2 + 当前月数据）:
+resources: 111
+connections: 110
+copied_months: ('2026-07',)
+归档目录内容:
+total 12
+drwxr-xr-x 2 root root 4096 Aug 13 23:09 .
+drwxr-xr-x 3 root root 4096 Aug 13 23:09 ..
+-rw-r--r-- 1 root root 2540 Aug 13 23:09 2026-07.db.gz
+--- 5. 幂等重跑（应跳过）与 .tmp 自愈 ---
+归档完成: 2026-07 → /path/to/sentry-agent/arch_drill/archive
+（幂等重跑：无新文件/无报错即通过）
+total 12
+drwxr-xr-x 2 root root 4096 Aug 13 23:09 .
+drwxr-xr-x 3 root root 4096 Aug 13 23:09 ..
+-rw-r--r-- 1 root root 2540 Aug 13 23:09 2026-07.db.gz
+--- 6. gzip 副本解压校验（行数一致） ---
+副本 resources: 100（期望 100）
+副本 connections: 100（期望 100）
+--- 7. .tmp 中断自愈（预置残留后重归档新月份演练：删除副本后重跑） ---
+===== 归档演练结束 =====

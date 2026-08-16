@@ -1,0 +1,49 @@
+=== M3 API 实测（run_m3_integration.sh 输出）===
+===== M3 集成实测开始 =====
+2026-08-13 17:03:26 UTC
+agent 已启动 (PID=14574)
+===== 1. API 端点实测 =====
+--- health ---
+{"conntrack_overrun_total":0,"db_size_mb":0.1640625,"ok":true,"schema_version":"1","system_events_total":9,"uptime_s":33}
+
+--- summary ---
+{"active_conns":17,"disk_percent":18.952505535551758,"fw_events":114,"ssh_fail":28,"ssh_ok":14,"top_ports":[{"dst_port":9999,"hits":114}]}
+
+--- top_ports ---
+{"rows":[{"dst_port":9999,"hits":114}]}
+
+--- top_sources ---
+{"rows":[{"src_ip":3232236062,"hits":114}]}
+
+--- ssh timeline ---
+{"rows":[{"ts":1786636800,"hits":24},{"ts":1786640400,"hits":4}]}
+
+--- connections ---
+{"rows":[{"ts":1786640633,"ev_type":3,"proto":6,"src_ip":2130706433,"src_port":46574,"dst_ip":2130706433,"dst_port":8004,"packets":1,"bytes":60,"mark":0,"src_ip6":"","dst_ip6":""},{"ts":1786640633,"ev_type":1,"proto":6,"src_ip":2130706433,"src_port":46574,"dst_ip":2130706433,"dst_port":8004,"packets
+--- ssh ---
+{"rows":[{"ts":1786640632,"src_ip":3325256712,"username":"alice","auth_method":"password","result":1,"fingerprint":"","detail":"Accepted password for alice from 198.51.100.8 port 45210 ssh2"},{"ts":1786640632,"src_ip":3325256711,"username":"admin","auth_method":"password","result":0,"fingerprint":""
+--- firewall ---
+{"rows":[{"ts":1786640632,"chain":"input","action":"drop","proto":6,"src_ip":3232236062,"src_port":1875,"dst_ip":3232236062,"dst_port":9999,"raw":"SENTRY_FW:input:drop IN=lo OUT= MAC=00:00:00:00:00:00:00:00:00:00:00:00:08:00 SRC=<LAN_IP> DST=<LAN_IP> LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=23805
+--- bans ---
+{"rows":null}
+
+--- snapshot ---
+{"rows":[{"proto":17,"src_ip":"0.0.0.0","src_port":0,"dst_ip":"10.255.255.254","dst_port":53,"state":"UNCONN","pid":-1},{"proto":17,"src_ip":"0.0.0.0","src_port":0,"dst_ip":"127.0.0.1","dst_port":323,"state":"UNCONN","pid":-1},{"proto":17,"src_ip":"0.0.0.0","src_port":0,"dst_ip":"0.0.0.0","dst_port"
+--- archive ---
+{"rows":null}
+
+===== 2. 前端静态资源 =====
+--- index.html HTTP 状态与标题 ---
+status=200 size=4884
+<title>sentry-agent 安全态势面板</title>
+--- echarts.min.js ---
+status=200 size=1030855
+--- app.js ---
+status=200 size=9345
+===== 3. WS Origin 白名单 =====
+--- 非法 Origin（应 403） ---
+status=403
+--- 白名单 Origin（应非 403） ---
+status=101
+agent 退出码: 0
+===== M3 集成实测结束 =====

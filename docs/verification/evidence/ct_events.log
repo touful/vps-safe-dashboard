@@ -1,0 +1,62 @@
+    [NEW] tcp      6 120 SYN_SENT src=::1 dst=::1 sport=47292 dport=8004 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=47292
+[DESTROY] tcp      6 120 CLOSE src=::1 dst=::1 sport=47292 dport=8004 packets=1 bytes=80 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=47292 packets=1 bytes=60
+    [NEW] tcp      6 120 SYN_SENT src=127.0.0.1 dst=127.0.0.1 sport=45658 dport=8004 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=45658
+[DESTROY] tcp      6 120 CLOSE src=127.0.0.1 dst=127.0.0.1 sport=45658 dport=8004 packets=1 bytes=60 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=45658 packets=1 bytes=40
+    [NEW] tcp      6 120 SYN_SENT src=::1 dst=::1 sport=47294 dport=8004 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=47294
+[DESTROY] tcp      6 120 CLOSE src=::1 dst=::1 sport=47294 dport=8004 packets=1 bytes=80 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=47294 packets=1 bytes=60
+    [NEW] tcp      6 120 SYN_SENT src=127.0.0.1 dst=127.0.0.1 sport=45666 dport=8004 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=45666
+[DESTROY] tcp      6 120 CLOSE src=127.0.0.1 dst=127.0.0.1 sport=45666 dport=8004 packets=1 bytes=60 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=45666 packets=1 bytes=40
+    [NEW] tcp      6 120 SYN_SENT src=<LAN_IP> dst=<LAN_IP> sport=45096 dport=14000 [UNREPLIED] src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45096
+ [UPDATE] tcp      6 60 SYN_RECV src=<LAN_IP> dst=<LAN_IP> sport=45096 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45096
+ [UPDATE] tcp      6 432000 ESTABLISHED src=<LAN_IP> dst=<LAN_IP> sport=45096 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45096 [ASSURED]
+ [UPDATE] tcp      6 120 FIN_WAIT src=<LAN_IP> dst=<LAN_IP> sport=45096 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45096 [ASSURED]
+ [UPDATE] tcp      6 30 LAST_ACK src=<LAN_IP> dst=<LAN_IP> sport=45096 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45096 [ASSURED]
+ [UPDATE] tcp      6 120 TIME_WAIT src=<LAN_IP> dst=<LAN_IP> sport=45096 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45096 [ASSURED]
+    [NEW] tcp      6 120 SYN_SENT src=<LAN_IP> dst=<LAN_IP> sport=45104 dport=14000 [UNREPLIED] src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45104
+ [UPDATE] tcp      6 60 SYN_RECV src=<LAN_IP> dst=<LAN_IP> sport=45104 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45104
+ [UPDATE] tcp      6 432000 ESTABLISHED src=<LAN_IP> dst=<LAN_IP> sport=45104 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45104 [ASSURED]
+ [UPDATE] tcp      6 120 FIN_WAIT src=<LAN_IP> dst=<LAN_IP> sport=45104 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45104 [ASSURED]
+ [UPDATE] tcp      6 30 LAST_ACK src=<LAN_IP> dst=<LAN_IP> sport=45104 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45104 [ASSURED]
+ [UPDATE] tcp      6 120 TIME_WAIT src=<LAN_IP> dst=<LAN_IP> sport=45104 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45104 [ASSURED]
+    [NEW] tcp      6 120 SYN_SENT src=<LAN_IP> dst=<LAN_IP> sport=45106 dport=14000 [UNREPLIED] src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45106
+ [UPDATE] tcp      6 60 SYN_RECV src=<LAN_IP> dst=<LAN_IP> sport=45106 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45106
+ [UPDATE] tcp      6 432000 ESTABLISHED src=<LAN_IP> dst=<LAN_IP> sport=45106 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45106 [ASSURED]
+    [NEW] tcp      6 120 SYN_SENT src=::1 dst=::1 sport=46576 dport=8004 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=46576
+[DESTROY] tcp      6 120 CLOSE src=::1 dst=::1 sport=46576 dport=8004 packets=1 bytes=80 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=46576 packets=1 bytes=60
+    [NEW] tcp      6 120 SYN_SENT src=127.0.0.1 dst=127.0.0.1 sport=46126 dport=8004 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=46126
+[DESTROY] tcp      6 119 CLOSE src=127.0.0.1 dst=127.0.0.1 sport=46126 dport=8004 packets=1 bytes=60 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=46126 packets=1 bytes=40
+ [UPDATE] tcp      6 120 FIN_WAIT src=<LAN_IP> dst=<LAN_IP> sport=45106 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45106 [ASSURED]
+ [UPDATE] tcp      6 30 LAST_ACK src=<LAN_IP> dst=<LAN_IP> sport=45106 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45106 [ASSURED]
+ [UPDATE] tcp      6 120 TIME_WAIT src=<LAN_IP> dst=<LAN_IP> sport=45106 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=45106 [ASSURED]
+    [NEW] tcp      6 120 SYN_SENT src=<LAN_IP> dst=<LAN_IP> sport=46344 dport=14000 [UNREPLIED] src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=46344
+ [UPDATE] tcp      6 60 SYN_RECV src=<LAN_IP> dst=<LAN_IP> sport=46344 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=46344
+ [UPDATE] tcp      6 432000 ESTABLISHED src=<LAN_IP> dst=<LAN_IP> sport=46344 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=46344 [ASSURED]
+    [NEW] tcp      6 120 SYN_SENT src=<LAN_IP> dst=<LAN_IP> sport=1302 dport=9999 [UNREPLIED] src=<LAN_IP> dst=<LAN_IP> sport=9999 dport=1302
+    [NEW] tcp      6 120 SYN_SENT src=<LAN_IP> dst=<LAN_IP> sport=1303 dport=9999 [UNREPLIED] src=<LAN_IP> dst=<LAN_IP> sport=9999 dport=1303
+    [NEW] tcp      6 120 SYN_SENT src=<LAN_IP> dst=<LAN_IP> sport=1304 dport=9999 [UNREPLIED] src=<LAN_IP> dst=<LAN_IP> sport=9999 dport=1304
+    [NEW] tcp      6 120 SYN_SENT src=<LAN_IP> dst=<LAN_IP> sport=1305 dport=9999 [UNREPLIED] src=<LAN_IP> dst=<LAN_IP> sport=9999 dport=1305
+    [NEW] tcp      6 120 SYN_SENT src=<LAN_IP> dst=<LAN_IP> sport=1306 dport=9999 [UNREPLIED] src=<LAN_IP> dst=<LAN_IP> sport=9999 dport=1306
+    [NEW] tcp      6 120 SYN_SENT src=::1 dst=::1 sport=46590 dport=8004 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=46590
+[DESTROY] tcp      6 120 CLOSE src=::1 dst=::1 sport=46590 dport=8004 packets=1 bytes=80 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=46590 packets=1 bytes=60
+    [NEW] tcp      6 120 SYN_SENT src=127.0.0.1 dst=127.0.0.1 sport=46136 dport=8004 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=46136
+[DESTROY] tcp      6 120 CLOSE src=127.0.0.1 dst=127.0.0.1 sport=46136 dport=8004 packets=1 bytes=60 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=46136 packets=1 bytes=40
+ [UPDATE] tcp      6 120 FIN_WAIT src=<LAN_IP> dst=<LAN_IP> sport=46344 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=46344 [ASSURED]
+ [UPDATE] tcp      6 30 LAST_ACK src=<LAN_IP> dst=<LAN_IP> sport=46344 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=46344 [ASSURED]
+ [UPDATE] tcp      6 120 TIME_WAIT src=<LAN_IP> dst=<LAN_IP> sport=46344 dport=14000 src=<LAN_IP> dst=<LAN_IP> sport=14000 dport=46344 [ASSURED]
+    [NEW] tcp      6 120 SYN_SENT src=::1 dst=::1 sport=46462 dport=8004 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=46462
+[DESTROY] tcp      6 120 CLOSE src=::1 dst=::1 sport=46462 dport=8004 packets=1 bytes=80 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=46462 packets=1 bytes=60
+    [NEW] tcp      6 120 SYN_SENT src=127.0.0.1 dst=127.0.0.1 sport=47206 dport=8004 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=47206
+[DESTROY] tcp      6 120 CLOSE src=127.0.0.1 dst=127.0.0.1 sport=47206 dport=8004 packets=1 bytes=60 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=47206 packets=1 bytes=40
+    [NEW] tcp      6 120 SYN_SENT src=::1 dst=::1 sport=46466 dport=8004 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=46466
+[DESTROY] tcp      6 120 CLOSE src=::1 dst=::1 sport=46466 dport=8004 packets=1 bytes=80 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=46466 packets=1 bytes=60
+    [NEW] tcp      6 120 SYN_SENT src=127.0.0.1 dst=127.0.0.1 sport=47218 dport=8004 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=47218
+[DESTROY] tcp      6 119 CLOSE src=127.0.0.1 dst=127.0.0.1 sport=47218 dport=8004 packets=1 bytes=60 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=47218 packets=1 bytes=40
+    [NEW] tcp      6 120 SYN_SENT src=::1 dst=::1 sport=45272 dport=8004 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=45272
+[DESTROY] tcp      6 120 CLOSE src=::1 dst=::1 sport=45272 dport=8004 packets=1 bytes=80 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=45272 packets=1 bytes=60
+    [NEW] tcp      6 120 SYN_SENT src=127.0.0.1 dst=127.0.0.1 sport=44646 dport=8004 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=44646
+[DESTROY] tcp      6 120 CLOSE src=127.0.0.1 dst=127.0.0.1 sport=44646 dport=8004 packets=1 bytes=60 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=44646 packets=1 bytes=40
+    [NEW] tcp      6 120 SYN_SENT src=::1 dst=::1 sport=44662 dport=8004 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=44662
+[DESTROY] tcp      6 120 CLOSE src=::1 dst=::1 sport=44662 dport=8004 packets=1 bytes=80 [UNREPLIED] src=::1 dst=::1 sport=8004 dport=44662 packets=1 bytes=60
+    [NEW] tcp      6 120 SYN_SENT src=127.0.0.1 dst=127.0.0.1 sport=44628 dport=8004 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=44628
+[DESTROY] tcp      6 120 CLOSE src=127.0.0.1 dst=127.0.0.1 sport=44628 dport=8004 packets=1 bytes=60 [UNREPLIED] src=127.0.0.1 dst=127.0.0.1 sport=8004 dport=44628 packets=1 bytes=40
+conntrack v1.4.6 (conntrack-tools): 61 flow events have been shown.

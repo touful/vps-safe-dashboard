@@ -1,0 +1,10 @@
+帧类型统计: {'conn_stats': 35, 'resource': 7, 'heartbeat': 1, 'system': 1}
+样本[conn_stats]: {"active": 16, "destroy": 0, "new": 1, "ts": 1786641552, "type": "conn_stats"}
+样本[resource]: {"cpu": 5.317040951122854, "disk": 18.952505914424716, "mem": 21.601310537518298, "net_rx_bps": 55, "net_tx_bps": 66, "ts": 1786641550, "type": "resource"}
+样本[heartbeat]: {"ts": 1786641576, "type": "heartbeat"}
+样本[system]: {"id": 11, "level": "warn", "message": "封禁名单查询失败: 查询 bans 表失败（fail2ban 库结构兼容性）: unable to open database file (14)", "source": "f2b", "ts": 1786641576, "type": "
+断言[resource]: PASS
+断言[conn_stats]: PASS
+断言[system]: PASS
+断言[heartbeat]: PASS
+断言[非法Origin]: PASS（拒绝: InvalidStatus）

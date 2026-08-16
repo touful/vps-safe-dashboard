@@ -1,0 +1,11 @@
+=== api/diskmon 纯函数 ===
+sentry-agent/internal/api/api.go:130:		rangeSeconds		100.0%
+sentry-agent/internal/api/api.go:151:		parseUintParam		100.0%
+sentry-agent/internal/api/api.go:168:		urlPathEscape		100.0%
+sentry-agent/internal/api/query.go:341:		ipToDotted		100.0%
+sentry-agent/internal/api/ws.go:193:		frameConnStats		100.0%
+sentry-agent/internal/diskmon/diskmon.go:30:	Classify		100.0%
+=== cmd ===
+sentry-agent/cmd/sentry-agent/main.go:263:	isLoopbackListen	100.0%
+=== total ===
+total:						(statements)		63.8%

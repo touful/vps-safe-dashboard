@@ -1,0 +1,2 @@
+size=177MB
+docker save + gzip 压缩后: 42.65 MB

@@ -1,0 +1,9 @@
+# .dockerignore（R-06）：缩小 Docker 构建上下文
+.git
+.opencode
+docs
+scripts
+bin
+*.md
+*.log
+deploy/verify

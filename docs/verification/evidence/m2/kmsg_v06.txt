@@ -1,0 +1,13 @@
+=== kmsg 防重放回归（V-06 正式执行）===
+=== kmsg 防重放验证 ===
+2026-08-13 15:06:55 UTC
+历史注入完成（2 条）
+实时注入完成（3 条）
+=== fw 事件统计 ===
+fw 事件总数: 3（期望 3：仅实时注入的 3 条，历史 2 条不得重放）
+=== fw 事件内容 ===
+{"ts":1786633618,"channel":"fw","ev":{"ts":1786633618,"chain":"input","action":"drop","proto":6,"src_ip":"203.0.113.1","src_port":100,"dst_ip":"10.0.0.2","dst_port":8080,"raw":"SENTRY_FW:input:drop IN=eth0 OUT= SRC=203.0.113.1 DST=10.0.0.2 PROTO=TCP SPT=100 DPT=8080"}}
+{"ts":1786633618,"channel":"fw","ev":{"ts":1786633618,"chain":"input","action":"reject","proto":17,"src_ip":"203.0.113.2","src_port":200,"dst_ip":"10.0.0.2","dst_port":53,"raw":"SENTRY_FW:input:reject IN=eth0 OUT= SRC=203.0.113.2 DST=10.0.0.2 PROTO=UDP SPT=200 DPT=53"}}
+{"ts":1786633618,"channel":"fw","ev":{"ts":1786633618,"chain":"input","action":"drop","proto":1,"src_ip":"203.0.113.3","src_port":0,"dst_ip":"10.0.0.2","dst_port":0,"raw":"SENTRY_FW:input:drop IN=eth0 OUT= SRC=203.0.113.3 DST=10.0.0.2 PROTO=ICMP TYPE=8 CODE=0"}}
+=== system 事件（应为空或降级提示） ===
+=== kmsg 验证结束 ===

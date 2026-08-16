@@ -1,0 +1,38 @@
+===== DEV-009 验证 2026-08-14T14:22:31Z =====
+# 注：证据微调（DEV-RELEASE-001）——真实主机名已脱敏为 HOSTNAME-PLACEHOLDER
+
+--- 1. bash -n ---
+  check_env.sh: OK
+  setup_firewall.sh: OK
+  setup_system.sh: OK
+  install_fail2ban.sh: OK
+  deploy.sh: OK
+
+--- 2. docker compose config 校验（F-03） ---
+  docker compose config 退出码: 0（0=通过）
+    mem_limit: "268435456"
+      - no-new-privileges:true
+
+--- 3. F-01 幂等实测（nft：重复执行规则数不变） ---
+已插入 LOG（inet sentry_idem/input 于 handle 2 前，前缀 SENTRY_FW:input:drop ）
+SENTRY_FW 规则数: 1
+  第一次执行后 SENTRY_FW 规则数: 1
+[提示] 规则集已含 SENTRY_FW LOG 规则（幂等：跳过插入）
+  第二次执行后 SENTRY_FW 规则数: 1
+  幂等判定: PASS
+  插入规则（前缀应含 input:drop）:
+		log prefix "SENTRY_FW:input:drop " flags all limit rate 5/second burst 10 packets # handle 3
+
+--- 4. M4B-01 端到端：LOG 前缀 → 内核日志 → 解析 action=drop ---
+  内核日志 SENTRY_FW 行（抽查前 2 条）:
+Aug 14 22:22:33 HOSTNAME-PLACEHOLDER kernel: SENTRY_FW:input:drop IN=lo OUT= MAC=00:00:00:00:00:00:00:00:00:00:00:00:08:00 SRC=<LAN_IP> DST=<LAN_IP> LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=47476 PROTO=TCP SPT=1203 DPT=9999 SEQ=767650854 ACK=971491396 WINDOW=512 RES=0x00 SYN URGP=0 MARK=0x1 
+Aug 14 22:22:33 HOSTNAME-PLACEHOLDER kernel: SENTRY_FW:input:drop IN=lo OUT= MAC=00:00:00:00:00:00:00:00:00:00:00:00:08:00 SRC=<LAN_IP> DST=<LAN_IP> LEN=40 TOS=0x00 PREC=0x00 TTL=64 ID=56821 PROTO=TCP SPT=1204 DPT=9999 SEQ=1090988726 ACK=2012119972 WINDOW=512 RES=0x00 SYN URGP=0 MARK=0x1 
+  前缀格式判定: PASS（SENTRY_FW:input:drop 出现）
+  agent 解析的 fw 事件（action 字段，R-05 补强：按 DPT=9999 过滤端口闭环）:
+  chain=input action=drop dpt=9999 raw=SENTRY_FW:input:drop IN=lo OUT= MAC=00:00:00:00:00:00:00:00:
+  chain=input action=drop dpt=9999 raw=SENTRY_FW:input:drop IN=lo OUT= MAC=00:00:00:00:00:00:00:00:
+  chain=input action=drop dpt=9999 raw=SENTRY_FW:input:drop IN=lo OUT= MAC=00:00:00:00:00:00:00:00:
+  端口闭环判定: PASS（DPT=9999 且 action=drop）
+  全量 action 判定: PASS（存在 action=drop）
+
+===== DEV-009 验证结束 =====

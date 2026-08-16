@@ -1,0 +1,42 @@
+TEST-FE-001 浏览器实测补充证据 v3（DOM 计数 / PF-1 量化 / trace 复核进程归属分组）
+====================================================================
+时间：2026-08-16（收尾轮）
+浏览器：Chrome（DevTools MCP），页面 http://127.0.0.1:8090/（隔离实例 8090）
+agent 进程：PID 38740（sentry-agent.exe，运行中）
+API 探活：GET /api/v1/summary?range=24h → HTTP 200（body: active_conns=0, disk_percent=-1, fw_events=167, ssh_fail=89）
+
+一、DOM 计数实测（evaluate_script）
+- 总览页稳态：document.getElementsByTagName('*').length = 401（PF-3 预期 <500 → PASS）
+  - details = 2（折叠区：系统资源/最近事件）；table = 6；button = 20；[tabindex] = 4（均 -1）
+- 攻击页全量（切页后 8s，本轮独立复核）：domTotal = 1440（PF-3 预期 <2000 → PASS）
+  - 数据行 134（ssh/fw/ban 三表合计）；table = 6
+- 滚动加载扩展峰值：2540（上轮实测记录，滚动分页扩展后峰值；PF-3 设计即记录扩展峰值）
+
+二、PF-1 稳态 30s 窗口量化（本轮实测，WS 实时状态，页面加载完成后计时 32s）
+- 总请求：60 个（全部为 API；0 静态资源）
+- 总字节：361,620 B（Resource Timing transferSize，gzip 压缩后）
+- 构成（byName）：
+  summary 9 / resources(1h) 9 / top_ports 6 / top_sources 6 / ssh/timeline 6 /
+  firewall/timeline 6 / bans 6 / ssh 6 / firewall 6
+- 折算：约 9 请求/5s（轻轮询 summary+resources1h = 2 + 攻击类 7），与 AUD-FE-002 记录
+  "总览页 5s 轮询构成 = 9 请求/5s" 一致；低于 AUD-FE-001 记录的 P0 基线 12 请求/5s（降 25%）
+- P0 基线"53 请求/69.5KB"未注明字节口径（压缩前/后、含/不含首载），无法严格对比；
+  请求数核心指标（12→9、轻轮询 5→2）达成，字节数仅作记录
+
+三、性能 trace 复核 v3（trace_attack30s.json，进程归属分组）
+- 窗口：以 TracingStartedInBrowser ts=101517535260 为起点，排除 ts=0 与窗口外事件；
+  跨度 53,503.7 ms（53.50 s）
+- 时间线锚点：firstContentfulPaint @ +20ms；8090 首个 /api/v1/summary 请求 @ +1,698ms
+- 长任务统计口径（v3）：RunTask/Task ≥50ms，按 ResourceSendRequest tid→端口 映射进程归属：
+  - **8090（受测实例）3 次**：50.9ms@+41.8s（Layout×3+UpdateLayoutTree×4，DOM 插入布局）、
+    101.1ms@+41.9s（FireAnimationFrame×3+v8.callFunction×3+Paint×2，动画帧+绘制）、
+    69.8ms@+43.7s（V8.GCIncrementalMarking×35+Paint×22，GC 为主）
+    ——3 次集中在 +41.8~43.7s（1.9s 内），构成与滚动加载分页操作（PF-3 峰值 2540 同操作）特征一致
+  - **8080（旧实例，非受测）1 次**：61.0ms@+25ms（FireAnimationFrame×59，页面初始化期）——不计入 PF-2
+- Layout 事件（>=1ms）：33 次，合计 140.8ms，最大 19.7ms；无 >=30ms 布局事件
+- 窗口界定限制：trace 内无 SPA 导航事件（FCP +20ms 与 8090 首载 +1.7s 为锚点），30s 观察窗口
+  起止无法从 trace 独立界定；若窗口仅覆盖录制前段（0~30s）则 8090 稳态长任务为 0 次
+- 结论：PF-2 按保守口径（全程窗口）判 FAIL（8090 3 次），缺陷 DEF-FE-001-02（Major），
+  窗口口径与滚动加载场景归属待运营官/developer 复核
+- OBS-4 说明：上轮面板观察"ForcedReflow 35ms"未能在 trace 复现（无 >=30ms 布局事件），
+  面板显示口径与 trace 事件口径不一致；以 trace 独立分析为准

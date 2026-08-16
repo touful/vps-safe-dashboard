@@ -1,0 +1,5 @@
+=== TestBatchLatency 复跑（Windows Go 1.26.2）===
+=== RUN   TestBatchLatency
+    store_test.go:198: 1000 行批量写入耗时: 14.0394ms
+--- PASS: TestBatchLatency (0.05s)
+PASS

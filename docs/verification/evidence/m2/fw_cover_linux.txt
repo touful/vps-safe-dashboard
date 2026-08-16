@@ -1,0 +1,11 @@
+sentry-agent/internal/fw/fw.go:24:		RunFwParser		0.0%
+sentry-agent/internal/fw/fw.go:43:		runJournaldKernel	0.0%
+sentry-agent/internal/fw/fw.go:78:		runKmsg			0.0%
+sentry-agent/internal/fw/fw.go:85:		handleLine		0.0%
+sentry-agent/internal/fw/fw.go:102:		journalMicroTS		0.0%
+sentry-agent/internal/fw/fw_kmsg_linux.go:30:	kmsgReadLoop		0.0%
+sentry-agent/internal/fw/fw_kmsg_linux.go:85:	kmsgSeq			0.0%
+sentry-agent/internal/fw/parse.go:31:		ParseFWLine		92.9%
+sentry-agent/internal/fw/parse.go:82:		ipToUint32		90.0%
+sentry-agent/internal/fw/parse.go:99:		atou16			75.0%
+total:						(statements)		28.1%
