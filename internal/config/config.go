@@ -222,14 +222,16 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("fw.prefix 不能为空")
 	}
 	// DEV-031 优化②：fw.internal_cidrs 逐项校验 CIDR 格式（空列表合法=内置默认网段）。
-	// IPv6 CIDR 显式拒绝：当前采集层过滤仅 IPv4 判定（IPv6 行 SrcIP=0 不参与，B.2.2 首期
+	// 仅接受 IPv4 网段：当前采集层过滤仅 IPv4 判定（IPv6 行 SrcIP=0 不参与，B.2.2 首期
 	// 不启用），静默接受会让运维误以为已覆盖 IPv6 流量（reviewer R-04）。
+	// 用 Mask.Size 判断 bits：同时覆盖纯 IPv6（fc00::/7）与 IPv4-mapped IPv6
+	// （::ffff:10.0.0.0/120，其 To4() 非 nil 但 bits=128，reviewer R-N2）。
 	for i, cidr := range c.FW.InternalCIDRs {
-		ip, _, err := net.ParseCIDR(cidr)
+		_, ipnet, err := net.ParseCIDR(cidr)
 		if err != nil {
 			return fmt.Errorf("fw.internal_cidrs[%d]=%q 非法 CIDR: %v", i, cidr, err)
 		}
-		if ip.To4() == nil {
+		if _, bits := ipnet.Mask.Size(); bits != 32 {
 			return fmt.Errorf("fw.internal_cidrs[%d]=%q 为 IPv6 网段：当前仅支持 IPv4（IPv6 行不参与过滤，首期不启用，DEV-031 B.2.2）", i, cidr)
 		}
 	}

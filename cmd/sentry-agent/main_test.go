@@ -59,6 +59,11 @@ func TestRunConnChannelFallbackMode(t *testing.T) {
 	for {
 		select {
 		case ev := <-ch.System:
+			// 盲区修复（reviewer R-N1）：收到 fallback 留痕前若出现任何 conntrack warn
+			// （如"通道不可用"），说明实现回归为先尝试主通道——立即失败。
+			if ev.Source == "conntrack" && ev.Level == "warn" {
+				t.Errorf("fallback 模式不应产生 conntrack warn（预期降级噪音消除），实际: %s", ev.Message)
+			}
 			if strings.Contains(ev.Message, "mode=fallback") {
 				if ev.Level != "info" {
 					t.Errorf("fallback 模式留痕等级 = %s, 期望 info", ev.Level)
