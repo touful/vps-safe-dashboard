@@ -271,18 +271,35 @@ func (s *Store) Run(ctx context.Context) error {
 	ticker := time.NewTicker(s.batchEvery)
 	defer ticker.Stop()
 	// DEV-031 优化⑤：retention 清理（写线程内串行，MaxOpenConns(1) 约束）。
-	// 启动后立即执行一次清存量；此后每日 02:30（固定，运营官 D.4 裁定 4）触发。
-	// retentionDays<=0 时 retentionC 为 nil（nil channel 永不就绪，select 跳过）。
+	// AUDIT-005 A-01 整改：首轮清理不再于 select 前同步执行（旧实现清理期间不消费
+	// 通道，通道 4096 满后 conntrack hook 阻塞 → netlink 缓冲积压 → ENOBUFS 溢出丢
+	// 事件）——改为 retentionNow 独立 channel 在 select 循环内触发，批间 yield 消费
+	// 一轮通道维持写吞吐；此后每日 02:30（固定，运营官 D.4 裁定 4）触发。
+	// retentionDays<=0 时 retentionNow/retentionC 均为 nil（nil channel 永不就绪，select 跳过）。
 	s.warnRetentionArchiveGap() // 归档空洞语义提示（B.5.1，启动留痕一条）
 	var retentionC <-chan time.Time
+	var retentionNow chan struct{}
 	if s.retentionDays > 0 {
-		if err := s.runRetentionOnce(ctx); err != nil {
-			event.ReportSys(s.ch.System, "store", "error", "retention 首轮清理失败: "+err.Error())
-		}
+		retentionNow = make(chan struct{}, 1)
+		retentionNow <- struct{}{} // 启动立即触发首轮（select 循环内执行，不阻塞写路径）
 		rt := time.NewTimer(time.Until(nextRetentionTime(time.Now())))
 		defer rt.Stop()
 		retentionC = rt.C
 	}
+
+	// retention 批间让出（AUDIT-005 A-01 整改）：清理批间消费一轮通道并达批阈值即提交，
+	// 维持启动期写吞吐——避免大库清理期间通道积压 → conntrack hook 阻塞 → netlink
+	// 溢出丢事件。flush 失败为致命错误：记录到 yieldErr，retention 分支返回前检查并终止 Run。
+	var yieldErr error
+	yield := func() {
+		s.drainInto(&pending, &nInBatch)
+		if nInBatch >= s.batchSize {
+			if err := flush(); err != nil && yieldErr == nil {
+				yieldErr = err
+			}
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -298,11 +315,22 @@ func (s *Store) Run(ctx context.Context) error {
 			if err := flush(); err != nil {
 				return fmt.Errorf("批量提交失败: %w", err)
 			}
+		case <-retentionNow:
+			// 首轮清理（启动立即触发；批间 yield 消费通道维持写吞吐）。
+			if err := s.runRetentionOnce(ctx, yield); err != nil {
+				event.ReportSys(s.ch.System, "store", "error", "retention 首轮清理失败: "+err.Error())
+			}
+			if yieldErr != nil {
+				return fmt.Errorf("批量提交失败: %w", yieldErr)
+			}
 		case <-retentionC:
 			// 每日 02:30 定时清理；失败仅留痕不退出（清理是容错可重试操作，
 			// 写路径主职责不受影响）。
-			if err := s.runRetentionOnce(ctx); err != nil {
+			if err := s.runRetentionOnce(ctx, yield); err != nil {
 				event.ReportSys(s.ch.System, "store", "error", "retention 定时清理失败: "+err.Error())
+			}
+			if yieldErr != nil {
+				return fmt.Errorf("批量提交失败: %w", yieldErr)
 			}
 			// 重置为下一个 02:30：time.After 新建 channel 替换（触发后旧 channel 已消费，
 			// 无 Reset 语义需求，避免 timer.Reset 的排空前提，reviewer R-07）。

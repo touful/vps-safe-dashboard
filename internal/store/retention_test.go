@@ -37,7 +37,7 @@ func TestCleanupTable(t *testing.T) {
 
 	// cutoff = now - 7 天。
 	cutoff := time.Now().AddDate(0, 0, -7).Unix()
-	n, err := cleanupTable(context.Background(), db, "ssh_attempts", cutoff, 100)
+	n, err := cleanupTable(context.Background(), db, "ssh_attempts", cutoff, 100, nil)
 	if err != nil {
 		t.Fatalf("cleanupTable 失败: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestCleanupTableBatchBoundary(t *testing.T) {
 		}
 	}
 	cutoff := time.Now().AddDate(0, 0, -7).Unix()
-	got, err := cleanupTable(context.Background(), db, "connections", cutoff, 10000)
+	got, err := cleanupTable(context.Background(), db, "connections", cutoff, 10000, nil)
 	if err != nil {
 		t.Fatalf("cleanupTable 失败: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestCleanupTableCtxCancel(t *testing.T) {
 	// 预取消 ctx：首轮即中断（返回 0 行 + ctx.Err）。
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	n, err := cleanupTable(ctx, db, "connections", nowSec(), 10000)
+	n, err := cleanupTable(ctx, db, "connections", nowSec(), 10000, nil)
 	if err == nil || !errors.Is(err, context.Canceled) {
 		t.Errorf("ctx 取消应返回 Canceled: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestRunRetentionOnce(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if err := st.runRetentionOnce(ctx); err != nil {
+	if err := st.runRetentionOnce(ctx, nil); err != nil {
 		t.Fatalf("runRetentionOnce 失败: %v", err)
 	}
 	var remaining int64

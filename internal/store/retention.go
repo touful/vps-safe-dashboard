@@ -1,7 +1,8 @@
 // retention 清理实现（DEV-031 优化⑤，B.5.2/B.5.4）。
 // 语义变更：主库按保留期保留（默认 7 天可配置），归档机制保留（副本为历史保留通道）。
 // 本清理是主库首个 DELETE 路径：采用 ts>0 守卫（保护异常 0 值行）+ 分批 DELETE
-// （批间提交，避免长事务锁 WAL）+ 批间让出调度（超大库清理不饿死生产者）。
+// （批间提交，避免长事务锁 WAL）+ 批间让出（AUDIT-005 A-01 整改：调用方注入 yield
+// 回调消费一轮通道，维持启动期写吞吐——替代原 5ms Sleep，见 cleanupTable 注释）。
 package store
 
 import (
@@ -38,8 +39,11 @@ func nextRetentionTime(now time.Time) time.Time {
 // 分批实现（DEV-031 实现偏差说明）：modernc.org/sqlite v1.56.0 内嵌 SQLite 不支持
 // DELETE 语句的 LIMIT 子句（实测语法错误，无论参数化/常量），改用子查询取 id 上限
 // 分批删除（每批最多 batchSize 行，批间提交避免长事务锁 WAL，语义与 B.5.2 一致）。
+// yield 批间让出回调（AUDIT-005 A-01 整改）：每批删除后调用一次，供调用方消费一轮
+// 通道维持写吞吐——替代原 5ms Sleep（Sleep 不释放通道消费，大库清理期间通道积压满后
+// conntrack hook 阻塞 → netlink 缓冲积压 → ENOBUFS 溢出丢事件）；测试场景传 nil 跳过。
 // 返回清理行数；ctx 取消时返回已清理行数 + ctx.Err()（幂等：中断后可重跑）。
-func cleanupTable(ctx context.Context, db *sql.DB, table string, cutoff int64, batchSize int) (int64, error) {
+func cleanupTable(ctx context.Context, db *sql.DB, table string, cutoff int64, batchSize int, yield func()) (int64, error) {
 	var total int64
 	for {
 		select {
@@ -62,16 +66,19 @@ func cleanupTable(ctx context.Context, db *sql.DB, table string, cutoff int64, b
 			return total, nil
 		}
 		total += n
-		// 批间让出调度（B.5.6 R-10 缓解：超大库清理期间不长时间独占写线程）。
-		time.Sleep(5 * time.Millisecond)
+		if yield != nil {
+			yield()
+		}
 	}
 }
 
 // runRetentionOnce 执行一轮 retention 清理（写线程内调用；启动首轮 + 每日 02:30 定时）。
 // cutoff 按本轮开始时刻快照（不随清理过程漂移，防边界误删）；
 // 触发表：archive.ArchivedTables() 全量（meta 不清理）；
+// yield 批间让出回调（AUDIT-005 A-01 整改）：透传给 cleanupTable，Run 场景消费一轮
+// 通道维持写吞吐；测试场景传 nil。
 // 留痕：system_event info（合计行数/耗时）+ meta.last_retention_ts（幂等/可观测）。
-func (s *Store) runRetentionOnce(ctx context.Context) error {
+func (s *Store) runRetentionOnce(ctx context.Context, yield func()) error {
 	// 防御（reviewer R-06）：禁用态（<=0）直接返回——Run 已守卫，此处防内部误调用
 	// 计算出未来 cutoff（会删 0 行但产生无意义 meta 写入）。
 	if s.retentionDays <= 0 {
@@ -81,7 +88,7 @@ func (s *Store) runRetentionOnce(ctx context.Context) error {
 	start := time.Now()
 	var total int64
 	for _, t := range archive.ArchivedTables() {
-		n, err := cleanupTable(ctx, s.db, t, cutoff, retentionBatchSize)
+		n, err := cleanupTable(ctx, s.db, t, cutoff, retentionBatchSize, yield)
 		if err != nil {
 			return fmt.Errorf("清理表 %s 失败: %w", t, err)
 		}
