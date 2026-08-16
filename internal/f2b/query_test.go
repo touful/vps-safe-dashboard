@@ -123,6 +123,28 @@ func TestQueryBannedExpiredFiltered(t *testing.T) {
 	}
 }
 
+// TestQueryBannedSameIPMultiJail（reviewer R-02）：同 IP 封禁于多个 jail（bips
+// UNIQUE(ip,jail) 允许，如 sshd + recidive）→ DISTINCT 去重返回 1 条，与 bans 回退路径口径一致。
+func TestQueryBannedSameIPMultiJail(t *testing.T) {
+	dir := t.TempDir()
+	db, dbPath := newF2BDB(t, dir)
+	now := time.Now().Unix()
+	for _, jail := range []string{"sshd", "recidive"} {
+		if _, err := db.Exec(`INSERT INTO bips (ip, jail, timeofban, bantime, bancount, data) VALUES ('203.0.113.5', ?, ?, 3600, 1, NULL)`, jail, now-100); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+
+	got, err := QueryBanned(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("QueryBanned 失败: %v", err)
+	}
+	if len(got) != 1 || got[0] != 0xCB007105 {
+		t.Errorf("同 IP 多 jail 应去重为 1: %v", got)
+	}
+}
+
 // TestQueryBannedBansFallback（0.10.x 兼容回退路径）：库无 bips 表（旧版 fail2ban）时
 // 回退 bans 表全量返回（unban 即删行，行即当前封禁集合，无 bantime 可过滤）。
 func TestQueryBannedBansFallback(t *testing.T) {

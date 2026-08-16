@@ -135,7 +135,9 @@ func queryBannedBips(ctx context.Context, db *sql.DB) ([]uint32, error) {
 		return queryBannedBans(ctx, db)
 	}
 	// 标准结构：活跃判定查询（bantime=-1 永久豁免 / NULL 保守保留 / 未过期保留 / 残留过滤）。
-	rows, err := db.QueryContext(ctx, `SELECT ip FROM bips WHERE `+bipsActiveWhere, time.Now().Unix())
+	// DISTINCT（reviewer R-02）：bips UNIQUE(ip, jail)，同 IP 可同时封禁于多个 jail
+	// （如 sshd + recidive）——按 IP 去重，与 bans 回退路径口径一致。
+	rows, err := db.QueryContext(ctx, `SELECT DISTINCT ip FROM bips WHERE `+bipsActiveWhere, time.Now().Unix())
 	if err != nil {
 		return nil, classifyQueryErr(err, "查询 bips 表失败（fail2ban 库结构兼容性）")
 	}
