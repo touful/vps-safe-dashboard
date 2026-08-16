@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -18,7 +19,7 @@ import (
 // waitRetentionDone 轮询 meta.last_retention_ts（独立只读连接，避免与 Run 写线程竞争）。
 func waitRetentionDone(t *testing.T, dbPath string, timeout time.Duration) {
 	t.Helper()
-	db, err := sql.Open("sqlite", "file:"+dbPath)
+	db, err := sql.Open("sqlite", "file:"+url.PathEscape(dbPath))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,6 +43,9 @@ func waitRetentionDone(t *testing.T, dbPath string, timeout time.Duration) {
 //      溢出丢事件）；
 //   ② 全部发送事件零丢失落库；
 //   ③ 超期存量全部清理。
+// 区分新旧行为的真实机制：生产者发送带超时（sendErr）——旧实现清理期间通道满，
+// 生产者阻塞超过超时即失败；断言①（清理完成时已落库）为辅助观测。已知边界：
+// 极快机器上清理耗时可能 < 超时值，旧实现可能通过全部断言（测试有效性边界，记录）。
 func TestRunRetentionStartupConcurrentWrites(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "state.db")
@@ -78,7 +82,7 @@ func TestRunRetentionStartupConcurrentWrites(t *testing.T) {
 		}
 	}()
 
-	// 并发写：模拟高流量（生产者发送带超时，阻塞即失败）。
+	// 并发写：模拟高流量（生产者发送带超时，阻塞即失败——区分新旧行为的核心断言）。
 	const n = 2000
 	producers.Add(1)
 	sendErr := make(chan error, 1)
@@ -92,8 +96,8 @@ func TestRunRetentionStartupConcurrentWrites(t *testing.T) {
 			case <-ctx.Done():
 				sendErr <- fmt.Errorf("ctx 取消时仅发送 %d/%d 条", i, n)
 				return
-			case <-time.After(5 * time.Second):
-				sendErr <- fmt.Errorf("生产者发送第 %d 条阻塞超过 5s（启动期清理阻塞写路径）", i)
+			case <-time.After(3 * time.Second):
+				sendErr <- fmt.Errorf("生产者发送第 %d 条阻塞超过 3s（启动期清理阻塞写路径）", i)
 				return
 			}
 		}
@@ -103,8 +107,8 @@ func TestRunRetentionStartupConcurrentWrites(t *testing.T) {
 	// 等待首轮清理完成（meta.last_retention_ts 出现）。
 	waitRetentionDone(t, dbPath, 60*time.Second)
 
-	// ① 清理完成时已有事件落库（旧实现同步清理期间 0 落库）。
-	ro, err := sql.Open("sqlite", "file:"+dbPath)
+	// ① 清理完成时已有事件落库（辅助观测：旧实现同步清理期间 0 落库）。
+	ro, err := sql.Open("sqlite", "file:"+url.PathEscape(dbPath))
 	if err != nil {
 		t.Fatal(err)
 	}

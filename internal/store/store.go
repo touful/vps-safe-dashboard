@@ -290,6 +290,8 @@ func (s *Store) Run(ctx context.Context) error {
 	// retention 批间让出（AUDIT-005 A-01 整改）：清理批间消费一轮通道并达批阈值即提交，
 	// 维持启动期写吞吐——避免大库清理期间通道积压 → conntrack hook 阻塞 → netlink
 	// 溢出丢事件。flush 失败为致命错误：记录到 yieldErr，retention 分支返回前检查并终止 Run。
+	// 注意（reviewer R-03）：drainInto 排空含 System 通道，清理期间 System 事件由
+	// "立即提交"临时降级为"批间 flush 延迟提交"（不丢失，仅延迟；崩溃窗口与普通事件同）。
 	var yieldErr error
 	yield := func() {
 		s.drainInto(&pending, &nInBatch)
