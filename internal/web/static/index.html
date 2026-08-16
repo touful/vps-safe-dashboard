@@ -522,7 +522,7 @@ tr.row-warn { color: var(--warn); }
 <header>
   <h1><svg class="logo-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 1.8l6 2.4v4.3c0 3.7-2.4 6.4-6 8-3.6-1.6-6-4.3-6-8V4.2z"/><path d="M7.6 10l1.7 1.7 3.1-3.4"/></svg>VPS安全态势</h1>
   <span id="conn-status">连接中…</span>
-  <span id="sample-note">⚠ 防火墙日志为限速采样视图（默认 5 包/s），完整记录见连接事件</span>
+  <span id="sample-note">⚠ 防火墙日志为限速采样视图（默认 5 包/s，已排除内网/自身流量），完整记录见连接事件</span>
   <span id="freshness" class="freshness">更新于 --:--:--</span>
   <span id="filter-chip" title="点击清除过滤"></span>
   <span id="range-bar">
@@ -553,13 +553,13 @@ tr.row-warn { color: var(--warn); }
           <div id="chart-risk" role="img" aria-label="风险评分图：数据加载中" style="width:200px;height:150px;"></div>
           <div class="risk-detail">
             <div class="risk-item"><span class="l">SSH 失败率</span><div class="bar-wrap"><div class="bar" id="risk-ssh-bar"></div></div><span class="v" id="risk-ssh-v">-</span></div>
-            <div class="risk-item"><span class="l">防火墙 drop</span><div class="bar-wrap"><div class="bar" id="risk-fw-bar"></div></div><span class="v" id="risk-fw-v">-</span></div>
+            <div class="risk-item"><span class="l">外部威胁 drop</span><div class="bar-wrap"><div class="bar" id="risk-fw-bar"></div></div><span class="v" id="risk-fw-v">-</span></div>
             <div class="risk-item"><span class="l">封禁数</span><div class="bar-wrap"><div class="bar" id="risk-ban-bar"></div></div><span class="v" id="risk-ban-v">-</span></div>
             <div class="risk-item"><span class="l">磁盘水位</span><div class="bar-wrap"><div class="bar" id="risk-disk-bar"></div></div><span class="v" id="risk-disk-v">-</span></div>
           </div>
         </div>
       </div>
-      <div class="card" style="grid-column: span 2;"><h3>攻击趋势（SSH 失败 vs 防火墙 drop，点击图例隐藏通道）</h3>
+      <div class="card" style="grid-column: span 2;"><h3>攻击趋势（SSH 失败 vs 外部威胁 drop，点击图例隐藏通道）</h3>
         <div class="chart-wrap">
           <div id="chart-attack-trend" class="chart" role="img" aria-label="攻击趋势图：数据加载中" style="height:220px;"></div>
           <div id="zero-attack-badge" class="zero-line" style="display:none;">✓ 所选范围无攻击记录</div>
@@ -569,9 +569,9 @@ tr.row-warn { color: var(--warn); }
     <!-- L3 关键计数：KPI 2×2 卡组（卡内结构不变，方案 3.2） -->
     <div class="stat">
       <div class="kpi-row">
-        <div class="kpi"><span class="l">防火墙事件</span><span class="v" id="today-fw">-</span>
+        <div class="kpi"><span class="l">外部威胁事件</span><span class="v" id="today-fw">-</span>
           <span class="trend flat" id="trend-fw"></span>
-          <span class="spark" id="spark-fw"></span><span class="note">含 drop/accept</span></div>
+          <span class="spark" id="spark-fw"></span><span class="note">含 drop/accept（已排除内网/自身流量）</span></div>
         <div class="kpi"><span class="l">SSH 失败</span><span class="v" id="today-sshfail">-</span>
           <span class="trend flat" id="trend-ssh"></span>
           <span class="spark" id="spark-ssh"></span><span class="note">失败次数</span></div>
@@ -603,7 +603,7 @@ tr.row-warn { color: var(--warn); }
     </details>
     <!-- L5 最近事件：默认折叠区 + 默认 3 条 + 展开全部（方案 3.2/3.3） -->
     <details class="fold" id="fold-events" open style="margin-top:12px;">
-      <summary><span class="fold-title">最近事件（SSH 失败 / 防火墙 drop / 封禁）</span><span id="event-fold-summary" class="fold-hint"></span></summary>
+      <summary><span class="fold-title">最近事件（SSH 失败 / 外部威胁 drop / 封禁）</span><span id="event-fold-summary" class="fold-hint"></span></summary>
       <div class="fold-body">
         <div id="event-stream" class="event-stream"></div>
         <button id="event-expand-btn" class="more-btn" style="display:none;">展开全部</button>
@@ -621,7 +621,7 @@ tr.row-warn { color: var(--warn); }
   <div id="panel-attack" class="panel">
     <div id="rate-hint" class="rate-hint" style="display:none;">30 天视图聚合较重，攻击数据刷新频率自动降至 30 秒</div>
     <div class="grid">
-      <div class="card"><h3 class="panel-title" tabindex="-1">被攻击端口 TOP（防火墙 DPT 口径，点击柱条过滤）</h3><div id="chart-ports" class="chart" role="img" aria-label="被攻击端口 TOP 图：数据加载中"></div></div>
+      <div class="card"><h3 class="panel-title" tabindex="-1">被攻击端口 TOP（外部威胁 DPT 口径，点击柱条过滤）</h3><div id="chart-ports" class="chart" role="img" aria-label="被攻击端口 TOP 图：数据加载中"></div></div>
       <div class="card"><h3>攻击源 IP TOP（点击柱条过滤）</h3><div id="chart-sources" class="chart" role="img" aria-label="攻击源 IP TOP 图：数据加载中"></div></div>
       <div class="card"><h3>SSH 失败时间线（每小时）</h3><div id="chart-ssh" class="chart" role="img" aria-label="SSH 失败时间线图：数据加载中"></div></div>
       <div class="card" style="grid-column: 1 / -1;"><h3>fail2ban 封禁记录</h3>
@@ -637,13 +637,13 @@ tr.row-warn { color: var(--warn); }
           <th>时间</th><th>源 IP</th><th>用户名</th><th>认证方式</th><th>结果</th><th>指纹</th><th>详情</th>
         </tr></thead><tbody></tbody></table></div>
       </div>
-      <div class="card" style="grid-column: 1 / -1;"><h3>防火墙事件明细（drop 红色，点击时间列排序）
+      <div class="card" style="grid-column: 1 / -1;"><h3>外部威胁事件明细（drop 红色，点击时间列排序）
         <select id="fw-action-filter" class="table-filter" title="按动作过滤">
           <option value="">全部动作</option>
           <option value="drop">仅 drop</option>
           <option value="accept">仅 accept</option>
         </select></h3>
-        <div class="scroll"><table id="fw-table"><caption class="sr-only">防火墙事件明细</caption><thead><tr>
+        <div class="scroll"><table id="fw-table"><caption class="sr-only">外部威胁事件明细</caption><thead><tr>
           <th>时间</th><th>动作</th><th>链</th><th>协议</th><th>源</th><th>目的</th><th>raw</th>
         </tr></thead><tbody></tbody></table></div>
       </div>
@@ -668,7 +668,7 @@ tr.row-warn { color: var(--warn); }
         </div>
         <button id="export-btn" class="export-btn">导出 CSV</button>
         <div id="export-msg" class="export-msg" role="status" aria-live="polite"></div>
-        <div class="export-note">数据范围：防火墙 drop（源 IP / 事件时间 / 目标端口）+ SSH 失败尝试（源 IP / 事件时间 / 端口固定 22）+ fail2ban 封禁（IP / 时间 / 端口为空）。CSV 无表头，每行三列：攻击者 IP、攻击时间、攻击端口。</div>
+        <div class="export-note">数据范围：外部威胁 drop（源 IP / 事件时间 / 目标端口，已排除内网/自身流量）+ SSH 失败尝试（源 IP / 事件时间 / 端口固定 22）+ fail2ban 封禁（IP / 时间 / 端口为空）。CSV 无表头，每行三列：攻击者 IP、攻击时间、攻击端口。</div>
       </div>
     </div>
   </div>

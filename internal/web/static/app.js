@@ -191,7 +191,7 @@
     };
   }
   // tooltip formatter（DEV-FE-003 6.1）：单位 + 语义色 marker——marker 色取自 series 色
-  // （如"防火墙 drop"红点 = TI.danger、"SSH 失败"琥珀点 = TI.warn），formatter 补单位文案
+  // （如"外部威胁 drop"红点 = TI.danger、"SSH 失败"琥珀点 = TI.warn），formatter 补单位文案
   function makeTipFmt(units) {
     return function (params) {
       var rows = params.map(function (p) {
@@ -357,12 +357,12 @@
       fwD.push(b.drop);
       sshD.push(sshMap[b.ts] || 0);
     });
-    var opt = baseOption(labels, undefined, { '防火墙 drop': '次', 'SSH 失败': '次' });
+    var opt = baseOption(labels, undefined, { '外部威胁 drop': '次', 'SSH 失败': '次' });
     opt.grid = { left: 44, right: 48, top: 34, bottom: longRange ? 34 : 22 }; // DEV-FE-003：dataZoom 时底部让位
     opt.legend = { top: 2, right: 6, textStyle: { color: '#8A94A3', fontSize: 11 }, itemWidth: 12, itemHeight: 8 };
     if (longRange) { opt.dataZoom = zoomData(true); } // DEV-FE-003 6.3：7d/30d 启用（1h/24h 保持紧凑）
     opt.series = [
-      lineSeries('防火墙 drop', fwD, TI.danger, true),
+      lineSeries('外部威胁 drop', fwD, TI.danger, true),
       lineSeries('SSH 失败', sshD, TI.warn, true)
     ];
     chart('chart-attack-trend').setOption(opt, true);
@@ -372,7 +372,7 @@
     sshD.forEach(function (v) { sshSum += v; });
     var badge = document.getElementById('zero-attack-badge');
     if (badge) { badge.style.display = (fwSum === 0 && sshSum === 0 && !state.attackDataFailed && state.sshTimelineOk) ? 'block' : 'none'; }
-    setAria('chart-attack-trend', '攻击趋势图：防火墙 drop ' + fwSum + ' 次，SSH 失败 ' + sshSum + ' 次');
+    setAria('chart-attack-trend', '攻击趋势图：外部威胁 drop ' + fwSum + ' 次，SSH 失败 ' + sshSum + ' 次');
   }
 
   // 攻击页三图（端口 TOP / 来源 TOP / SSH 时间线）+ 点击联动
@@ -521,7 +521,7 @@
       var attacking = (fwDrop > 0) || (sshFail > 0);
       if (attacking) {
         var topPort = (s.top_ports && s.top_ports[0]) ? ':' + Number(s.top_ports[0].dst_port) : '-';
-        txt.innerHTML = '共 <span class="sit-num">' + Number(fwDrop) + '</span> 次防火墙 drop、<span class="sit-num">' + Number(sshFail) +
+        txt.innerHTML = '共 <span class="sit-num">' + Number(fwDrop) + '</span> 次外部威胁 drop、<span class="sit-num">' + Number(sshFail) +
           '</span> 次 SSH 失败，TOP 被攻击端口 <span class="sit-num">' + topPort + '</span>，已封禁 <span class="sit-num">' + Number(banCnt) + '</span> 个 IP';
         bar.className = 'warn';
       } else {
@@ -677,7 +677,7 @@
       if (r.action === 'drop') {
         var sIp = ip(r.src_ip);
         items.push({ ts: r.ts, type: 'fw', srcIp: r.src_ip,
-          text: '防火墙 drop <b>' + sIp + '</b> → :<b>' + r.dst_port + '</b>', plain: '防火墙 drop ' + sIp + ' → :' + r.dst_port });
+          text: '外部威胁 drop <b>' + sIp + '</b> → :<b>' + r.dst_port + '</b>', plain: '外部威胁 drop ' + sIp + ' → :' + r.dst_port });
       }
     });
     (state.banRows || []).forEach(function (r) {
@@ -909,7 +909,7 @@
     if (!tb) return;
     var rows = state.fwRows;
     if (!rows) { setTableState('fw-table', 'loading-row', '加载中…'); return; }
-    if (!rows.length) { setTableState('fw-table', 'empty-row', '暂无防火墙事件'); return; }
+    if (!rows.length) { setTableState('fw-table', 'empty-row', '暂无外部威胁事件'); return; }
     var s = state.sort['fw-table'];
     rows = sortRows(rows, s && s.key, s && s.dir);
     rows = rows.slice(0, tablePage['fw-table'] || TABLE_PAGE);
@@ -1237,7 +1237,7 @@
     // 统计卡标签跟随范围（近 1 小时/今日/近 7 天/近 30 天）
     var lb1 = document.querySelector('#today-fw') && document.querySelector('#today-fw').parentElement.querySelector('.l');
     var lb2 = document.querySelector('#today-sshfail') && document.querySelector('#today-sshfail').parentElement.querySelector('.l');
-    if (lb1) { lb1.textContent = RANGE_LABEL[r] + '防火墙事件'; }
+    if (lb1) { lb1.textContent = RANGE_LABEL[r] + '外部威胁事件'; }
     if (lb2) { lb2.textContent = RANGE_LABEL[r] + ' SSH 失败'; }
     state.reqSeq++; // RB-01：请求序号自增——旧 range 在途响应全部作废
     // 30d 降频提示（攻击页顶部弱显示；切到 30d 显示，切走隐藏）
