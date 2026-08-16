@@ -109,7 +109,7 @@ func main() {
 		})
 	} else {
 		var err error
-		st, err = store.NewStore(cfg.DB.Path, cfg.DB.ArchiveDir, cfg.DB.BatchIntervalMS, cfg.DB.BatchSize, cfg.Archive.GzipLevel, float64(cfg.Disk.CriticalPercent), ch, &producers)
+		st, err = store.NewStore(cfg.DB.Path, cfg.DB.ArchiveDir, cfg.DB.BatchIntervalMS, cfg.DB.BatchSize, cfg.Archive.GzipLevel, cfg.DB.RetentionDays, cfg.Archive.CopyAfterDays, float64(cfg.Disk.CriticalPercent), ch, &producers)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "存储模块初始化失败: %v\n", err)
 			os.Exit(1)

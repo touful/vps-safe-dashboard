@@ -13,11 +13,12 @@ import (
 )
 
 // newTestStore 创建临时目录上的 Store（不启动 Run）。
+// DEV-031 优化⑤：NewStore 新增 retentionDays/copyAfterDays 参数（7/60 默认组合）。
 func newTestStore(t *testing.T, ch *out.Channels, producers *sync.WaitGroup) *Store {
 	t.Helper()
 	dir := t.TempDir()
 	st, err := NewStore(filepath.Join(dir, "state.db"), filepath.Join(dir, "archive"),
-		1000, 500, 6, 90, ch, producers)
+		1000, 500, 6, 7, 60, 90, ch, producers)
 	if err != nil {
 		t.Fatalf("NewStore 失败: %v", err)
 	}
@@ -115,7 +116,7 @@ func TestStoreRunDrainNoLoss(t *testing.T) {
 	var producers sync.WaitGroup
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "state.db")
-	st, err := NewStore(dbPath, filepath.Join(dir, "archive"), 500, 10, 6, 90, ch, &producers)
+	st, err := NewStore(dbPath, filepath.Join(dir, "archive"), 500, 10, 6, 7, 60, 90, ch, &producers)
 	if err != nil {
 		t.Fatalf("NewStore 失败: %v", err)
 	}

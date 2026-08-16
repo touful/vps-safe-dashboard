@@ -23,6 +23,12 @@ func TestDefaults(t *testing.T) {
 	if !cfg.FW.ExcludeInternal {
 		t.Error("fw.exclude_internal 默认应为 true（只显示真实威胁）")
 	}
+	if cfg.FW.FilterDstInternal {
+		t.Error("fw.filter_dst_internal 默认应为 false（扩展模式不启用）")
+	}
+	if cfg.DB.RetentionDays != 7 {
+		t.Errorf("db.retention_days 默认应为 7，实际 %d", cfg.DB.RetentionDays)
+	}
 }
 
 func TestValidate(t *testing.T) {
@@ -75,6 +81,17 @@ func TestValidate(t *testing.T) {
 func TestValidateOK(t *testing.T) {
 	if err := Defaults().Validate(); err != nil {
 		t.Errorf("默认配置应通过校验: %v", err)
+	}
+}
+
+// TestValidateRetentionDays（DEV-031 优化⑤）：retention_days 任意值合法（<=0 禁用，无范围上限）。
+func TestValidateRetentionDays(t *testing.T) {
+	for _, v := range []int{7, 0, -1, 30, 365} {
+		cfg := Defaults()
+		cfg.DB.RetentionDays = v
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("retention_days=%d 应通过校验: %v", v, err)
+		}
 	}
 }
 

@@ -130,6 +130,10 @@ type Store struct {
 	gzipLevel  int
 	// archiveCriticalPct 归档跳过阈值（配置 disk.critical_percent，R-01 与 diskmon 共用）。
 	archiveCriticalPct float64
+	// retentionDays 事件数据保留天数（DEV-031 优化⑤；<=0 禁用清理）。
+	retentionDays int
+	// copyAfterDays 归档跨度（archive.copy_after_days，空洞语义 warn 检测用，B.5.1）。
+	copyAfterDays int
 
 	// archiveReq 归档请求队列（写线程内同步执行，方案 3.9）。
 	archiveReq chan string
@@ -139,7 +143,8 @@ type Store struct {
 // VS-01（DEV-P1-001，AUD-VPS-001）：数据目录 MkdirAll 0700（原 0755）——同机其他本地
 // 用户/被攻破的低权限服务账号不可读安全数据（SSH 指纹/用户名/防火墙 raw）。
 // 目录权限为 Linux 语义：Windows 上 mode 参数被忽略（无权限位模型），功能不回归。
-func NewStore(dbPath, archiveDir string, batchIntervalMS, batchSize, gzipLevel int, archiveCriticalPct float64, ch *out.Channels, producers *sync.WaitGroup) (*Store, error) {
+// DEV-031 优化⑤：新增 retentionDays（<=0 禁用清理）与 copyAfterDays（归档空洞 warn 检测）。
+func NewStore(dbPath, archiveDir string, batchIntervalMS, batchSize, gzipLevel, retentionDays, copyAfterDays int, archiveCriticalPct float64, ch *out.Channels, producers *sync.WaitGroup) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return nil, fmt.Errorf("创建主库目录失败: %w", err)
 	}
@@ -180,6 +185,8 @@ func NewStore(dbPath, archiveDir string, batchIntervalMS, batchSize, gzipLevel i
 		archiveDir:         archiveDir,
 		gzipLevel:          gzipLevel,
 		archiveCriticalPct: archiveCriticalPct,
+		retentionDays:      retentionDays,
+		copyAfterDays:      copyAfterDays,
 		archiveReq:         make(chan string, 8),
 	}, nil
 }
@@ -260,9 +267,22 @@ func (s *Store) Run(ctx context.Context) error {
 		return nil
 	}
 
-	// 主循环：select 各通道 + 批量定时器 + 归档请求。
+	// 主循环：select 各通道 + 批量定时器 + 归档请求 + retention 定时清理。
 	ticker := time.NewTicker(s.batchEvery)
 	defer ticker.Stop()
+	// DEV-031 优化⑤：retention 清理（写线程内串行，MaxOpenConns(1) 约束）。
+	// 启动后立即执行一次清存量；此后每日 02:30（固定，运营官 D.4 裁定 4）触发。
+	// retentionDays<=0 时 retentionC 为 nil（nil channel 永不就绪，select 跳过）。
+	s.warnRetentionArchiveGap() // 归档空洞语义提示（B.5.1，启动留痕一条）
+	var retentionC <-chan time.Time
+	if s.retentionDays > 0 {
+		if err := s.runRetentionOnce(ctx); err != nil {
+			event.ReportSys(s.ch.System, "store", "error", "retention 首轮清理失败: "+err.Error())
+		}
+		rt := time.NewTimer(time.Until(nextRetentionTime(time.Now())))
+		defer rt.Stop()
+		retentionC = rt.C
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -278,6 +298,15 @@ func (s *Store) Run(ctx context.Context) error {
 			if err := flush(); err != nil {
 				return fmt.Errorf("批量提交失败: %w", err)
 			}
+		case <-retentionC:
+			// 每日 02:30 定时清理；失败仅留痕不退出（清理是容错可重试操作，
+			// 写路径主职责不受影响）。
+			if err := s.runRetentionOnce(ctx); err != nil {
+				event.ReportSys(s.ch.System, "store", "error", "retention 定时清理失败: "+err.Error())
+			}
+			// 重置为下一个 02:30（timer 已触发，Reset 需保证 channel 已排空——
+			// 单写线程内串行执行，无并发消费，直接 Reset 安全）。
+			retentionC = time.After(time.Until(nextRetentionTime(time.Now())))
 		case req := <-s.archiveReq:
 			// 归档在写线程内同步执行（方案 3.9）；期间事件继续进入 pending 积压，不丢失。
 			// 留痕（开始/完成/失败含耗时）由 execArchive 统一完成（A-02）。

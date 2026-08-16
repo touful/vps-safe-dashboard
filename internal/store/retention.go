@@ -1,0 +1,105 @@
+// retention 清理实现（DEV-031 优化⑤，B.5.2/B.5.4）。
+// 语义变更：主库按保留期保留（默认 7 天可配置），归档机制保留（副本为历史保留通道）。
+// 本清理是主库首个 DELETE 路径：采用 ts>0 守卫（保护异常 0 值行）+ 分批 DELETE
+// （批间提交，避免长事务锁 WAL）+ 批间让出调度（超大库清理不饿死生产者）。
+package store
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
+
+	"sentry-agent/internal/archive"
+	"sentry-agent/internal/event"
+)
+
+// retentionBatchSize 每批 DELETE 行数上限（B.5.2：分批提交，避免长事务锁 WAL）。
+const retentionBatchSize = 10000
+
+// retentionHourMin 每日清理固定时刻 02:30（运营官 D.4 裁定 4：不配置化，KISS）。
+const (
+	retentionHour = 2
+	retentionMin  = 30
+)
+
+// nextRetentionTime 计算下一个清理时刻（02:30；已过今日 02:30 则明日）。
+func nextRetentionTime(now time.Time) time.Time {
+	next := time.Date(now.Year(), now.Month(), now.Day(), retentionHour, retentionMin, 0, 0, time.Local)
+	if !now.Before(next) {
+		next = next.AddDate(0, 0, 1)
+	}
+	return next
+}
+
+// cleanupTable 清理单表早于 cutoff 的事件行（纯 SQL 分批 DELETE，可单测）。
+// ts > 0 AND ts < cutoff 守卫：保护异常 0 值行（保留，不参与清理）。
+// 表名来自 archive.ArchivedTables() 固定清单（非用户输入，无注入面）。
+// 分批实现（DEV-031 实现偏差说明）：modernc.org/sqlite v1.56.0 内嵌 SQLite 不支持
+// DELETE 语句的 LIMIT 子句（实测语法错误，无论参数化/常量），改用子查询取 id 上限
+// 分批删除（每批最多 batchSize 行，批间提交避免长事务锁 WAL，语义与 B.5.2 一致）。
+// 返回清理行数；ctx 取消时返回已清理行数 + ctx.Err()（幂等：中断后可重跑）。
+func cleanupTable(ctx context.Context, db *sql.DB, table string, cutoff int64, batchSize int) (int64, error) {
+	var total int64
+	for {
+		select {
+		case <-ctx.Done():
+			return total, ctx.Err()
+		default:
+		}
+		// 子查询按 id 升序取前 batchSize 行（确定性分批；id 为主键单调递增）。
+		res, err := db.ExecContext(ctx, fmt.Sprintf(
+			`DELETE FROM "%s" WHERE ts > 0 AND ts < ? AND id IN (SELECT id FROM "%s" WHERE ts > 0 AND ts < ? ORDER BY id LIMIT ?)`,
+			table, table), cutoff, cutoff, batchSize)
+		if err != nil {
+			return total, err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return total, err
+		}
+		if n == 0 {
+			return total, nil
+		}
+		total += n
+		// 批间让出调度（B.5.6 R-10 缓解：超大库清理期间不长时间独占写线程）。
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// runRetentionOnce 执行一轮 retention 清理（写线程内调用；启动首轮 + 每日 02:30 定时）。
+// cutoff 按本轮开始时刻快照（不随清理过程漂移，防边界误删）；
+// 触发表：archive.ArchivedTables() 全量（meta 不清理）；
+// 留痕：system_event info（合计行数/耗时）+ meta.last_retention_ts（幂等/可观测）。
+func (s *Store) runRetentionOnce(ctx context.Context) error {
+	cutoff := time.Now().AddDate(0, 0, -s.retentionDays).Unix()
+	start := time.Now()
+	var total int64
+	for _, t := range archive.ArchivedTables() {
+		n, err := cleanupTable(ctx, s.db, t, cutoff, retentionBatchSize)
+		if err != nil {
+			return fmt.Errorf("清理表 %s 失败: %w", t, err)
+		}
+		total += n
+	}
+	if _, err := s.db.Exec(`INSERT INTO meta(key, value) VALUES('last_retention_ts', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		fmt.Sprintf("%d", time.Now().Unix())); err != nil {
+		return fmt.Errorf("记录 last_retention_ts 失败: %w", err)
+	}
+	event.ReportSys(s.ch.System, "store", "info",
+		fmt.Sprintf("retention 清理完成：各表行数合计 %d，耗时 %v（保留 %d 天）", total, time.Since(start).Round(time.Millisecond), s.retentionDays))
+	return nil
+}
+
+// warnRetentionArchiveGap 启动时检测 retention 与归档跨度的空洞语义（B.5.1，reviewer R-03a）。
+// 推导：归档执行日对 cutoff 月（now - copy_after_days 所在月）做整月复制，最大年龄 =
+// copy_after_days + 30；故 retention_days < copy_after_days + 30 时归档副本必然含空洞。
+// 决策：代码不强制联动（避免隐性删除语义），仅启动 warn 提示，由运维按需调整。
+func (s *Store) warnRetentionArchiveGap() {
+	if s.retentionDays <= 0 || s.retentionDays >= s.copyAfterDays+30 {
+		return
+	}
+	event.ReportSys(s.ch.System, "store", "warn", fmt.Sprintf(
+		"db.retention_days=%d 小于归档跨度（archive.copy_after_days+30=%d）：归档副本将包含已清理数据的空洞；如需完整归档，retention_days 应 >= %d，或接受短保留期下归档仅含保留窗口数据",
+		s.retentionDays, s.copyAfterDays+30, s.copyAfterDays+31))
+}

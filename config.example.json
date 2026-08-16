@@ -1,4 +1,5 @@
 {
+  "_comment": "DEV-031 新增配置：conntrack.mode（auto|fallback，fallback 强制走 ss 快照 diff 降级）、fw.exclude_internal（默认 true 排除内网/自身来源事件）、fw.internal_cidrs（空=内置默认网段 127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,169.254.0.0/16,224.0.0.0/4）、fw.filter_dst_internal（扩展模式默认 false，开启后外部→内网目的事件也过滤）、db.retention_days（默认 7，<=0 禁用清理；小于 archive.copy_after_days+30 时归档副本含空洞）",
   "collect": {
     "resource_interval_seconds": 5
   },
@@ -9,7 +10,8 @@
     "buffer_size_kb": 2048,
     "enable_acct": true,
     "overrun_warn_interval_s": 60,
-    "fallback_interval_s": 5
+    "fallback_interval_s": 5,
+    "mode": "auto"
   },
   "ssh": {
     "source": "journald",
@@ -18,7 +20,10 @@
   "fw": {
     "source": "journald-kernel",
     "prefix": "SENTRY_FW:",
-    "rate_limit_pkt_s": 5
+    "rate_limit_pkt_s": 5,
+    "exclude_internal": true,
+    "internal_cidrs": [],
+    "filter_dst_internal": false
   },
   "f2b": {
     "enabled": true,
@@ -29,7 +34,8 @@
     "path": "/var/lib/sentry-agent/state.db",
     "batch_interval_ms": 1000,
     "batch_size": 500,
-    "archive_dir": "/var/lib/sentry-agent/archive"
+    "archive_dir": "/var/lib/sentry-agent/archive",
+    "retention_days": 7
   },
   "archive": {
     "monthly_hour": "02:00",
