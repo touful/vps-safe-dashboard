@@ -5,6 +5,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 )
@@ -65,6 +66,14 @@ type FWCfg struct {
 	Prefix string `json:"prefix"`
 	// RateLimitPktS 内核限速（包/秒），默认 5（采样性质，R-09；此值仅注释用，规则由部署脚本写入）。
 	RateLimitPktS int `json:"rate_limit_pkt_s"`
+	// ExcludeInternal 是否排除内网/自身来源事件（DEV-031 优化②，默认 true；关掉恢复全量记录）。
+	ExcludeInternal bool `json:"exclude_internal"`
+	// InternalCIDRs 自定义内网网段列表（DEV-031；空 = 使用内置默认列表：127.0.0.0/8、
+	// 10.0.0.0/8、172.16.0.0/12、192.168.0.0/16、100.64.0.0/10、169.254.0.0/16、224.0.0.0/4）。
+	InternalCIDRs []string `json:"internal_cidrs"`
+	// FilterDstInternal 扩展模式：外部→内网目的事件也过滤（DEV-031 D.4 裁定 3，默认 false；
+	// 开启后 SRC 或 DST 任一命中内网网段即过滤）。
+	FilterDstInternal bool `json:"filter_dst_internal"`
 }
 
 // F2BCfg fail2ban 集成（M-05）。
@@ -143,7 +152,7 @@ func Defaults() *Config {
 			FallbackIntervalS:    5,
 		},
 		SSH: SSHCfg{Source: "journald", VerboseFingerprint: true},
-		FW:  FWCfg{Source: "journald-kernel", Prefix: "SENTRY_FW:", RateLimitPktS: 5},
+		FW:  FWCfg{Source: "journald-kernel", Prefix: "SENTRY_FW:", RateLimitPktS: 5, ExcludeInternal: true},
 		F2B: F2BCfg{Enabled: true, LogPath: "/var/log/fail2ban.log", DBPath: "/var/lib/fail2ban/fail2ban.sqlite3"},
 		DB: DBCfg{
 			Path:            "/var/lib/sentry-agent/state.db",
@@ -200,6 +209,12 @@ func (c *Config) Validate() error {
 	}
 	if c.FW.Prefix == "" {
 		return fmt.Errorf("fw.prefix 不能为空")
+	}
+	// DEV-031 优化②：fw.internal_cidrs 逐项校验 CIDR 格式（空列表合法=内置默认网段）。
+	for i, cidr := range c.FW.InternalCIDRs {
+		if _, _, err := net.ParseCIDR(cidr); err != nil {
+			return fmt.Errorf("fw.internal_cidrs[%d]=%q 非法 CIDR: %v", i, cidr, err)
+		}
 	}
 	if c.F2B.LogPath == "" || c.F2B.DBPath == "" {
 		return fmt.Errorf("f2b.log_path / f2b.db_path 不能为空")

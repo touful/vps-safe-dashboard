@@ -21,13 +21,15 @@ import (
 // RunFwParser 流式解析内核日志（方案 3.4 签名 + sys 通道）。
 // source: journald-kernel（journalctl -f -o json -k，默认）| kmsg（/dev/kmsg，分支 B1）。
 // 仅处理包含 prefix 的行，其余内核日志行忽略。
-func RunFwParser(ctx context.Context, source, prefix string, sink chan<- event.FirewallEvent, sys chan<- event.SystemEvent) error {
+// filter 为采集层来源过滤（DEV-031 优化②：内网/自身来源事件发送前丢弃）。
+func RunFwParser(ctx context.Context, source, prefix string, filter FwFilter, sink chan<- event.FirewallEvent, sys chan<- event.SystemEvent) error {
 	rep := event.NewRateLimiter(time.Minute)
+	stats := newFilterStats()
 	switch source {
 	case "journald-kernel":
-		return runJournaldKernel(ctx, prefix, sink, sys, rep)
+		return runJournaldKernel(ctx, prefix, filter, stats, sink, sys, rep)
 	case "kmsg":
-		return runKmsg(ctx, prefix, sink, sys, rep)
+		return runKmsg(ctx, prefix, filter, stats, sink, sys, rep)
 	default:
 		return fmt.Errorf("未知 fw.source=%q", source)
 	}
@@ -40,7 +42,7 @@ type journalKernelEntry struct {
 }
 
 // runJournaldKernel 通过 journalctl -f -o json -k 读取内核日志（含 nft/iptables LOG 输出）。
-func runJournaldKernel(ctx context.Context, prefix string, sink chan<- event.FirewallEvent, sys chan<- event.SystemEvent, rep *event.RateLimiter) error {
+func runJournaldKernel(ctx context.Context, prefix string, filter FwFilter, stats *filterStats, sink chan<- event.FirewallEvent, sys chan<- event.SystemEvent, rep *event.RateLimiter) error {
 	journalctl, err := exec.LookPath("journalctl")
 	if err != nil {
 		return fmt.Errorf("journald-kernel 模式需要 journalctl 二进制（不可用时请改用 fw.source=kmsg）: %w", err)
@@ -61,7 +63,7 @@ func runJournaldKernel(ctx context.Context, prefix string, sink chan<- event.Fir
 		if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
 			continue
 		}
-		handleLine(ctx, sink, sys, rep, e.Message, journalMicroTS(e.Realtime), prefix)
+		handleLine(ctx, sink, sys, rep, e.Message, journalMicroTS(e.Realtime), prefix, filter, stats)
 	}
 	waitErr := cmd.Wait()
 	if ctx.Err() != nil {
@@ -75,14 +77,15 @@ func runJournaldKernel(ctx context.Context, prefix string, sink chan<- event.Fir
 // 仅解析之后的实时消息——"注入 N 条仅产出 N 条"。
 // 可取消读（tester D-08）：非阻塞读 + 轮询，ctx 取消可及时退出。
 // 具体实现平台分离（unix 包仅 Linux 可编译）：fw_kmsg_linux.go / fw_kmsg_other.go。
-func runKmsg(ctx context.Context, prefix string, sink chan<- event.FirewallEvent, sys chan<- event.SystemEvent, rep *event.RateLimiter) error {
+func runKmsg(ctx context.Context, prefix string, filter FwFilter, stats *filterStats, sink chan<- event.FirewallEvent, sys chan<- event.SystemEvent, rep *event.RateLimiter) error {
 	return kmsgReadLoop(ctx, func(line string) {
-		handleLine(ctx, sink, sys, rep, line, time.Now().Unix(), prefix)
+		handleLine(ctx, sink, sys, rep, line, time.Now().Unix(), prefix, filter, stats)
 	})
 }
 
 // handleLine 处理单行内核日志：前缀匹配则解析发送；前缀匹配但解析失败限频告警；非前缀行忽略。
-func handleLine(ctx context.Context, sink chan<- event.FirewallEvent, sys chan<- event.SystemEvent, rep *event.RateLimiter, line string, ts int64, prefix string) {
+// DEV-031 优化②：解析成功后、入队前执行采集层来源过滤（内网/自身来源丢弃并留痕）。
+func handleLine(ctx context.Context, sink chan<- event.FirewallEvent, sys chan<- event.SystemEvent, rep *event.RateLimiter, line string, ts int64, prefix string, filter FwFilter, stats *filterStats) {
 	if !strings.Contains(line, prefix) {
 		return // 非 SENTRY_FW 前缀行，忽略（方案 3.4：仅处理该前缀行）
 	}
@@ -92,6 +95,12 @@ func handleLine(ctx context.Context, sink chan<- event.FirewallEvent, sys chan<-
 		return
 	}
 	ev.TS = ts
+	if filter.ShouldDrop(ev) {
+		if stats != nil {
+			stats.drop(sys)
+		}
+		return // 采集层过滤：内网/自身来源不进事件流（B.2.1：API/导出全链路自动干净）
+	}
 	select {
 	case sink <- ev:
 	case <-ctx.Done():

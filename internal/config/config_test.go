@@ -16,6 +16,10 @@ func TestDefaults(t *testing.T) {
 	if !cfg.F2B.Enabled {
 		t.Error("f2b.enabled 默认应为 true（D-02）")
 	}
+	// DEV-031 新增默认项。
+	if !cfg.FW.ExcludeInternal {
+		t.Error("fw.exclude_internal 默认应为 true（只显示真实威胁）")
+	}
 }
 
 func TestValidate(t *testing.T) {
@@ -34,6 +38,9 @@ func TestValidate(t *testing.T) {
 		{"f2b.db_path 空", func(c *Config) { c.F2B.DBPath = "" }}, // TEST-001 整改（R-05）
 		{"overrun_warn_interval 小于 5", func(c *Config) { c.Conntrack.OverrunWarnIntervalS = 3 }}, // TEST-001 整改（R-05）
 		{"fallback_interval 小于 5", func(c *Config) { c.Conntrack.FallbackIntervalS = 1 }},        // TEST-001 整改（R-05）
+		{"internal_cidrs 无掩码", func(c *Config) { c.FW.InternalCIDRs = []string{"10.0.0.0"} }},    // DEV-031
+		{"internal_cidrs 非 CIDR", func(c *Config) { c.FW.InternalCIDRs = []string{"abc"} }},        // DEV-031
+		{"internal_cidrs 混入非法项", func(c *Config) { c.FW.InternalCIDRs = []string{"10.0.0.0/8", "bad"} }}, // DEV-031
 		{"db.path 空", func(c *Config) { c.DB.Path = "" }},
 		{"db.archive_dir 空", func(c *Config) { c.DB.ArchiveDir = "" }},
 		{"db.batch_interval_ms 过小", func(c *Config) { c.DB.BatchIntervalMS = 50 }},
@@ -63,5 +70,14 @@ func TestValidate(t *testing.T) {
 func TestValidateOK(t *testing.T) {
 	if err := Defaults().Validate(); err != nil {
 		t.Errorf("默认配置应通过校验: %v", err)
+	}
+}
+
+// TestValidateInternalCIDRsOK（DEV-031 优化②）：合法自定义 CIDR 列表通过校验。
+func TestValidateInternalCIDRsOK(t *testing.T) {
+	cfg := Defaults()
+	cfg.FW.InternalCIDRs = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("合法 internal_cidrs 应通过校验: %v", err)
 	}
 }

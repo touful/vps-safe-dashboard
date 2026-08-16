@@ -207,9 +207,21 @@ func main() {
 		}
 	})
 
-	// M-04 防火墙日志解析。
+	// M-04 防火墙日志解析（DEV-031 优化②：采集层过滤内网/自身来源，B.2）。
 	startProducer(func() {
-		if err := fw.RunFwParser(ctx, cfg.FW.Source, cfg.FW.Prefix, ch.FW, ch.System); err != nil {
+		// internal_cidrs 格式已由 config.Validate 校验；此处失败仅理论路径，
+		// 保守关闭过滤（恢复全量记录）并留痕。
+		cidrs, err := fw.ParseCIDRs(cfg.FW.InternalCIDRs)
+		if err != nil {
+			event.ReportSys(ch.System, "fw", "warn", "fw.internal_cidrs 解析失败，本次启动关闭内网过滤（全量记录）: "+err.Error())
+			cidrs = nil
+		}
+		filter := fw.FwFilter{
+			ExcludeInternal:   cfg.FW.ExcludeInternal,
+			FilterDstInternal: cfg.FW.FilterDstInternal,
+			CIDRs:             cidrs,
+		}
+		if err := fw.RunFwParser(ctx, cfg.FW.Source, cfg.FW.Prefix, filter, ch.FW, ch.System); err != nil {
 			event.ReportSys(ch.System, "fw", "error", "防火墙解析通道退出: "+err.Error())
 		}
 	})
