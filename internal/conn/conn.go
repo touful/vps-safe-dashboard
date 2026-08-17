@@ -21,8 +21,16 @@ import (
 // netlinkNetfilterProto NETLINK_NETFILTER 协议号（/proc/net/netlink 的 Eth 列）。
 const netlinkNetfilterProto = 12
 
+// ctGroupsMask 内核 conntrack 组位掩码（/proc/net/netlink Groups 列）：
+// 组 1/2/3（NFNLGRP_CONNTRACK_NEW/UPDATE/DESTROY）对应位 0/1/2。
+// go-conntrack 的 JoinGroup 成功后内核置位，DEV-036 订阅验证以此为判据。
+const ctGroupsMask = 0x7
+
 // netlinkBufferMax netlink 缓冲扩容上限（R-10：可扩至 8MB）。
 const netlinkBufferMax = 8 * 1024 * 1024
+
+// freshnessCheckInterval 事件流新鲜度检查间隔（DEV-036：连接采集自检）。
+const freshnessCheckInterval = 10 * time.Minute
 
 // conntrackCountPath nf_conntrack 当前连接数（sysctl 接口，模块加载即存在）。
 // DEV-033（DEV-032 现场核查结论 7/8）：nf_conntrack 模块依赖链自动加载（无需 modprobe），
@@ -158,7 +166,13 @@ func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 		// 启动类错误（DEV-031 B.4.3）：外层连续计数，达阈值放弃主通道降级。
 		return &connStartError{fmt.Errorf("打开 conntrack netlink 失败: %w", err)}
 	}
-	defer nfct.Close()
+	// DEV-036（CONN-01 根因）：不得在此处 defer nfct.Close()——go-conntrack v0.7.0 的
+	// Register 失败路径存在库 bug：register() 在 manageGroups 出错时提前返回，未启动
+	// 清理 goroutine，shutdown 通道永不关闭；随后 Close() 永久阻塞在 <-nfct.shutdown，
+	// 导致 runConntrackOnce 永不返回——启动错误被吞、无留痕无降级（现场 CONN-01 形态）。
+	// 因此 Close 仅在 Register 成功后注册（成功路径清理 goroutine 已启动，Close 正常）。
+	// Register 失败时泄漏该 fd：连续 maxConntrackStartFails 轮后降级停止尝试，
+	// 泄漏上限 3 个 fd，可接受（换取降级链路可用性）。
 
 	if err := nfct.Con.SetReadBuffer(bufSize); err != nil {
 		event.ReportSys(sys, "conntrack", "warn", fmt.Sprintf("设置 netlink 接收缓冲 %d B 失败: %v", bufSize, err))
@@ -185,7 +199,10 @@ func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 		}
 	}()
 
+	// 事件到达计数（DEV-036 新鲜度自检基准；hook 每次被调用即递增）。
+	var evts atomic.Uint64
 	hook := func(c conntrack.Con) int {
+		evts.Add(1)
 		ev, ok := connEventFromCon(c)
 		if !ok {
 			return 0
@@ -200,20 +217,62 @@ func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 	groups := conntrack.NetlinkCtNew | conntrack.NetlinkCtUpdate | conntrack.NetlinkCtDestroy
 	if err := nfct.Register(ctx, conntrack.Conntrack, groups, hook); err != nil {
 		// 启动类错误（DEV-031 B.4.3）：同上——Register 失败多为权限/NET_ADMIN 缺失。
+		// 注意：不 defer Close（见上方 DEV-036 注释），失败路径直接返回避免库 bug 死锁。
 		return &connStartError{fmt.Errorf("注册 conntrack 事件订阅失败: %w", err)}
 	}
+	// Register 成功后才注册 Close（成功路径库清理 goroutine 已启动，Close 正常返回）。
+	defer nfct.Close()
+
+	// DEV-036（CONN-01 修复）：订阅有效性验证——Register 返回 nil 只代表 setsockopt
+	// 调用成功，不保证组订阅真正生效（现场 CONN-01：Groups=00000000 无报错无留痕，
+	// connections 表冻结）。读取 /proc/net/netlink 核对本进程 NETLINK_NETFILTER 套接字
+	// Groups 位：缺失组位 → 判定订阅无效，按启动类错误处理（外层连续计数 → B5 降级留痕）；
+	// 读取失败（无法验证）→ warn 留痕但不降级（无证据证明无效，避免误降级）。
+	if err := verifySubscription(); err != nil {
+		if errors.Is(err, errSubscriptionInvalid) {
+			return &connStartError{err}
+		}
+		event.ReportSys(sys, "conntrack", "warn", "无法验证 netlink 组订阅（继续运行）: "+err.Error())
+	}
+
+	// 主通道健康状态留痕（DEV-036：防静默——启动成功必须可见，与失败告警对称）。
+	event.ReportSys(sys, "conntrack", "info", "conntrack 主通道启动成功（netlink 订阅 NEW/UPDATE/DESTROY 组，订阅验证通过）")
 
 	// R-10 溢出监控：每 OverrunWarnIntervalS 检查本进程 netfilter 套接字的 Drops 累计差值。
 	ticker := time.NewTicker(time.Duration(cfg.OverrunWarnIntervalS) * time.Second)
 	defer ticker.Stop()
+	// DEV-036 新鲜度自检：每 freshnessCheckInterval 检查事件流是否停滞（订阅静默失效兜底）。
+	freshTicker := time.NewTicker(freshnessCheckInterval)
+	defer freshTicker.Stop()
+	staleRep := event.NewRateLimiter(60 * time.Minute)
+	staleWarnRep := event.NewRateLimiter(30 * time.Minute)
 	lastDrops := uint64(0)
 	first := true
+	lastEvts := uint64(0)
+	lastCnt := int64(-1)
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-dead:
 			return fmt.Errorf("netlink 监听循环终止（大概率因缓冲溢出）")
+		case <-freshTicker.C:
+			// 事件计数未推进 = 停滞；结合 conntrack 表连接数变化判级：
+			// 表在动但事件无 → 订阅失效高置信（warn）；表无变化 → 低流量或失效（info）。
+			curEvts := evts.Load()
+			if curEvts == lastEvts {
+				curCnt := readConntrackCount(conntrackCountPath)
+				stalled, tableActive := staleVerdict(curEvts, lastEvts, lastCnt, curCnt)
+				if tableActive {
+					staleWarnRep.Report(sys, "conntrack", "warn",
+						fmt.Sprintf("conntrack 事件流停滞：%v 无事件但表连接数变化（%d→%d），订阅可能失效", freshnessCheckInterval, lastCnt, curCnt))
+				} else if stalled {
+					staleRep.Report(sys, "conntrack", "info",
+						fmt.Sprintf("conntrack 事件流 %v 无事件（低流量或订阅失效，当前表连接数 %d）", freshnessCheckInterval, curCnt))
+				}
+			}
+			lastEvts = curEvts
+			lastCnt = readConntrackCount(conntrackCountPath)
 		case <-ticker.C:
 			drops, err := netlinkDrops()
 			if err != nil {
@@ -318,39 +377,97 @@ func connEventFromCon(c conntrack.Con) (event.ConnEvent, bool) {
 	return ev, true
 }
 
+// netlinkOwnInfo 本进程某个 netlink 套接字的 /proc/net/netlink 统计行信息。
+type netlinkOwnInfo struct {
+	groups uint32 // Groups 列（订阅组位掩码，仅 Eth=12 关注）
+	drops  uint64 // Drops 列（溢出累计）
+	inode  uint64
+}
+
 // netlinkDrops 统计本进程 NETLINK_NETFILTER 套接字在 /proc/net/netlink 中的累计 Drops。
 // 方法：枚举 /proc/self/fd 的 socket inode 集合，匹配 /proc/net/netlink 中 Eth=12 的行，求和 Drops 列。
 func netlinkDrops() (uint64, error) {
-	inodes, err := ownSocketInodes()
-	if err != nil {
-		return 0, err
-	}
-	data, err := os.ReadFile("/proc/net/netlink")
+	infos, err := netlinkOwnInfos(netlinkNetfilterProto)
 	if err != nil {
 		return 0, err
 	}
 	var drops uint64
-	for _, line := range strings.Split(string(data), "\n") {
+	for _, info := range infos {
+		drops += info.drops
+	}
+	return drops, nil
+}
+
+// netlinkOwnInfos 读取 /proc/net/netlink，返回本进程指定协议号套接字的统计行
+// （/proc/self/fd inode 集合匹配）。读取失败返回错误。
+func netlinkOwnInfos(proto int) ([]netlinkOwnInfo, error) {
+	inodes, err := ownSocketInodes()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile("/proc/net/netlink")
+	if err != nil {
+		return nil, err
+	}
+	return parseNetlinkOwn(string(data), inodes, proto), nil
+}
+
+// parseNetlinkOwn 解析 /proc/net/netlink 文本，过滤指定协议号且 inode 属于本进程的行
+// （纯函数，可单测）。列：sk Eth Pid Groups Rmem Wmem Dump Locks Drops Inode。
+func parseNetlinkOwn(data string, inodes map[uint64]bool, proto int) []netlinkOwnInfo {
+	var out []netlinkOwnInfo
+	for _, line := range strings.Split(data, "\n") {
 		fields := strings.Fields(line)
-		// 列：sk Eth Pid Groups Rmem Wmem Dump Locks Drops Inode
 		if len(fields) < 10 || fields[0] == "sk" {
 			continue
 		}
-		proto, err := strconv.Atoi(fields[1])
-		if err != nil || proto != netlinkNetfilterProto {
+		p, err := strconv.Atoi(fields[1])
+		if err != nil || p != proto {
 			continue
 		}
 		inode, err := strconv.ParseUint(fields[9], 10, 64)
 		if err != nil || !inodes[inode] {
 			continue
 		}
-		d, err := strconv.ParseUint(fields[8], 10, 64)
-		if err != nil {
-			continue
+		info := netlinkOwnInfo{inode: inode}
+		if g, err := strconv.ParseUint(fields[3], 16, 32); err == nil {
+			info.groups = uint32(g)
 		}
-		drops += d
+		if d, err := strconv.ParseUint(fields[8], 10, 64); err == nil {
+			info.drops = d
+		}
+		out = append(out, info)
 	}
-	return drops, nil
+	return out
+}
+
+// errSubscriptionInvalid 订阅验证确定无效（Groups 位缺失）——按启动类错误处理（降级）。
+var errSubscriptionInvalid = errors.New("netlink 组订阅验证失败")
+
+// verifySubscription 验证本进程 NETLINK_NETFILTER 组订阅已生效（DEV-036）：
+// 读取 /proc/net/netlink，检查本进程套接字 Groups 位是否含全部期望组位（NEW/UPDATE/DESTROY）。
+// 返回 errSubscriptionInvalid 表示订阅确定无效（调用方应降级）；其他错误表示无法验证
+// （读取失败，调用方仅留痕不降级）。
+func verifySubscription() error {
+	infos, err := netlinkOwnInfos(netlinkNetfilterProto)
+	if err != nil {
+		return err
+	}
+	return verifyGroups(infos)
+}
+
+// verifyGroups 核对本进程 netfilter 套接字组位（纯函数，可单测）：
+// 无匹配套接字或任一期望组位缺失 → errSubscriptionInvalid。
+func verifyGroups(infos []netlinkOwnInfo) error {
+	var groups uint32
+	for _, info := range infos {
+		groups |= info.groups
+	}
+	if groups&ctGroupsMask != ctGroupsMask {
+		return fmt.Errorf("%w: 本进程 NETLINK_NETFILTER 套接字 Groups=%#08x，期望组位 %#08x（NEW/UPDATE/DESTROY 订阅未生效）",
+			errSubscriptionInvalid, groups, ctGroupsMask)
+	}
+	return nil
 }
 
 // ownSocketInodes 枚举本进程全部 fd 的 socket inode 集合（/proc/self/fd 的 readlink 目标 "socket:[N]"）。
@@ -375,4 +492,18 @@ func ownSocketInodes() (map[uint64]bool, error) {
 		inodes[num] = true
 	}
 	return inodes, nil
+}
+
+// staleVerdict 事件流停滞判定（DEV-036 新鲜度自检，纯函数可单测）：
+// prevEvts/curEvts 为相邻周期的事件计数；prevCnt/curCnt 为相邻周期的 conntrack 表连接数
+// （-1 表示不可读）。返回 stalled=事件计数未推进；tableActive=表连接数变化（表有活动）。
+func staleVerdict(prevEvts, curEvts uint64, prevCnt, curCnt int64) (stalled, tableActive bool) {
+	if curEvts != prevEvts {
+		return false, false
+	}
+	// 事件停滞；表连接数可比且变化 → 表活跃（订阅失效高置信）。
+	if prevCnt >= 0 && curCnt >= 0 && prevCnt != curCnt {
+		return true, true
+	}
+	return true, false
 }
