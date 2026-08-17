@@ -37,10 +37,18 @@ type FwFilter struct {
 	FilterDstInternal bool
 	// CIDRs 内网网段（fw.internal_cidrs 预编译；空列表 = 使用内置默认列表）。
 	CIDRs []net.IPNet
+	// ExcludeIPs 排除指定来源 IP（fw.exclude_ips 预编译，DEV-039 用户需求2：
+	// 操作方/可信 IP 白名单排除；命中 SRC 的事件在采集层丢弃）。
+	ExcludeIPs []net.IP
 }
 
 // ShouldDrop 判定事件是否应在采集层丢弃（解析成功后、入队前调用）。
 func (f FwFilter) ShouldDrop(ev event.FirewallEvent) bool {
+	// DEV-039 用户需求2：排除指定来源 IP（操作方/可信 IP）——优先于内网判定，
+	// 与 ExcludeInternal 开关独立（exclude_internal=false 时仍排除操作方 IP）。
+	if len(f.ExcludeIPs) > 0 && ev.SrcIP != 0 && containsIPv4(ev.SrcIP, f.ExcludeIPs) {
+		return true
+	}
 	if !f.ExcludeInternal || len(f.CIDRs) == 0 {
 		return false
 	}
@@ -50,6 +58,16 @@ func (f FwFilter) ShouldDrop(ev event.FirewallEvent) bool {
 	}
 	// 默认模式：仅 SRC 判定（DST 不参与，保留 forward 链外部→内网目的的真实威胁）。
 	return IsInternalSrc(ev, f.CIDRs)
+}
+
+// containsIPv4 判定 IPv4（uint32）是否命中排除 IP 列表（精确匹配，无掩码）。
+func containsIPv4(ip uint32, ips []net.IP) bool {
+	for _, n := range ips {
+		if n.To4() != nil && event.IPv4ToUint32(n) == ip {
+			return true
+		}
+	}
+	return false
 }
 
 // IsInternalSrc 默认语义：仅判定 SRC 是否内网来源（B.2.2 判定规则，reviewer R-01a）。
@@ -101,6 +119,20 @@ func ParseCIDRs(cidrs []string) ([]net.IPNet, error) {
 			return nil, fmt.Errorf("非法 CIDR %q: %w", s, err)
 		}
 		out = append(out, *n)
+	}
+	return out, nil
+}
+
+// ParseExcludeIPs 校验并预编译排除 IP 列表（DEV-039 用户需求2）。
+// 仅接受 IPv4 点分十进制（与 config.Validate 一致）；空输入返回 nil（不排除）。
+func ParseExcludeIPs(ips []string) ([]net.IP, error) {
+	out := make([]net.IP, 0, len(ips))
+	for _, s := range ips {
+		ip := net.ParseIP(s)
+		if ip == nil || ip.To4() == nil {
+			return nil, fmt.Errorf("非法 IPv4 地址 %q", s)
+		}
+		out = append(out, ip.To4())
 	}
 	return out, nil
 }

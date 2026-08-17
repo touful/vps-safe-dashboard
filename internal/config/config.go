@@ -77,6 +77,10 @@ type FWCfg struct {
 	// FilterDstInternal 扩展模式：外部→内网目的事件也过滤（DEV-031 D.4 裁定 3，默认 false；
 	// 开启后 SRC 或 DST 任一命中内网网段即过滤）。
 	FilterDstInternal bool `json:"filter_dst_internal"`
+	// ExcludeIPs 排除指定来源 IP 的事件（DEV-039 用户需求2：操作方/可信 IP 白名单排除，
+	// 默认空；命中 SRC 的事件在采集层丢弃——解决操作方正常访问流量被 LOG 无条件记录
+	// 而成为"TOP 攻击源"的问题）。仅接受 IPv4 点分十进制。
+	ExcludeIPs []string `json:"exclude_ips"`
 }
 
 // F2BCfg fail2ban 集成（M-05）。
@@ -233,6 +237,14 @@ func (c *Config) Validate() error {
 		}
 		if _, bits := ipnet.Mask.Size(); bits != 32 {
 			return fmt.Errorf("fw.internal_cidrs[%d]=%q 为 IPv6 网段：当前仅支持 IPv4（IPv6 行不参与过滤，首期不启用，DEV-031 B.2.2）", i, cidr)
+		}
+	}
+	// DEV-039 用户需求2：fw.exclude_ips 逐项校验 IPv4 点分十进制（空列表合法=不排除）。
+	// 仅接受 IPv4：与 internal_cidrs 一致，IPv6 行（SrcIP=0）不参与排除判定。
+	for i, ip := range c.FW.ExcludeIPs {
+		parsed := net.ParseIP(ip)
+		if parsed == nil || parsed.To4() == nil {
+			return fmt.Errorf("fw.exclude_ips[%d]=%q 非法 IPv4 地址（当前仅支持 IPv4 点分十进制）", i, ip)
 		}
 	}
 	if c.F2B.LogPath == "" || c.F2B.DBPath == "" {

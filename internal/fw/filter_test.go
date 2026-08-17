@@ -193,3 +193,74 @@ func TestParseCIDRs(t *testing.T) {
 		t.Error("非法 CIDR 应报错")
 	}
 }
+
+// TestParseExcludeIPs 排除 IP 列表解析（DEV-039 用户需求2：空=不排除；非法报错）。
+func TestParseExcludeIPs(t *testing.T) {
+	// 空输入 → nil（不排除）。
+	ips, err := ParseExcludeIPs(nil)
+	if err != nil || len(ips) != 0 {
+		t.Errorf("空输入应返回空列表: len=%d err=%v", len(ips), err)
+	}
+	ips2, err := ParseExcludeIPs([]string{})
+	if err != nil || len(ips2) != 0 {
+		t.Errorf("空列表应返回空: len=%d err=%v", len(ips2), err)
+	}
+	// 合法 IPv4。
+	ips3, err := ParseExcludeIPs([]string{"182.136.147.161", "203.0.113.5"})
+	if err != nil || len(ips3) != 2 {
+		t.Fatalf("合法 IP 解析失败: %v", err)
+	}
+	if !containsIPv4(u32IP(t, "182.136.147.161"), ips3) {
+		t.Error("182.136.147.161 应命中排除列表")
+	}
+	if containsIPv4(u32IP(t, "8.8.8.8"), ips3) {
+		t.Error("未配置 IP 不应命中")
+	}
+	// 非法格式。
+	if _, err := ParseExcludeIPs([]string{"not-an-ip"}); err == nil {
+		t.Error("非法 IP 应报错")
+	}
+	if _, err := ParseExcludeIPs([]string{"2001:db8::1"}); err == nil {
+		t.Error("IPv6 应报错（当前仅支持 IPv4）")
+	}
+}
+
+// TestFwFilterShouldDropExcludeIPs 排除指定来源 IP 判定（DEV-039 用户需求2）：
+// 命中 exclude_ips 的 SRC 丢弃；与 ExcludeInternal 开关独立。
+func TestFwFilterShouldDropExcludeIPs(t *testing.T) {
+	ns := mustCIDRs(t)
+	exIPs, _ := ParseExcludeIPs([]string{"182.136.147.161"})
+	evOperator := event.FirewallEvent{SrcIP: u32IP(t, "182.136.147.161"), DstIP: u32IP(t, "172.17.39.111")}
+	evOther := event.FirewallEvent{SrcIP: u32IP(t, "203.0.113.5"), DstIP: u32IP(t, "172.17.39.111")}
+	evInternal := event.FirewallEvent{SrcIP: u32IP(t, "172.19.0.2"), DstIP: u32IP(t, "203.0.113.5")}
+	ipv6Line := event.FirewallEvent{SrcIP: 0, DstIP: 0}
+
+	// exclude_internal=false 时仍排除操作方 IP（开关独立）。
+	off := FwFilter{ExcludeInternal: false, CIDRs: ns, ExcludeIPs: exIPs}
+	if !off.ShouldDrop(evOperator) {
+		t.Error("exclude_internal=false 时操作方 IP 仍应排除")
+	}
+	if off.ShouldDrop(evOther) {
+		t.Error("非排除 IP 不应被排除")
+	}
+	// 默认模式（exclude_internal=true）：操作方 IP 排除 + 内网 SRC 过滤。
+	fDefault := FwFilter{ExcludeInternal: true, FilterDstInternal: false, CIDRs: ns, ExcludeIPs: exIPs}
+	if !fDefault.ShouldDrop(evOperator) {
+		t.Error("默认模式：操作方 IP 应排除")
+	}
+	if !fDefault.ShouldDrop(evInternal) {
+		t.Error("默认模式：内网 SRC 应过滤")
+	}
+	if fDefault.ShouldDrop(evOther) {
+		t.Error("默认模式：其他公网 SRC 应保留")
+	}
+	// IPv6 行（SrcIP=0）保守保留。
+	if fDefault.ShouldDrop(ipv6Line) {
+		t.Error("IPv6 行（SrcIP=0）应保留")
+	}
+	// 空 ExcludeIPs → 不排除。
+	noEx := FwFilter{ExcludeInternal: true, CIDRs: ns, ExcludeIPs: nil}
+	if noEx.ShouldDrop(evOperator) {
+		t.Error("空 ExcludeIPs 不应排除操作方 IP")
+	}
+}

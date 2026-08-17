@@ -81,6 +81,7 @@ if [ "$BACKEND" = "nft" ]; then
   nft -a list ruleset > /tmp/sentry_nft_rules.txt
   CUR_FAMILY=""; CUR_TABLE=""; CUR_CHAIN=""
   INSERTED=0
+  LOGGED_CHAIN=""   # A-01（DEV-039）：已插入 LOG 的链标识（family/table/chain）
   while IFS= read -r line; do
     # 跟踪 family/table/chain 上下文
     if echo "$line" | grep -qE '^\s*table [a-z]+ '; then
@@ -96,6 +97,14 @@ if [ "$BACKEND" = "nft" ]; then
     # 规则行含 drop/reject 且带 handle；提取 action（M4B-01 前缀用）
     if echo "$line" | grep -qE '\b(drop|reject)\b' && echo "$line" | grep -q 'handle [0-9]'; then
       [ -z "$CUR_FAMILY" ] || [ -z "$CUR_TABLE" ] || [ -z "$CUR_CHAIN" ] && continue
+      # A-01（DEV-039，auditor Major）：同一链只插 1 条 LOG（在该链第一条 drop 前）。
+      # 根因：LOG 规则无条件（无匹配条件），同链多条 LOG 会对同一包重复记录
+      # （auditor A-01：事件量/DB/统计指标翻倍）。LOG 无条件记录该链全部流量——
+      # 首条 drop 前的 1 条 LOG 即可覆盖匹配后续 drop 规则的所有包（不漏报），
+      # 故同链 1 条 LOG 足够。跨链仍各插 1 条（互不重叠）。
+      if [ "$LOGGED_CHAIN" = "$CUR_FAMILY/$CUR_TABLE/$CUR_CHAIN" ]; then
+        continue
+      fi
       HANDLE=$(echo "$line" | grep -oE 'handle [0-9]+' | awk '{print $2}')
       if echo "$line" | grep -qE '\breject\b'; then ACTION="reject"; else ACTION="drop"; fi
       # R-07 边界记录：action 判定为先 reject 后 drop——规则行同时含两词（极端注释场景）时
@@ -104,6 +113,7 @@ if [ "$BACKEND" = "nft" ]; then
       if nft insert rule "$CUR_FAMILY" "$CUR_TABLE" "$CUR_CHAIN" position "$HANDLE" log prefix "\"$LOGPREFIX\"" flags all limit rate 5/second burst $BURST packets 2>/dev/null; then
         echo "已插入 LOG（$CUR_FAMILY $CUR_TABLE/$CUR_CHAIN 于 handle $HANDLE 前，前缀 $LOGPREFIX）"
         INSERTED=$((INSERTED+1))
+        LOGGED_CHAIN="$CUR_FAMILY/$CUR_TABLE/$CUR_CHAIN"
       else
         echo "[警告] 插入失败（$CUR_FAMILY $CUR_TABLE/$CUR_CHAIN handle $HANDLE）：规则可能已变，人工核对 nft -a list ruleset"
       fi
@@ -127,22 +137,21 @@ else
   fi
   # M4B-02（DEV-009，auditor Major）：`iptables -S INPUT` 首行为 `-P INPUT <policy>`，
   # grep 行号 = 规则编号 + 1——插入位置须减 1（否则"首条规则即 DROP"时 LOG 插到 DROP 之后）。
-  # R-04（reviewer）：多条 DROP 规则时按编号降序插入（从后往前）——顺序插入会因
-  # LOG 占位导致后续编号偏移、LOG 聚集于首条 DROP 前（限速叠加放大日志量）。
-  iptables -S INPUT | grep -nE '\-j (DROP|REJECT)' | awk -F: '{print $1}' | sort -rn > /tmp/sentry_iptables_lines.txt
+  # A-01（DEV-039）：INPUT 链只插 1 条 LOG（在第一条 DROP 前）——多条无条件 LOG 会对
+  # 同一包重复记录（auditor A-01）。取编号最小的 DROP/REJECT 规则行号。
+  FIRST_LINE=$(iptables -S INPUT | grep -nE '\-j (DROP|REJECT)' | awk -F: '{print $1}' | sort -n | head -1)
   INSERTED=0
-  while IFS= read -r ln; do
-    RULE_NO=$((ln - 1))   # M4B-02：排除 -P 行后为真实规则编号
+  if [ -n "$FIRST_LINE" ]; then
+    RULE_NO=$((FIRST_LINE - 1))   # M4B-02：排除 -P 行后为真实规则编号
     # 取原始规则行判定 action（从 -S 输出按行号取）
-    ORIG=$(iptables -S INPUT | sed -n "${ln}p")
+    ORIG=$(iptables -S INPUT | sed -n "${FIRST_LINE}p")
     if echo "$ORIG" | grep -qE '\-j REJECT'; then ACTION="reject"; else ACTION="drop"; fi
     LOGPREFIX="${PREFIX_BASE}input:${ACTION} "   # M4B-01：INPUT 链映射为 input
     if iptables -I INPUT "$RULE_NO" -m limit --limit "$LIMIT" --limit-burst "$BURST" -j LOG --log-prefix "$LOGPREFIX" 2>/dev/null; then
       echo "已插入 LOG（INPUT 第 ${RULE_NO} 条 DROP 前，前缀 $LOGPREFIX）"
       INSERTED=$((INSERTED+1))
     fi
-  done < /tmp/sentry_iptables_lines.txt
-  rm -f /tmp/sentry_iptables_lines.txt
+  fi
   # C-07b：无 drop/reject 规则时提示（与 nft 分支一致）
   if [ "$INSERTED" -eq 0 ]; then
     echo "[提示] 未发现任何 drop/reject 规则（C-07b）：防火墙通道数据将稀疏，攻击统计依赖 conntrack + fail2ban 日志"

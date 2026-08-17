@@ -1,10 +1,10 @@
 {
-  "_comment": "DEV-031 新增配置：conntrack.mode（auto|fallback）、fw.exclude_internal（默认 true，排除内网/自身来源）、fw.internal_cidrs（空=内置默认网段）、fw.filter_dst_internal（扩展模式，默认 false）、db.retention_days（默认 7，<=0 禁用；小于 archive.copy_after_days+30 时归档副本含空洞）",
+  "_comment": "DEV-031 新增配置：conntrack.mode（auto|fallback）、fw.exclude_internal（默认 true，排除内网/自身来源）、fw.internal_cidrs（空=内置默认网段；显式填充须含完整列表，172.16.0.0/12 覆盖 172.17/172.18/172.19 容器网段）、fw.filter_dst_internal（扩展模式，默认 false）、fw.exclude_ips（DEV-039：排除指定来源 IP，操作方/可信 IP 白名单；【安全提示】仅配置可信 IP，误配攻击者 IP 将使其流量完全绕过防火墙事件记录）、db.retention_days（默认 7，<=0 禁用；小于 archive.copy_after_days+30 时归档副本含空洞）",
   "collect": {"resource_interval_seconds": 5},
   "ss": {"snapshot_interval_s": 20},
   "conntrack": {"buffer_size_kb": 2048, "enable_acct": true, "overrun_warn_interval_s": 60, "fallback_interval_s": 5, "mode": "auto"},
   "ssh": {"source": "journald", "verbose_fingerprint": true},
-  "fw": {"source": "journald-kernel", "prefix": "SENTRY_FW:", "rate_limit_pkt_s": 5, "exclude_internal": true, "internal_cidrs": [], "filter_dst_internal": false},
+  "fw": {"source": "journald-kernel", "prefix": "SENTRY_FW:", "rate_limit_pkt_s": 5, "exclude_internal": true, "internal_cidrs": ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "169.254.0.0/16", "224.0.0.0/4"], "filter_dst_internal": false, "exclude_ips": ["182.136.147.161"]},
   "f2b": {"enabled": true, "log_path": "/host/fail2ban.log", "db_path": "/host/fail2ban.sqlite3"},
   "db": {"path": "/var/lib/sentry-agent/state.db", "batch_interval_ms": 1000, "batch_size": 500, "archive_dir": "/var/lib/sentry-agent/archive", "retention_days": 7},
   "archive": {"monthly_hour": "02:00", "gzip_level": 6, "copy_after_days": 60},

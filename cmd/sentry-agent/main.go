@@ -216,10 +216,18 @@ func main() {
 			event.ReportSys(ch.System, "fw", "warn", "fw.internal_cidrs 解析失败，本次启动关闭内网过滤（全量记录）: "+err.Error())
 			cidrs = nil
 		}
+		// DEV-039 用户需求2：exclude_ips 格式已由 config.Validate 校验；失败仅理论路径，
+		// 保守不排除（保留全量）并留痕。
+		excludeIPs, err := fw.ParseExcludeIPs(cfg.FW.ExcludeIPs)
+		if err != nil {
+			event.ReportSys(ch.System, "fw", "warn", "fw.exclude_ips 解析失败，本次启动不排除指定 IP（全量记录）: "+err.Error())
+			excludeIPs = nil
+		}
 		filter := fw.FwFilter{
 			ExcludeInternal:   cfg.FW.ExcludeInternal,
 			FilterDstInternal: cfg.FW.FilterDstInternal,
 			CIDRs:             cidrs,
+			ExcludeIPs:        excludeIPs,
 		}
 		if err := fw.RunFwParser(ctx, cfg.FW.Source, cfg.FW.Prefix, filter, ch.FW, ch.System); err != nil {
 			event.ReportSys(ch.System, "fw", "error", "防火墙解析通道退出: "+err.Error())

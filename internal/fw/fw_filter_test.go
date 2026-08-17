@@ -5,6 +5,7 @@ package fw
 import (
 	"context"
 	"testing"
+	"time"
 
 	"sentry-agent/internal/event"
 )
@@ -84,5 +85,109 @@ func TestHandleLineFilterNilStats(t *testing.T) {
 		"SENTRY_FW:input:drop SRC=172.19.0.2 DST=10.0.0.2 PROTO=TCP", 1, "SENTRY_FW:", filter, nil)
 	if len(sink) != 0 {
 		t.Error("内网行应被过滤")
+	}
+}
+
+// TestHandleLineFilterExcludeIPs 接线层排除指定来源 IP（DEV-039 用户需求2）：
+// 操作方 IP 行丢弃、其他公网行入队、过滤计数留痕。
+func TestHandleLineFilterExcludeIPs(t *testing.T) {
+	ctx := context.Background()
+	sink := make(chan event.FirewallEvent, 8)
+	sys := make(chan event.SystemEvent, 8)
+	ns, _ := ParseCIDRs(nil)
+	exIPs, _ := ParseExcludeIPs([]string{"182.136.147.161"})
+	filter := FwFilter{ExcludeInternal: true, FilterDstInternal: false, CIDRs: ns, ExcludeIPs: exIPs}
+	stats := newFilterStats()
+
+	lines := []string{
+		// 操作方 IP（exclude_ips 命中）→ 丢弃。
+		"SENTRY_FW:PREROUTING:drop IN=eth0 OUT= SRC=182.136.147.161 DST=172.17.39.111 LEN=40 PROTO=TCP SPT=50022 DPT=22",
+		// 其他公网 SRC → 保留。
+		"SENTRY_FW:PREROUTING:drop IN=eth0 OUT= SRC=203.0.113.5 DST=172.17.39.111 LEN=40 PROTO=TCP SPT=50022 DPT=22",
+		// 内网 SRC → 过滤（exclude_internal 生效）。
+		"SENTRY_FW:PREROUTING:drop IN=br-bbdb2d12d511 OUT= SRC=172.19.0.2 DST=172.18.0.1 LEN=52 PROTO=TCP SPT=47922 DPT=4001",
+	}
+	for _, l := range lines {
+		handleLine(ctx, sink, sys, nil, l, 1700000000, "SENTRY_FW:", filter, stats)
+	}
+	close(sink)
+	var got []event.FirewallEvent
+	for ev := range sink {
+		got = append(got, ev)
+	}
+	if len(got) != 1 {
+		t.Fatalf("入队事件数 = %d, 期望 1（仅其他公网行）", len(got))
+	}
+	if got[0].SrcIP != 0xCB007105 { // 203.0.113.5
+		t.Errorf("入队事件 SRC 错误: %d", got[0].SrcIP)
+	}
+	// 计数留痕：操作方 IP 1 条 + 内网 SRC 1 条 = 2 条。
+	if n := stats.dropped.Load(); n != 2 {
+		t.Errorf("过滤计数 = %d, 期望 2", n)
+	}
+}
+
+// TestHandleLineParseFail 前缀匹配但解析失败（无 SRC/DST 键）→ 限频 warn 留痕、不入队。
+func TestHandleLineParseFail(t *testing.T) {
+	ctx := context.Background()
+	sink := make(chan event.FirewallEvent, 4)
+	sys := make(chan event.SystemEvent, 8)
+	rep := event.NewRateLimiter(time.Minute)
+	ns, _ := ParseCIDRs(nil)
+	filter := FwFilter{ExcludeInternal: true, FilterDstInternal: false, CIDRs: ns}
+	handleLine(ctx, sink, sys, rep,
+		"SENTRY_FW:garbage-no-kv", 1, "SENTRY_FW:", filter, newFilterStats())
+	if len(sink) != 0 {
+		t.Error("解析失败行不应入队")
+	}
+	if len(sys) != 1 {
+		t.Fatalf("warn 留痕条数 = %d, 期望 1", len(sys))
+	}
+	ev := <-sys
+	if ev.Source != "fw" || ev.Level != "warn" {
+		t.Errorf("留痕字段错误: %+v", ev)
+	}
+}
+
+// TestHandleLineCtxDone ctx 取消且 sink 满时走 ctx.Done 分支（不阻塞）。
+func TestHandleLineCtxDone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // 立即取消
+	sink := make(chan event.FirewallEvent, 1)
+	sink <- event.FirewallEvent{} // 填满 sink
+	ns, _ := ParseCIDRs(nil)
+	filter := FwFilter{ExcludeInternal: true, FilterDstInternal: false, CIDRs: ns}
+	// 不应阻塞（ctx.Done 分支返回）。
+	handleLine(ctx, sink, nil, nil,
+		"SENTRY_FW:input:drop SRC=203.0.113.5 DST=10.0.0.2 PROTO=TCP", 1, "SENTRY_FW:", filter, nil)
+}
+
+// TestRunFwParserUnknownSource 未知 fw.source → 返回错误（RunFwParser default 分支）。
+func TestRunFwParserUnknownSource(t *testing.T) {
+	ctx := context.Background()
+	sink := make(chan event.FirewallEvent, 4)
+	sys := make(chan event.SystemEvent, 4)
+	if err := RunFwParser(ctx, "bad-source", "SENTRY_FW:", FwFilter{}, sink, sys); err == nil {
+		t.Error("未知 source 应返回错误")
+	}
+}
+
+// TestRunFwParserJournaldMissing journalctl 不存在 → 返回错误（Windows 无 journalctl）。
+func TestRunFwParserJournaldMissing(t *testing.T) {
+	ctx := context.Background()
+	sink := make(chan event.FirewallEvent, 4)
+	sys := make(chan event.SystemEvent, 4)
+	if err := RunFwParser(ctx, "journald-kernel", "SENTRY_FW:", FwFilter{}, sink, sys); err == nil {
+		t.Error("journalctl 缺失应返回错误")
+	}
+}
+
+// TestRunFwParserKmsgOther 非 Linux 平台 kmsg 占位 → 返回"仅支持 Linux"错误。
+func TestRunFwParserKmsgOther(t *testing.T) {
+	ctx := context.Background()
+	sink := make(chan event.FirewallEvent, 4)
+	sys := make(chan event.SystemEvent, 4)
+	if err := RunFwParser(ctx, "kmsg", "SENTRY_FW:", FwFilter{}, sink, sys); err == nil {
+		t.Error("非 Linux kmsg 应返回错误")
 	}
 }

@@ -54,6 +54,9 @@ func TestValidate(t *testing.T) {
 		{"internal_cidrs 混入非法项", func(c *Config) { c.FW.InternalCIDRs = []string{"10.0.0.0/8", "bad"} }}, // DEV-031
 		{"internal_cidrs IPv6 段", func(c *Config) { c.FW.InternalCIDRs = []string{"fc00::/7"} }},   // DEV-031 R-04：当前仅支持 IPv4
 		{"internal_cidrs IPv4-mapped IPv6", func(c *Config) { c.FW.InternalCIDRs = []string{"::ffff:10.0.0.0/120"} }}, // DEV-031 R-N2：bits=128 拒绝
+		{"exclude_ips 非 IP", func(c *Config) { c.FW.ExcludeIPs = []string{"abc"} }},               // DEV-039
+		{"exclude_ips IPv6", func(c *Config) { c.FW.ExcludeIPs = []string{"2001:db8::1"} }},        // DEV-039：当前仅支持 IPv4
+		{"exclude_ips 混入非法项", func(c *Config) { c.FW.ExcludeIPs = []string{"182.136.147.161", "bad"} }}, // DEV-039
 		{"db.path 空", func(c *Config) { c.DB.Path = "" }},
 		{"db.archive_dir 空", func(c *Config) { c.DB.ArchiveDir = "" }},
 		{"db.batch_interval_ms 过小", func(c *Config) { c.DB.BatchIntervalMS = 50 }},
@@ -103,5 +106,14 @@ func TestValidateInternalCIDRsOK(t *testing.T) {
 	cfg.FW.InternalCIDRs = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("合法 internal_cidrs 应通过校验: %v", err)
+	}
+}
+
+// TestValidateExcludeIPsOK（DEV-039 用户需求2）：合法 exclude_ips 列表通过校验。
+func TestValidateExcludeIPsOK(t *testing.T) {
+	cfg := Defaults()
+	cfg.FW.ExcludeIPs = []string{"182.136.147.161", "203.0.113.5"}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("合法 exclude_ips 应通过校验: %v", err)
 	}
 }
