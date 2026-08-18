@@ -5,5 +5,6 @@
   "ssh": {"source": "rsyslog", "verbose_fingerprint": true},
   "fw": {"source": "kmsg", "prefix": "SENTRY_FW:", "rate_limit_pkt_s": 5},
   "f2b": {"enabled": false, "log_path": "/tmp/f2b.log", "db_path": "/tmp/f2b.db"},
+  "db": {"path": ".dev015-test/state.db", "archive_dir": ".dev015-test/archive", "batch_interval_ms": 1000, "batch_size": 500, "retention_days": 7},
   "log": {"level": "info"}
 }

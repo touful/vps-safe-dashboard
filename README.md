@@ -75,6 +75,11 @@ python scripts/dev017_seed_noidle_db.py # 零攻击种子库（空态验证）
 go run ./cmd/sentry-agent -config scripts/test_m1_b5_config.json
 ```
 
+种子库统一写入仓库根 `.dev015-test/` 目录（被 .gitignore 忽略，不入库）；
+`test_m1_b5_config.json` 的 `db.path` 指向 dev015 攻击数据种子库
+（`.dev015-test/state.db`，相对仓库根解析）；各脚本支持环境变量
+（`DEV015_DB` / `DEV017_NOIDLE_DB`）覆盖默认路径。
+
 ## 验证档案
 
 全部验证/回归/审计报告归档于 **[docs/verification/README.md](docs/verification/README.md)**（索引表：V1-V4 里程碑验证、TEST-001~007 测试与回归、AUD-006 审计、evidence/ 执行证据）。

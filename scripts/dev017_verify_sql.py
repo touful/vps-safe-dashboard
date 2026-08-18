@@ -1,7 +1,8 @@
 # DEV-017 回归：firewall/timeline 聚合与明细 SQL 对照（TEST-006）
-import sqlite3, time, os, tempfile
+# 默认读取 .dev015-test/state.db（与 dev015 种子脚本统一；可用 DEV015_DB 环境变量覆盖）。
+import sqlite3, time, os
 
-DB = os.environ.get("DEV015_DB", os.path.join(tempfile.gettempdir(), "opencode", "dev015", "state.db"))
+DB = os.environ.get("DEV015_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".dev015-test", "state.db"))
 db = sqlite3.connect(DB)
 now = int(time.time())
 from_ = now - 86400

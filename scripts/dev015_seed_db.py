@@ -1,8 +1,9 @@
 # DEV-015 自测：构造前端验证用测试数据库（schema 与 store.go 一致，IP 为 uint32 大端序）。
 # 用法：python scripts/dev015_seed_db.py
-import sqlite3, os, time, random, tempfile
+# 输出：.dev015-test/state.db（仓库相对路径，目录被 .gitignore 忽略；可用 DEV015_DB 环境变量覆盖）。
+import sqlite3, os, time, random
 
-DB = os.environ.get("DEV015_DB", os.path.join(tempfile.gettempdir(), "opencode", "dev015", "state.db"))
+DB = os.environ.get("DEV015_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".dev015-test", "state.db"))
 os.makedirs(os.path.dirname(DB), exist_ok=True)
 if os.path.exists(DB):
     os.remove(DB)

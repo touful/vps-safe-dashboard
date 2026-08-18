@@ -1,7 +1,10 @@
 # DEV-017 自测：构造"无攻击"测试库（验证零攻击庆祝态与态势正常分支）。
+# 输出：.dev015-test/state_noidle.db（仓库相对路径，目录被 .gitignore 忽略；
+# 可用 DEV017_NOIDLE_DB 环境变量覆盖）。
 import sqlite3, os, time
 
 DB = os.environ.get("DEV017_NOIDLE_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".dev015-test", "state_noidle.db"))
+os.makedirs(os.path.dirname(DB), exist_ok=True)
 if os.path.exists(DB):
     os.remove(DB)
 conn = sqlite3.connect(DB)

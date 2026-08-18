@@ -1,8 +1,9 @@
 # DEV-017 回归测试：构造 API 测试配置（TEST-006）
 # 用法：python scripts/dev017_test_cfg.py <state_db_path> <port>
-import json, os, sys, tempfile
+# 默认 db 指向 .dev015-test/state.db（与 dev015 种子脚本统一；可用 argv 覆盖）。
+import json, os, sys
 
-db = sys.argv[1] if len(sys.argv) > 1 else os.path.join(tempfile.gettempdir(), "opencode", "dev015", "state.db")
+db = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".dev015-test", "state.db")
 port = int(sys.argv[2]) if len(sys.argv) > 2 else 8099
 
 cfg = {
