@@ -78,6 +78,76 @@ fi
 
 mkdir -p /var/lib/sentry-agent
 
+# ===== DEV-HONEY-001：蜜罐端口入站放行（配置驱动） =====
+# 背景：蜜罐监听标准端口（21/23/445/1433/3389 等），若被既有 INPUT DROP 规则拦截
+# 则攻击者无法触达蜜罐（连接被静默丢弃）。本段将蜜罐端口从 DROP 改为 ACCEPT——
+# 注意语义：raw PREROUTING 入站 LOG（DEV-042）在 conntrack 之前无条件记录，
+# 放行后蜜罐流量仍进入 firewall_events（入站观察语义不丢）。
+# 配置驱动：读 /etc/sentry-agent/config.json 的 honeypot.listen（enabled=true 时生效）；
+# 未启用蜜罐或未配置时保持原 DROP 行为（幂等跳过）。
+# 回滚：--rollback 已覆盖 SENTRY_HONEYPOT 规则删除（恢复原 DROP 行为）。
+# R-01（DEV-HONEY-003 reviewer Major 整改）：函数定义移到 BACKEND 判定之前（顶层）——
+# 原定义在 nft 分支内，BACKEND=iptables 时函数未定义（command not found），
+# iptables 后端蜜罐放行从未生效（基线既有缺陷，H-02 修复暴露）。
+insert_honeypot_accept() {
+  local cfg="${HONEYPOT_CONFIG:-/etc/sentry-agent/config.json}"
+  local block ports portlist
+  if [ ! -f "$cfg" ]; then
+    echo "[提示] 未找到 $cfg——蜜罐放行跳过（保持原 DROP 行为；部署后重跑本脚本）"
+    return
+  fi
+  block=$(sed -n '/"honeypot"/,/^[[:space:]]*}/p' "$cfg")
+  if ! echo "$block" | grep -q '"enabled"[[:space:]]*:[[:space:]]*true'; then
+    echo "[提示] 蜜罐未启用（honeypot.enabled != true）——保持原 DROP 行为"
+    return
+  fi
+  ports=$(echo "$block" | grep -oE ':[0-9]{1,5}' | grep -oE '[0-9]{1,5}' | sort -un)
+  if [ -z "$ports" ]; then
+    echo "[提示] 蜜罐启用但未解析到监听端口——保持原 DROP 行为（人工核对 honeypot.listen 配置）"
+    return
+  fi
+  # H-02（audit Major 修复）：原 `echo $ports | tr '\n' ','` 生成空格分隔 + 尾逗号列表
+  # （`echo $ports` 未加引号导致换行变空格），iptables multiport 不接受空格、
+  # nft 集合语法不接受尾逗号——两后端插入必然失败且脚本 exit 0 掩盖。
+  # paste -sd, 生成纯逗号分隔无尾逗号列表。
+  portlist=$(echo "$ports" | paste -sd, -)
+  echo "--- 蜜罐端口入站放行（SENTRY_HONEYPOT，从 DROP 改为 ACCEPT 仍保留 LOG 记录）---"
+  echo "蜜罐端口: $portlist"
+  FAILED=0
+  if [ "$BACKEND" = "nft" ]; then
+    if nft list chain ip filter INPUT 2>/dev/null | grep -q 'SENTRY_HONEYPOT'; then
+      echo "[提示] INPUT 链已含 SENTRY_HONEYPOT 规则（幂等：跳过插入）"
+    else
+      nft add table ip filter 2>/dev/null || true
+      nft add chain ip filter INPUT '{ type filter hook input priority 0 ; policy accept ; }' 2>/dev/null || true
+      # insert 到链首（先于既有 DROP）；raw PREROUTING LOG 不受影响（hook 更早）
+      if nft insert rule ip filter INPUT tcp dport { $portlist } accept comment \"SENTRY_HONEYPOT:accept\" 2>/dev/null; then
+        echo "已插入: 放行蜜罐端口（$portlist）"
+      else
+        echo "[警告] 插入失败: 蜜罐端口放行（人工核对 nft list chain ip filter INPUT | grep SENTRY_HONEYPOT）"
+        FAILED=1
+      fi
+    fi
+  else
+    if iptables -S INPUT | grep -q 'SENTRY_HONEYPOT'; then
+      echo "[提示] INPUT 链已含 SENTRY_HONEYPOT 规则（幂等：跳过插入）"
+    else
+      if iptables -I INPUT -p tcp -m multiport --dports "$portlist" -j ACCEPT -m comment --comment "SENTRY_HONEYPOT:accept" 2>/dev/null; then
+        echo "已插入: 放行蜜罐端口（$portlist）"
+      else
+        echo "[警告] 插入失败: 蜜罐端口放行（人工核对 iptables -S INPUT | grep SENTRY_HONEYPOT）"
+        FAILED=1
+      fi
+    fi
+  fi
+  if [ "$FAILED" -eq 1 ]; then
+    echo "[错误] 蜜罐端口放行插入失败——规则未生效（攻击者无法触达蜜罐端口），请修复后重跑"
+    return 1
+  fi
+  # 验证命令（双后端）：nft list chain ip filter INPUT | grep SENTRY_HONEYPOT /
+  # iptables -S INPUT | grep SENTRY_HONEYPOT
+}
+
 if [ "$BACKEND" = "nft" ]; then
   echo "--- nftables：在现有 drop/reject 规则前插入限速 LOG ---"
   # M4B-01：前缀带 <chain>:<action>（nft 分支 chain 取自跟踪链名，action 取自规则行）
@@ -121,73 +191,6 @@ if [ "$BACKEND" = "nft" ]; then
       echo "SENTRY_PROTECT 防护规则数: $PROTECT_CNT"
       [ "$PROTECT_CNT" -ge 4 ] || echo "[警告] 防护规则数 < 4：插入未完全生效（人工核对 nft list chain ip filter FORWARD）"
     fi
-  }
-
-  # ===== DEV-HONEY-001：蜜罐端口入站放行（配置驱动） =====
-  # 背景：蜜罐监听标准端口（21/23/445/1433/3389 等），若被既有 INPUT DROP 规则拦截
-  # 则攻击者无法触达蜜罐（连接被静默丢弃）。本段将蜜罐端口从 DROP 改为 ACCEPT——
-  # 注意语义：raw PREROUTING 入站 LOG（DEV-042）在 conntrack 之前无条件记录，
-  # 放行后蜜罐流量仍进入 firewall_events（入站观察语义不丢）。
-  # 配置驱动：读 /etc/sentry-agent/config.json 的 honeypot.listen（enabled=true 时生效）；
-  # 未启用蜜罐或未配置时保持原 DROP 行为（幂等跳过）。
-  # 回滚：--rollback 已覆盖 SENTRY_HONEYPOT 规则删除（恢复原 DROP 行为）。
-  insert_honeypot_accept() {
-    local cfg="${HONEYPOT_CONFIG:-/etc/sentry-agent/config.json}"
-    local block ports portlist
-    if [ ! -f "$cfg" ]; then
-      echo "[提示] 未找到 $cfg——蜜罐放行跳过（保持原 DROP 行为；部署后重跑本脚本）"
-      return
-    fi
-    block=$(sed -n '/"honeypot"/,/^[[:space:]]*}/p' "$cfg")
-    if ! echo "$block" | grep -q '"enabled"[[:space:]]*:[[:space:]]*true'; then
-      echo "[提示] 蜜罐未启用（honeypot.enabled != true）——保持原 DROP 行为"
-      return
-    fi
-    ports=$(echo "$block" | grep -oE ':[0-9]{1,5}' | grep -oE '[0-9]{1,5}' | sort -un)
-    if [ -z "$ports" ]; then
-      echo "[提示] 蜜罐启用但未解析到监听端口——保持原 DROP 行为（人工核对 honeypot.listen 配置）"
-      return
-    fi
-    # H-02（audit Major 修复）：原 `echo $ports | tr '\n' ','` 生成空格分隔 + 尾逗号列表
-    # （`echo $ports` 未加引号导致换行变空格），iptables multiport 不接受空格、
-    # nft 集合语法不接受尾逗号——两后端插入必然失败且脚本 exit 0 掩盖。
-    # paste -sd, 生成纯逗号分隔无尾逗号列表。
-    portlist=$(echo "$ports" | paste -sd, -)
-    echo "--- 蜜罐端口入站放行（SENTRY_HONEYPOT，从 DROP 改为 ACCEPT 仍保留 LOG 记录）---"
-    echo "蜜罐端口: $portlist"
-    FAILED=0
-    if [ "$BACKEND" = "nft" ]; then
-      if nft list chain ip filter INPUT 2>/dev/null | grep -q 'SENTRY_HONEYPOT'; then
-        echo "[提示] INPUT 链已含 SENTRY_HONEYPOT 规则（幂等：跳过插入）"
-      else
-        nft add table ip filter 2>/dev/null || true
-        nft add chain ip filter INPUT '{ type filter hook input priority 0 ; policy accept ; }' 2>/dev/null || true
-        # insert 到链首（先于既有 DROP）；raw PREROUTING LOG 不受影响（hook 更早）
-        if nft insert rule ip filter INPUT tcp dport { $portlist } accept comment \"SENTRY_HONEYPOT:accept\" 2>/dev/null; then
-          echo "已插入: 放行蜜罐端口（$portlist）"
-        else
-          echo "[警告] 插入失败: 蜜罐端口放行（人工核对 nft list chain ip filter INPUT | grep SENTRY_HONEYPOT）"
-          FAILED=1
-        fi
-      fi
-    else
-      if iptables -S INPUT | grep -q 'SENTRY_HONEYPOT'; then
-        echo "[提示] INPUT 链已含 SENTRY_HONEYPOT 规则（幂等：跳过插入）"
-      else
-        if iptables -I INPUT -p tcp -m multiport --dports "$portlist" -j ACCEPT -m comment --comment "SENTRY_HONEYPOT:accept" 2>/dev/null; then
-          echo "已插入: 放行蜜罐端口（$portlist）"
-        else
-          echo "[警告] 插入失败: 蜜罐端口放行（人工核对 iptables -S INPUT | grep SENTRY_HONEYPOT）"
-          FAILED=1
-        fi
-      fi
-    fi
-    if [ "$FAILED" -eq 1 ]; then
-      echo "[错误] 蜜罐端口放行插入失败——规则未生效（攻击者无法触达蜜罐端口），请修复后重跑"
-      return 1
-    fi
-    # 验证命令（双后端）：nft list chain ip filter INPUT | grep SENTRY_HONEYPOT /
-    # iptables -S INPUT | grep SENTRY_HONEYPOT
   }
 
   # ===== DEV-042：raw PREROUTING 入站 LOG（记录所有入站流量） =====

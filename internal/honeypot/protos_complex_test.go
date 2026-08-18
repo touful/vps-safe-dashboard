@@ -323,6 +323,12 @@ func TestSMB2Capture(t *testing.T) {
 	if !strings.Contains(string(rbody), "NTLMSSP") {
 		t.Fatal("Negotiate Response 缺 NTLMSSP CHALLENGE")
 	}
+	// H-03 回归断言：ServerGuid 为中性 16 字节（不得含 SENTRY/HONEYPOT 标识）。
+	// SMB2_NEGOTIATE_RESPONSE 布局：StructureSize(2)+SecurityMode(2)+
+	// DialectRevision(2)+Reserved(2) → ServerGuid(16) @8-24。
+	if got := string(rbody[8:24]); got != "1234567890ABCDEF" {
+		t.Fatalf("ServerGuid = %q, 期望 1234567890ABCDEF（H-03：中性值）", got)
+	}
 
 	// 2. Session Setup + NTLMSSP AUTH。
 	auth := buildNTLMSSPAuth("attacker", "WORKGROUP")
@@ -612,12 +618,20 @@ func TestMySQLStrictParse(t *testing.T) {
 	if vEnd < 0 {
 		t.Fatal("server version 缺 NUL 终止")
 	}
+	// H-03 回归断言：version 为中性 "8.0.35"（不得含 honeypot/sentry 蜜罐标识）。
+	if got := string(greeting[pos : pos+vEnd]); got != "8.0.35" {
+		t.Fatalf("server version = %q, 期望 8.0.35（H-03：去蜜罐标识）", got)
+	}
 	pos += vEnd + 1 // 跳过 version（含 NUL）
 	if pos+4+8+1+2+1+2+2+1+10 > len(greeting) {
 		t.Fatalf("greeting 过短（%d 字节）", len(greeting))
 	}
 	pos += 4                                     // connection_id
 	part1 := greeting[pos : pos+8]               // auth-plugin-data-part1
+	// H-03 回归断言：salt 为中性 20 字节（part1 "FixedSrv"，不得含蜜罐标识）。
+	if got := string(part1); got != "FixedSrv" {
+		t.Fatalf("auth-plugin-data-part1 = %q, 期望 FixedSrv（H-03：中性 salt）", got)
+	}
 	pos += 8 + 1                                 // part1 + filler
 	capsLower := binary.LittleEndian.Uint16(greeting[pos : pos+2])
 	pos += 2 + 1 + 2                             // caps_lower + charset + status
