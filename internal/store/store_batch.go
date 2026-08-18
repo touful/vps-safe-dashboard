@@ -78,28 +78,51 @@ func (s *Store) writeBatch(items []eventItem) error {
 }
 
 // itemArgs 将事件转换为 INSERT 参数（时间戳口径见 event 包注释：统一 Unix 秒）。
+// kind 与事件类型不匹配时返回错误（DEV-AUDIT-001 P1-6：原裸类型断言在类型失配时
+// panic，改为带 ok 断言防御——当前调用方 kind/类型严格配对，属防御性缺口封堵）。
 func itemArgs(it eventItem) ([]any, error) {
 	switch it.kind {
 	case "resource":
-		v := it.v.(event.ResourceSample)
+		v, ok := it.v.(event.ResourceSample)
+		if !ok {
+			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
+		}
 		return []any{v.TS, v.CPUPercent, v.MemUsedMB, v.MemPercent, v.DiskUsedMB, v.DiskPercent, v.NetRxBps, v.NetTxBps}, nil
 	case "conn":
-		v := it.v.(event.ConnEvent)
+		v, ok := it.v.(event.ConnEvent)
+		if !ok {
+			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
+		}
 		return []any{v.TS, v.EvType, int(v.Proto), int(v.SrcIP), v.SrcPort, int(v.DstIP), v.DstPort, v.Packets, v.Bytes, v.Mark, v.SrcIP6, v.DstIP6}, nil
 	case "ssh":
-		v := it.v.(event.SSHAttempt)
+		v, ok := it.v.(event.SSHAttempt)
+		if !ok {
+			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
+		}
 		return []any{v.TS, int(v.SrcIP), v.Username, v.AuthMethod, v.Result, v.Fingerprint, v.Detail}, nil
 	case "fw":
-		v := it.v.(event.FirewallEvent)
+		v, ok := it.v.(event.FirewallEvent)
+		if !ok {
+			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
+		}
 		return []any{v.TS, v.Chain, v.Action, int(v.Proto), int(v.SrcIP), v.SrcPort, int(v.DstIP), v.DstPort, v.Raw}, nil
 	case "f2b":
-		v := it.v.(event.BanEvent)
+		v, ok := it.v.(event.BanEvent)
+		if !ok {
+			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
+		}
 		return []any{v.TS, int(v.IP), v.Type, v.Jail}, nil
 	case "system":
-		v := it.v.(event.SystemEvent)
+		v, ok := it.v.(event.SystemEvent)
+		if !ok {
+			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
+		}
 		return []any{v.TS, v.Source, v.Level, v.Message}, nil
 	case "overrun":
-		v := it.v.(event.OverrunInfo)
+		v, ok := it.v.(event.OverrunInfo)
+		if !ok {
+			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
+		}
 		msg := fmt.Sprintf("netlink 缓冲溢出，丢弃 %d 条事件（R-10 留痕）", v.Dropped)
 		return []any{v.TS, "conntrack", "warn", msg}, nil
 	}
