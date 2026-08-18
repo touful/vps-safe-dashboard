@@ -682,13 +682,15 @@
       }
     });
     (state.fwRows || []).forEach(function (r) {
-      // DEV-045：事件流展示全部防火墙动作——inbound 为入站探测（扫描器，主通道），
-      // reject/drop 为拦截/丢弃（实际威胁动作），语义文案按 action 区分
-      var a = r.action, sIp = ip(r.src_ip);
-      var label = a === 'inbound' ? '入站探测' : (a === 'reject' ? '拦截' : (a === 'drop' ? '丢弃' : a));
-      items.push({ ts: r.ts, type: 'fw', srcIp: r.src_ip,
-        text: '外部威胁 ' + label + ' <b>' + sIp + '</b> → :<b>' + r.dst_port + '</b>',
-        plain: '外部威胁 ' + label + ' ' + sIp + ' → :' + r.dst_port });
+      // DEV-045：事件流仅展示拦截类动作（reject/drop）——inbound 扫描探测量级占 98%+，
+      // 且趋势图/KPI/FW 表格已承载展示，避免刷屏挤出 SSH 失败/封禁等高信号事件
+      if (r.action === 'reject' || r.action === 'drop') {
+        var a = r.action, sIp = ip(r.src_ip);
+        var label = a === 'reject' ? '拦截' : '丢弃';
+        items.push({ ts: r.ts, type: 'fw', srcIp: r.src_ip,
+          text: '外部威胁 ' + label + ' <b>' + sIp + '</b> → :<b>' + r.dst_port + '</b>',
+          plain: '外部威胁 ' + label + ' ' + sIp + ' → :' + r.dst_port });
+      }
     });
     (state.banRows || []).forEach(function (r) {
       if (r.type === 'ban') {

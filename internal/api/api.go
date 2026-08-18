@@ -315,13 +315,14 @@ func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ssh_attempts WHERE ts >= ? AND result = 0`, from).Scan(&sshFail)
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ssh_attempts WHERE ts >= ? AND result = 1`, from).Scan(&sshOK)
 
-	// 攻击端口 TOP（防火墙 DPT 口径，方案 3.4 强制：只允许 DPT）。
+	// 攻击端口 TOP（防火墙 DPT 口径，方案 3.4 强制：只允许 DPT；DEV-045：与 hTopPorts
+	// 同口径——统计所有防火墙事件，inbound 扫描探测/reject 拦截/drop 丢弃均计入）。
 	type portHit struct {
 		DstPort int   `json:"dst_port"`
 		Hits    int64 `json:"hits"`
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT dst_port, COUNT(*) FROM firewall_events
-		WHERE ts >= ? AND action = 'drop' GROUP BY dst_port ORDER BY COUNT(*) DESC LIMIT 5`, from)
+		WHERE ts >= ? GROUP BY dst_port ORDER BY COUNT(*) DESC LIMIT 5`, from)
 	if err == nil {
 		defer rows.Close()
 		var top []portHit

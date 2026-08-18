@@ -141,6 +141,24 @@ func TestSummary(t *testing.T) {
 	if out["active_conns"].(float64) != 1 {
 		t.Errorf("active_conns = %v, 期望 1（ss 快照回退口径，Cnt=-1）", out["active_conns"])
 	}
+	// DEV-045：summary top_ports 与 hTopPorts 同口径（全量防火墙事件）——种子 4 条 drop（22/23/24/25）。
+	top := out["top_ports"].([]any)
+	if len(top) != 4 {
+		t.Fatalf("top_ports 数 = %d, 期望 4", len(top))
+	}
+	gotPorts := map[float64]bool{}
+	for _, p := range top {
+		m := p.(map[string]any)
+		gotPorts[m["dst_port"].(float64)] = true
+		if m["hits"].(float64) != 1 {
+			t.Errorf("端口 %v hits = %v, 期望 1", m["dst_port"], m["hits"])
+		}
+	}
+	for _, want := range []float64{22, 23, 24, 25} {
+		if !gotPorts[want] {
+			t.Errorf("top_ports 缺少端口 %v，实际 %v", want, gotPorts)
+		}
+	}
 }
 
 // TestActiveConnsCntPriority（DEV-033 新增测试，DEV-032 核查结论 8）：活跃连接数优先
