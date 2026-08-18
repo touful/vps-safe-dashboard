@@ -212,7 +212,8 @@ func (s *Server) hFirewall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"rows": out})
 }
 
-// hTopPorts 被攻击端口 TOP（方案 4.4：防火墙 DPT 口径，DPT 警示固化）。
+// hTopPorts 被探测端口 TOP（方案 4.4 DPT 口径 → DEV-045：统计所有防火墙事件，
+// inbound 扫描探测 / reject 拦截 / drop 丢弃均计入"被探测端口"；DPT 警示固化）。
 func (s *Server) hTopPorts(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -222,7 +223,7 @@ func (s *Server) hTopPorts(w http.ResponseWriter, r *http.Request) {
 		top = 50
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT dst_port, COUNT(*) AS hits FROM firewall_events
-		WHERE ts >= ? AND action = 'drop' GROUP BY dst_port ORDER BY hits DESC LIMIT ?`, from, top)
+		WHERE ts >= ? GROUP BY dst_port ORDER BY hits DESC LIMIT ?`, from, top)
 	if err != nil {
 		writeErr(w, 500, "查询失败: "+err.Error())
 		return
@@ -371,9 +372,11 @@ func (s *Server) hSSHTimeline(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"rows": out})
 }
 
-// hFirewallTimeline 防火墙事件小时聚合时间线（DEV-017：前端"攻击趋势双通道图"drop 通道数据源）。
+// hFirewallTimeline 防火墙事件小时聚合时间线（DEV-017 双通道 → DEV-045 三通道）。
+// 三通道语义：inbound=入站观察（扫描器流量，主通道）、reject=拦截（fail2ban）、
+// drop=丢弃；accept 保留仅为向后兼容（实际生产无 accept 记录）。
 // 与 hSSHTimeline 同模式（小时桶 + range 过滤）；按任务书要求缺数据小时补零桶，
-// 保证前端双通道按时间对齐（ssh/timeline 无补零，由前端按本端点桶时间轴对齐）。
+// 保证前端各通道按时间对齐（ssh/timeline 无补零，由前端按本端点桶时间轴对齐）。
 // 注意：防火墙日志为限速采样视图（默认 5 包/s），聚合值代表采样趋势而非全量计数。
 func (s *Server) hFirewallTimeline(w http.ResponseWriter, r *http.Request) {
 	// DEV-018 P-01（AUD-007）：30d 视图千万行级全量 SUM CASE 聚合估 2-8s，context 5s 超时会周期性 500，
@@ -391,7 +394,9 @@ func (s *Server) hFirewallTimeline(w http.ResponseWriter, r *http.Request) {
 	fromBucket := (from / 3600) * 3600
 	rows, err := s.db.QueryContext(ctx, `SELECT (ts/3600)*3600 AS hour,
 		SUM(CASE WHEN action='drop' THEN 1 ELSE 0 END),
-		SUM(CASE WHEN action='accept' THEN 1 ELSE 0 END)
+		SUM(CASE WHEN action='accept' THEN 1 ELSE 0 END),
+		SUM(CASE WHEN action='reject' THEN 1 ELSE 0 END),
+		SUM(CASE WHEN action='inbound' THEN 1 ELSE 0 END)
 		FROM firewall_events WHERE ts >= ? GROUP BY hour ORDER BY hour`, fromBucket)
 	if err != nil {
 		writeErr(w, 500, "查询失败: "+err.Error())
@@ -399,14 +404,16 @@ func (s *Server) hFirewallTimeline(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type bucket struct {
-		TS     int64 `json:"ts"`
-		Drop   int64 `json:"drop"`
-		Accept int64 `json:"accept"`
+		TS      int64 `json:"ts"`
+		Drop    int64 `json:"drop"`
+		Accept  int64 `json:"accept"`
+		Reject  int64 `json:"reject"`
+		Inbound int64 `json:"inbound"`
 	}
 	got := make(map[int64]*bucket)
 	for rows.Next() {
 		var b bucket
-		if rows.Scan(&b.TS, &b.Drop, &b.Accept) == nil {
+		if rows.Scan(&b.TS, &b.Drop, &b.Accept, &b.Reject, &b.Inbound) == nil {
 			got[b.TS] = &b
 		}
 	}

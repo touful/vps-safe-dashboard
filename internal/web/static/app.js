@@ -33,10 +33,10 @@
     attack: { ports: null, sources: null, ssh: null },
     sort: {},                // { 表 id: { key, dir } }
     sshResult: '',           // SSH 表结果过滤：'' 全部 / 0 失败 / 1 成功
-    fwAction: '',            // 防火墙表动作过滤：'' 全部 / drop / accept
+    fwAction: '',            // 防火墙表动作过滤：'' 全部 / inbound / reject / drop / accept
     summary: null,           // summary 缓存（态势条/KPI/风险评分）
     banCount: null,          // range 内 ban 计数（态势条/风险评分）
-    fwTimeline: null,        // firewall/timeline 桶缓存（双通道图/FW spark/风险评分）
+    fwTimeline: null,        // firewall/timeline 桶缓存（趋势图三通道/FW spark/风险评分/态势条）
     attackDataFailed: false, // 攻击数据源失败标志——每轮 pollAttack 开头重置，成功回调不覆盖
     sshTimelineOk: true,     // ssh/timeline 独立就绪标志（fwTimeline 成功不覆盖它）
     disk24: null,            // 磁盘 24h 序列（磁盘卡 spark/trend）
@@ -191,7 +191,7 @@
     };
   }
   // tooltip formatter（DEV-FE-003 6.1）：单位 + 语义色 marker——marker 色取自 series 色
-  // （如"外部威胁 drop"红点 = TI.danger、"SSH 失败"琥珀点 = TI.warn），formatter 补单位文案
+  // （如"入站探测"红点 = TI.danger、"拦截"蓝点 = TI.accent、"SSH 失败"琥珀点 = TI.warn），formatter 补单位文案
   function makeTipFmt(units) {
     return function (params) {
       var rows = params.map(function (p) {
@@ -278,10 +278,12 @@
   }
 
   // 风险评分（gauge + 四通道分解条）。
-  // 公式（前端实现）：总分 = min(ssh_fail/200,1)*30 + min(fw_drop/1000,1)*30
+  // 公式（前端实现）：总分 = min(ssh_fail/200,1)*30 + min(fw_blocked/1000,1)*30
   //        + min(ban/20,1)*20 + clamp((disk-50)/40,0,1)*20，0-100。
   // 权重 30/30/20/20；阈值按单机 1C1G 场景经验设定；无漏洞/CVSS/情报字段。
-  // 30d 视图累计必然饱和虚高、跨 range 不可比，属设计口径（UI 已加口径注）。
+  // DEV-045：FW 通道改用"拦截"口径（drop+reject 累计）——inbound 为入站观察
+  // （扫描器探测，量大）不计入威胁动作，避免评分恒饱和；30d 视图累计必然饱和虚高、
+  // 跨 range 不可比，属设计口径（UI 已加口径注）。
   function renderRisk() {
     if (!vis('overview')) { return; } // 隐藏面板不渲染
     var s = state.summary;
@@ -310,10 +312,10 @@
       });
       return;
     }
-    var fwDrop = 0;
-    (state.fwTimeline || []).forEach(function (b) { fwDrop += b.drop; });
+    var fwBlocked = 0;
+    (state.fwTimeline || []).forEach(function (b) { fwBlocked += (b.drop || 0) + (b.reject || 0); });
     var sshFail = s.ssh_fail || 0, ban = state.banCount || 0, disk = s.disk_percent;
-    var fSsh = Math.min(sshFail / 200, 1), fFw = Math.min(fwDrop / 1000, 1),
+    var fSsh = Math.min(sshFail / 200, 1), fFw = Math.min(fwBlocked / 1000, 1),
       fBan = Math.min(ban / 20, 1), fDisk = Math.max(0, Math.min((disk - 50) / 40, 1));
     var score = Math.round(fSsh * 30 + fFw * 30 + fBan * 20 + fDisk * 20);
     var bar = function (id, v, valTxt) {
@@ -323,7 +325,7 @@
       if (vt) { vt.textContent = valTxt; }
     };
     bar('risk-ssh-bar', fSsh, sshFail);
-    bar('risk-fw-bar', fFw, fwDrop);
+    bar('risk-fw-bar', fFw, fwBlocked);
     bar('risk-ban-bar', fBan, ban);
     bar('risk-disk-bar', fDisk, disk >= 0 ? disk.toFixed(0) + '%' : '-');
     var opt = {
@@ -344,35 +346,39 @@
     setAria('chart-risk', '风险评分图：当前 ' + score + '/100');
   }
 
-  // 攻击趋势双通道（SSH 失败 + 防火墙 drop 小时聚合，按 fw 桶时间轴对齐）
+  // 攻击趋势三通道（DEV-045：SSH 失败 + 入站探测 inbound 主通道 + 拦截 drop/reject 辅通道，
+  // 按 fw 桶时间轴对齐；inbound 为扫描器流量观察，拦截为实际威胁动作）
   function renderAttackTrend() {
     if (!vis('overview')) { return; } // 隐藏面板不渲染
     var fwB = state.fwTimeline || [];
     var sshMap = {};
     (state.attack.ssh || []).forEach(function (p) { sshMap[p.ts] = p.hits; });
-    var labels = [], fwD = [], sshD = [];
+    var labels = [], inD = [], blkD = [], sshD = [];
     var longRange = (state.range === '7d' || state.range === '30d');
     fwB.forEach(function (b) {
       labels.push(longRange ? fmtTimeFull(b.ts) : fmtTime(b.ts));
-      fwD.push(b.drop);
+      inD.push(b.inbound || 0);
+      blkD.push((b.drop || 0) + (b.reject || 0));
       sshD.push(sshMap[b.ts] || 0);
     });
-    var opt = baseOption(labels, undefined, { '外部威胁 drop': '次', 'SSH 失败': '次' });
+    var opt = baseOption(labels, undefined, { '入站探测': '次', '拦截': '次', 'SSH 失败': '次' });
     opt.grid = { left: 44, right: 48, top: 34, bottom: longRange ? 34 : 22 }; // DEV-FE-003：dataZoom 时底部让位
     opt.legend = { top: 2, right: 6, textStyle: { color: '#8A94A3', fontSize: 11 }, itemWidth: 12, itemHeight: 8 };
     if (longRange) { opt.dataZoom = zoomData(true); } // DEV-FE-003 6.3：7d/30d 启用（1h/24h 保持紧凑）
     opt.series = [
-      lineSeries('外部威胁 drop', fwD, TI.danger, true),
+      lineSeries('入站探测', inD, TI.danger, true),
+      lineSeries('拦截', blkD, TI.accent, true),
       lineSeries('SSH 失败', sshD, TI.warn, true)
     ];
     chart('chart-attack-trend').setOption(opt, true);
-    // 零攻击状态（drop=0 且 ssh=0 时显示绿色文字行；失败时不显示——R-03/R-16：不得误报"无攻击记录"）
-    var fwSum = 0, sshSum = 0;
-    fwD.forEach(function (v) { fwSum += v; });
+    // 零攻击状态（全部通道为 0 时显示绿色文字行；失败时不显示——R-03/R-16：不得误报"无攻击记录"）
+    var inSum = 0, blkSum = 0, sshSum = 0;
+    inD.forEach(function (v) { inSum += v; });
+    blkD.forEach(function (v) { blkSum += v; });
     sshD.forEach(function (v) { sshSum += v; });
     var badge = document.getElementById('zero-attack-badge');
-    if (badge) { badge.style.display = (fwSum === 0 && sshSum === 0 && !state.attackDataFailed && state.sshTimelineOk) ? 'block' : 'none'; }
-    setAria('chart-attack-trend', '攻击趋势图：外部威胁 drop ' + fwSum + ' 次，SSH 失败 ' + sshSum + ' 次');
+    if (badge) { badge.style.display = (inSum === 0 && blkSum === 0 && sshSum === 0 && !state.attackDataFailed && state.sshTimelineOk) ? 'block' : 'none'; }
+    setAria('chart-attack-trend', '攻击趋势图：入站探测 ' + inSum + ' 次，拦截 ' + blkSum + ' 次，SSH 失败 ' + sshSum + ' 次');
   }
 
   // 攻击页三图（端口 TOP / 来源 TOP / SSH 时间线）+ 点击联动
@@ -500,7 +506,8 @@
   }
 
   // 态势结论条（可折叠；数据：summary + bans + fwTimeline）。
-  // 攻击判定与计数用 drop 口径（fwTimeline drop 累计），与攻击趋势图/TOP 端口一致。
+  // DEV-045 口径：入站探测数 = fwTimeline inbound 累计（扫描器流量展示）；
+  // 拦截数 = drop + reject 累计（实际威胁动作）。与攻击趋势图/TOP 端口一致。
   // 态势条不显示源数（top_sources 无 action 过滤 + LIMIT 10 封顶，避免虚假精确，D-23）。
   function renderSituation() {
     var bar = document.getElementById('situation-bar');
@@ -515,13 +522,14 @@
       txt.textContent = '态势计算中…';
       bar.className = 'warn';
     } else {
-      var fwDrop = 0;
-      fwT.forEach(function (b) { fwDrop += b.drop; });
+      var fwInbound = 0, fwBlocked = 0;
+      fwT.forEach(function (b) { fwInbound += b.inbound || 0; fwBlocked += (b.drop || 0) + (b.reject || 0); });
       var sshFail = s.ssh_fail || 0;
-      var attacking = (fwDrop > 0) || (sshFail > 0);
+      var attacking = (fwInbound > 0) || (sshFail > 0);
       if (attacking) {
         var topPort = (s.top_ports && s.top_ports[0]) ? ':' + Number(s.top_ports[0].dst_port) : '-';
-        txt.innerHTML = '共 <span class="sit-num">' + Number(fwDrop) + '</span> 次外部威胁 drop、<span class="sit-num">' + Number(sshFail) +
+        txt.innerHTML = '共 <span class="sit-num">' + Number(fwInbound) + '</span> 次入站探测（拦截 <span class="sit-num">' + Number(fwBlocked) +
+          '</span> 次）、<span class="sit-num">' + Number(sshFail) +
           '</span> 次 SSH 失败，TOP 被攻击端口 <span class="sit-num">' + topPort + '</span>，已封禁 <span class="sit-num">' + Number(banCnt) + '</span> 个 IP';
         bar.className = 'warn';
       } else {
@@ -578,8 +586,8 @@
     var ts = trendArrow(sshArr);
     var el = document.getElementById('trend-ssh');
     if (el) { el.className = 'trend ' + ts.cls; el.textContent = ts.text; }
-    // FW 卡 spark/trend（复用 firewall/timeline drop 序列）
-    var fwArr = (state.fwTimeline || []).map(function (b) { return b.drop; });
+    // FW 卡 spark/trend（复用 firewall/timeline inbound 序列——DEV-045：主通道为入站探测）
+    var fwArr = (state.fwTimeline || []).map(function (b) { return b.inbound || 0; });
     sparkSVG(document.getElementById('spark-fw'), fwArr, TI.danger);
     var tf = trendArrow(fwArr);
     el = document.getElementById('trend-fw');
@@ -674,11 +682,13 @@
       }
     });
     (state.fwRows || []).forEach(function (r) {
-      if (r.action === 'drop') {
-        var sIp = ip(r.src_ip);
-        items.push({ ts: r.ts, type: 'fw', srcIp: r.src_ip,
-          text: '外部威胁 drop <b>' + sIp + '</b> → :<b>' + r.dst_port + '</b>', plain: '外部威胁 drop ' + sIp + ' → :' + r.dst_port });
-      }
+      // DEV-045：事件流展示全部防火墙动作——inbound 为入站探测（扫描器，主通道），
+      // reject/drop 为拦截/丢弃（实际威胁动作），语义文案按 action 区分
+      var a = r.action, sIp = ip(r.src_ip);
+      var label = a === 'inbound' ? '入站探测' : (a === 'reject' ? '拦截' : (a === 'drop' ? '丢弃' : a));
+      items.push({ ts: r.ts, type: 'fw', srcIp: r.src_ip,
+        text: '外部威胁 ' + label + ' <b>' + sIp + '</b> → :<b>' + r.dst_port + '</b>',
+        plain: '外部威胁 ' + label + ' ' + sIp + ' → :' + r.dst_port });
     });
     (state.banRows || []).forEach(function (r) {
       if (r.type === 'ban') {
@@ -923,7 +933,7 @@
       // 源 IP 单元格与目的端口单元格独立点击（stopPropagation 由框架保证）；行点击过滤源 IP
       return {
         key: r.__k,
-        cls: (r.action === 'drop' ? 'row-danger ' : '') + 'row-clickable',
+        cls: ((r.action === 'drop' || r.action === 'reject') ? 'row-danger ' : '') + 'row-clickable',
         title: '点击过滤该源 IP',
         click: function (row) { applyFilter({ type: 'src', value: row.src_ip }, '攻击页'); },
         cells: [
@@ -1141,11 +1151,14 @@
       renderAttackTrend();
       renderKPI();
     }, function () { state.sshTimelineOk = false; state.attack.ssh = null; state.attackDataFailed = true; noteFailure(); renderAttackTrend(); renderSituation(); renderRisk(); setChartEmpty('chart-ssh', false); if (charts['chart-ssh']) { charts['chart-ssh'].clear(); } });
-    // 防火墙小时聚合时间线（双通道图 + FW 卡 spark/trend + 风险评分数据源）。
+    // 防火墙小时聚合时间线（三通道图 + FW 卡 spark/trend + 风险评分/态势条数据源）。
     // 成功回调不重置 attackDataFailed（避免掩盖同轮其他源失败）；RB-01：range 回显叠加校验
     fetchJSON('/api/v1/firewall/timeline?' + rangeQS(), function (d) {
       if (d.range && d.range !== state.range) { return; } // 旧 range 在途响应丢弃（叠加校验）
-      state.fwTimeline = (d.buckets || []).map(function (b) { return { ts: b.ts, drop: b.drop || 0, accept: b.accept || 0 }; });
+      // DEV-045：桶映射保留 drop/accept 兼容字段，新增 reject/inbound（inbound 为入站探测主通道）
+      state.fwTimeline = (d.buckets || []).map(function (b) {
+        return { ts: b.ts, drop: b.drop || 0, accept: b.accept || 0, reject: b.reject || 0, inbound: b.inbound || 0 };
+      });
       renderAttackTrend();
       renderKPI();
       renderRisk();

@@ -552,7 +552,7 @@ tr.row-warn { color: var(--warn); }
 </div>
 <main>
   <div id="panel-overview" class="panel active">
-    <!-- L2 决策证据：风险评分 + 攻击双通道趋势同排（方案 3.2/5.1） -->
+    <!-- L2 决策证据：风险评分 + 攻击三通道趋势同排（方案 3.2/5.1；DEV-045：inbound 入站探测主通道） -->
     <div class="grid" style="margin-bottom:12px;">
       <div class="card"><h3 class="panel-title" tabindex="-1">风险评分（本机攻击行为 + 资源维度，无漏洞/CVSS/情报字段）
         <span class="risk-note">按所选时间范围累计，跨范围不可直接比较</span></h3>
@@ -560,13 +560,13 @@ tr.row-warn { color: var(--warn); }
           <div id="chart-risk" role="img" aria-label="风险评分图：数据加载中" style="width:200px;height:150px;"></div>
           <div class="risk-detail">
             <div class="risk-item"><span class="l">SSH 失败率</span><div class="bar-wrap"><div class="bar" id="risk-ssh-bar"></div></div><span class="v" id="risk-ssh-v">-</span></div>
-            <div class="risk-item"><span class="l">外部威胁 drop</span><div class="bar-wrap"><div class="bar" id="risk-fw-bar"></div></div><span class="v" id="risk-fw-v">-</span></div>
+            <div class="risk-item"><span class="l">外部威胁拦截</span><div class="bar-wrap"><div class="bar" id="risk-fw-bar"></div></div><span class="v" id="risk-fw-v">-</span></div>
             <div class="risk-item"><span class="l">封禁数</span><div class="bar-wrap"><div class="bar" id="risk-ban-bar"></div></div><span class="v" id="risk-ban-v">-</span></div>
             <div class="risk-item"><span class="l">磁盘水位</span><div class="bar-wrap"><div class="bar" id="risk-disk-bar"></div></div><span class="v" id="risk-disk-v">-</span></div>
           </div>
         </div>
       </div>
-      <div class="card" style="grid-column: span 2;"><h3>攻击趋势（SSH 失败 vs 外部威胁 drop，点击图例隐藏通道）</h3>
+      <div class="card" style="grid-column: span 2;"><h3>攻击趋势（SSH 失败 vs 入站探测 vs 拦截，点击图例隐藏通道）</h3>
         <div class="chart-wrap">
           <div id="chart-attack-trend" class="chart" role="img" aria-label="攻击趋势图：数据加载中" style="height:220px;"></div>
           <div id="zero-attack-badge" class="zero-line" style="display:none;">✓ 所选范围无攻击记录</div>
@@ -578,7 +578,7 @@ tr.row-warn { color: var(--warn); }
       <div class="kpi-row">
         <div class="kpi"><span class="l">外部威胁事件</span><span class="v" id="today-fw">-</span>
           <span class="trend flat" id="trend-fw"></span>
-          <span class="spark" id="spark-fw"></span><span class="note">含 drop/accept（已排除内网/自身流量）</span></div>
+          <span class="spark" id="spark-fw"></span><span class="note">入站探测/拦截（已排除内网/自身流量）</span></div>
         <div class="kpi"><span class="l">SSH 失败</span><span class="v" id="today-sshfail">-</span>
           <span class="trend flat" id="trend-ssh"></span>
           <span class="spark" id="spark-ssh"></span><span class="note">失败次数</span></div>
@@ -610,7 +610,7 @@ tr.row-warn { color: var(--warn); }
     </details>
     <!-- L5 最近事件：默认折叠区 + 默认 3 条 + 展开全部（方案 3.2/3.3） -->
     <details class="fold" id="fold-events" open style="margin-top:12px;">
-      <summary><span class="fold-title">最近事件（SSH 失败 / 外部威胁 drop / 封禁）</span><span id="event-fold-summary" class="fold-hint"></span></summary>
+      <summary><span class="fold-title">最近事件（入站探测 / SSH 失败 / 封禁）</span><span id="event-fold-summary" class="fold-hint"></span></summary>
       <div class="fold-body">
         <div id="event-stream" class="event-stream"></div>
         <button id="event-expand-btn" class="more-btn" style="display:none;">展开全部</button>
@@ -644,11 +644,13 @@ tr.row-warn { color: var(--warn); }
           <th>时间</th><th>源 IP</th><th>用户名</th><th>认证方式</th><th>结果</th><th>指纹</th><th>详情</th>
         </tr></thead><tbody></tbody></table></div>
       </div>
-      <div class="card" style="grid-column: 1 / -1;"><h3>外部威胁事件明细（drop 红色，点击时间列排序）
+      <div class="card" style="grid-column: 1 / -1;"><h3>外部威胁事件明细（拦截/丢弃红色，点击时间列排序）
         <select id="fw-action-filter" class="table-filter" title="按动作过滤">
           <option value="">全部动作</option>
-          <option value="drop">仅 drop</option>
-          <option value="accept">仅 accept</option>
+          <option value="inbound">仅入站探测</option>
+          <option value="reject">仅拦截</option>
+          <option value="drop">仅丢弃</option>
+          <option value="accept">仅接受</option>
         </select></h3>
         <div class="scroll"><table id="fw-table"><caption class="sr-only">外部威胁事件明细</caption><thead><tr>
           <th>时间</th><th>动作</th><th>链</th><th>协议</th><th>源</th><th>目的</th><th>raw</th>

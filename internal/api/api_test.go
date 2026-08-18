@@ -236,20 +236,47 @@ func TestHealthRetentionDays(t *testing.T) {
 	}
 }
 
+// TestTopPortsDPT（DEV-045）：TOP 端口统计所有防火墙事件（inbound/reject/drop 均计入"被探测端口"）。
 func TestTopPortsDPT(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, dbPath := newTestServer(t)
+	// 补插 inbound/reject 事件（种子数据为 4 条 drop，端口 22/23/24/25）：
+	// 端口 22 再 +2 inbound（合计 3）、端口 80 +1 reject、端口 81 +1 inbound。
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Now().Unix()
+	for _, x := range []struct {
+		action string
+		port   int
+	}{
+		{"inbound", 22}, {"inbound", 22}, {"reject", 80}, {"inbound", 81},
+	} {
+		if _, err := db.Exec(`INSERT INTO firewall_events (ts, chain, action, proto, src_ip, src_port, dst_ip, dst_port, raw)
+			VALUES (?,?,?,?,?,?,?,?,?)`, now, "input", x.action, 6, 0xCB007105, 50000, 0x0A000002, x.port, "SENTRY_FW"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	code, out := doGet(t, srv, "/api/v1/attacks/top_ports?range=24h&top=5")
 	if code != 200 {
 		t.Fatalf("code = %d", code)
 	}
 	rows, ok := out["rows"].([]any)
-	if !ok || len(rows) != 4 {
+	if !ok || len(rows) != 5 {
 		t.Fatalf("rows 数量错误: %v", out["rows"])
 	}
-	// 端口按 DPT 聚合（22/23/24/25 各 1）。
+	// 端口按 DPT 全量聚合：22 = 1 drop + 2 inbound = 3，居首；80/81 来自 reject/inbound。
 	first := rows[0].(map[string]any)
-	if first["hits"].(float64) != 1 {
-		t.Errorf("hits = %v", first["hits"])
+	if first["dst_port"].(float64) != 22 {
+		t.Errorf("TOP1 端口 = %v, 期望 22", first["dst_port"])
+	}
+	if first["hits"].(float64) != 3 {
+		t.Errorf("TOP1 hits = %v, 期望 3", first["hits"])
+	}
+	// 其余端口各 1：23/24/25（drop）+ 80（reject）+ 81（inbound）。
+	if len(rows) != 5 {
+		t.Errorf("rows 数 = %d, 期望 5", len(rows))
 	}
 }
 
@@ -296,11 +323,12 @@ func TestSSHAndFirewallAndBans(t *testing.T) {
 	}
 }
 
-// TestFirewallTimeline（DEV-017）：小时桶聚合 + drop/accept 双计数 + 补零 + range 回显。
+// TestFirewallTimeline（DEV-017 → DEV-045）：小时桶聚合 + drop/accept/reject/inbound 四通道计数 + 补零 + range 回显。
 func TestFirewallTimeline(t *testing.T) {
 	srv, dbPath := newTestServer(t)
 	now := time.Now().Unix()
-	// 补插跨小时数据：当前小时 2 drop + 1 accept，上一小时 1 drop，更早 2 小时前 3 accept。
+	// 补插跨小时数据：当前小时 2 drop + 1 accept + 2 reject + 3 inbound，
+	// 上一小时 1 drop + 1 inbound，更早 2 小时前 3 accept + 1 reject。
 	db, err := sql.Open("sqlite", "file:"+dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -318,10 +346,17 @@ func TestFirewallTimeline(t *testing.T) {
 		{curHour + 10, "drop"},
 		{curHour + 20, "drop"},
 		{curHour + 30, "accept"},
+		{curHour + 40, "reject"},
+		{curHour + 50, "reject"},
+		{curHour + 60, "inbound"},
+		{curHour + 70, "inbound"},
+		{curHour + 80, "inbound"},
 		{curHour - 3600 + 5, "drop"},
+		{curHour - 3600 + 6, "inbound"},
 		{curHour - 7200 + 5, "accept"},
 		{curHour - 7200 + 6, "accept"},
 		{curHour - 7200 + 7, "accept"},
+		{curHour - 7200 + 8, "reject"},
 	}
 	for _, x := range ins {
 		if _, err := db.Exec(`INSERT INTO firewall_events (ts, chain, action, proto, src_ip, src_port, dst_ip, dst_port, raw)
@@ -343,21 +378,24 @@ func TestFirewallTimeline(t *testing.T) {
 	if len(buckets) < 2 {
 		t.Fatalf("buckets 数 = %d, 期望 >= 2（含补零）", len(buckets))
 	}
-	// 断言桶内 drop/accept 计数正确。
-	counted := map[int64][2]int64{}
+	// 断言桶内 drop/accept/reject/inbound 四通道计数正确。
+	counted := map[int64][4]int64{}
 	for _, b := range buckets {
 		m := b.(map[string]any)
 		ts := int64(m["ts"].(float64))
-		counted[ts] = [2]int64{int64(m["drop"].(float64)), int64(m["accept"].(float64))}
+		counted[ts] = [4]int64{
+			int64(m["drop"].(float64)), int64(m["accept"].(float64)),
+			int64(m["reject"].(float64)), int64(m["inbound"].(float64)),
+		}
 	}
-	if got := counted[curHour]; got != [2]int64{2, 1} {
-		t.Errorf("当前小时 drop/accept = %v, 期望 {2 1}", got)
+	if got := counted[curHour]; got != [4]int64{2, 1, 2, 3} {
+		t.Errorf("当前小时 drop/accept/reject/inbound = %v, 期望 {2 1 2 3}", got)
 	}
-	if got := counted[curHour-3600]; got != [2]int64{1, 0} {
-		t.Errorf("上一小时 drop/accept = %v, 期望 {1 0}", got)
+	if got := counted[curHour-3600]; got != [4]int64{1, 0, 0, 1} {
+		t.Errorf("上一小时 drop/accept/reject/inbound = %v, 期望 {1 0 0 1}", got)
 	}
-	if got := counted[curHour-7200]; got != [2]int64{0, 3} {
-		t.Errorf("两小时前 drop/accept = %v, 期望 {0 3}", got)
+	if got := counted[curHour-7200]; got != [4]int64{0, 3, 1, 0} {
+		t.Errorf("两小时前 drop/accept/reject/inbound = %v, 期望 {0 3 1 0}", got)
 	}
 	// 断言补零：桶时间连续（相邻差 3600）。
 	for i := 1; i < len(buckets); i++ {
