@@ -2,6 +2,7 @@ package honeypot
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"net"
 	"strings"
@@ -271,5 +272,100 @@ func TestPostgresCapture(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(ebody), "SFATAL\x00M") {
 		t.Fatalf("错误字段异常: %q", ebody[:16])
+	}
+}
+
+// TestReadLineBounded H-01（audit Blocker）：10MB 无换行输入必须在上限内截断
+// 返回——readLine 有界读取，杜绝远程无认证 OOM DoS（原 ReadString 持续累积内存）。
+func TestReadLineBounded(t *testing.T) {
+	big := make([]byte, 10<<20) // 10MB 无换行
+	for i := range big {
+		big[i] = 'a'
+	}
+	br := bufio.NewReader(bytes.NewReader(big))
+	line, err := readLine(br)
+	if err != nil {
+		t.Fatalf("readLine 超长输入出错: %v", err)
+	}
+	// 内存有界：raw 行截断于 maxLineLen，IAC 剥离后按 4KB 记录截断。
+	if len(line) != 4096 {
+		t.Fatalf("超长行返回长度 = %d, 期望 4096（4KB 记录截断）", len(line))
+	}
+	// 对照：带换行的正常行不受影响。
+	br2 := bufio.NewReader(strings.NewReader("admin\n"))
+	l2, err := readLine(br2)
+	if err != nil || l2 != "admin" {
+		t.Fatalf("正常行解析 = %q err=%v", l2, err)
+	}
+}
+
+// TestFTPSingleConnCredLimit D-A（audit Major）：ftp 单连接 PASS 洪泛
+// （20 组）最多落库 credsPerConnLimit=10 条——批量注入不污染统计与存储。
+func TestFTPSingleConnCredLimit(t *testing.T) {
+	credCh := make(chan event.CredEvent, 64)
+	_, addrs := startTestServer(t, []string{"ftp"}, credCh, nil)
+	c := dialProto(t, addrs, "ftp")
+	br := bufio.NewReader(c)
+	if s, err := br.ReadString('\n'); err != nil || !strings.HasPrefix(s, "220") {
+		t.Fatalf("banner = %q err=%v", s, err)
+	}
+	for i := 0; i < 20; i++ {
+		_, _ = c.Write([]byte("USER u\r\n"))
+		if _, err := br.ReadString('\n'); err != nil { // 331
+			t.Fatal(err)
+		}
+		_, _ = c.Write([]byte("PASS p\r\n"))
+		if _, err := br.ReadString('\n'); err != nil { // 530
+			t.Fatal(err)
+		}
+	}
+	// 统计落库条数（等待处理完毕）。
+	deadline := time.Now().Add(2 * time.Second)
+	n := 0
+	for {
+		select {
+		case <-credCh:
+			n++
+		default:
+			if time.Now().After(deadline) {
+				if n != credsPerConnLimit {
+					t.Fatalf("凭据条数 = %d, 期望恰好 %d", n, credsPerConnLimit)
+				}
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+}
+
+// TestMalformedCredsNotRecorded D-A（audit Major）：畸形凭据（含控制字节）
+// 不落库——框架层 validCredText 过滤批量注入噪声。
+func TestMalformedCredsNotRecorded(t *testing.T) {
+	credCh := make(chan event.CredEvent, 16)
+	_, addrs := startTestServer(t, []string{"ftp"}, credCh, nil)
+	c := dialProto(t, addrs, "ftp")
+	br := bufio.NewReader(c)
+	if s, err := br.ReadString('\n'); err != nil || !strings.HasPrefix(s, "220") {
+		t.Fatalf("banner = %q err=%v", s, err)
+	}
+	// 用户名/密码含控制字节（\x00、\x01）——畸形，不应落库。
+	_, _ = c.Write([]byte("USER bad\x00user\r\n"))
+	_, _ = br.ReadString('\n') // 331
+	_, _ = c.Write([]byte("PASS bad\x01pass\r\n"))
+	_, _ = br.ReadString('\n') // 530
+	// 正常凭据（验证过滤不影响合法捕获）。
+	_, _ = c.Write([]byte("USER good\r\n"))
+	_, _ = br.ReadString('\n')
+	_, _ = c.Write([]byte("PASS ok123\r\n"))
+	_, _ = br.ReadString('\n')
+	ev := recvCred(t, credCh)
+	if ev.Username != "good" || ev.Password != "ok123" {
+		t.Fatalf("正常凭据 = %+v（畸形凭据应被过滤）", ev)
+	}
+	// 畸形凭据不得再产生事件。
+	select {
+	case ev := <-credCh:
+		t.Fatalf("畸形凭据未被过滤: %+v", ev)
+	case <-time.After(500 * time.Millisecond):
 	}
 }

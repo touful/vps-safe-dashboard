@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"net"
 	"strings"
 	"testing"
 
@@ -840,4 +841,48 @@ func splitSegments(b []byte, n int) [][]byte {
 		b = b[chunk:]
 	}
 	return out
+}
+
+// TestMSSQLUserNameClamp H-04（audit Minor）：超长 UserName 时 ERROR 响应
+// 用户名钳制 256 字节——token length 字段（uint16）不得回绕（畸形响应）。
+func TestMSSQLUserNameClamp(t *testing.T) {
+	c1, c2 := net.Pipe()
+	defer c1.Close()
+	defer c2.Close()
+	longUser := strings.Repeat("u", 3000) // 3KB 超长用户名
+	go func() {
+		_ = writeTDSLoginFailed(c1, longUser)
+		_ = c1.Close()
+	}()
+	hdr := make([]byte, 8)
+	if _, err := readFullN(c2, hdr); err != nil {
+		t.Fatal(err)
+	}
+	plen := int(binary.BigEndian.Uint16(hdr[2:4]))
+	if plen < 8 {
+		t.Fatalf("TDS 包长异常: %d", plen)
+	}
+	payload := make([]byte, plen-8)
+	if _, err := readFullN(c2, payload); err != nil {
+		t.Fatal(err)
+	}
+	// token 布局：0xAA(1) + length(2) + number(4) + state(1) + class(1) + msg。
+	if payload[0] != 0xAA {
+		t.Fatalf("token = 0x%02X", payload[0])
+	}
+	bodyLen := int(binary.BigEndian.Uint16(payload[1:3]))
+	if bodyLen <= 0 || bodyLen > len(payload)-3 {
+		t.Fatalf("token length 回绕/越界: %d（payload 剩余 %d）", bodyLen, len(payload)-3)
+	}
+	msg := payload[3+4+1+1 : 3+bodyLen]
+	if len(msg) > 4096 {
+		t.Fatalf("错误消息过长: %d", len(msg))
+	}
+	// 消息内含钳制后的用户名（256 字节）而非完整 3000 字节。
+	if !strings.Contains(string(msg), strings.Repeat("u", 256)) {
+		t.Fatal("响应消息未按 256 字节钳制用户名")
+	}
+	if strings.Contains(string(msg), strings.Repeat("u", 3000)) {
+		t.Fatal("响应消息含完整超长用户名")
+	}
 }
