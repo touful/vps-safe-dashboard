@@ -75,7 +75,7 @@ func main() {
 	// SSH 成功登录学习器等待其就绪后开始更新动态白名单。
 	fwFilterReady := make(chan *fw.FwFilter, 1)
 
-	// 生产者 WaitGroup：采集协程（供 Store/out 两阶段排空协议使用，auditor M-02）。
+	// 生产者 WaitGroup：采集协程（供 Store/out 两阶段排空协议使用）。
 	var producers sync.WaitGroup
 	var all sync.WaitGroup
 	startProducer := func(f func()) {
@@ -121,7 +121,7 @@ func main() {
 		}
 		startService(func() {
 			if err := st.Run(ctx); err != nil {
-				// A-01：存储写失败为致命故障——stderr + 非零退出，配合 M4 systemd
+				// 存储写失败为致命故障——stderr + 非零退出，配合 M4 systemd
 				// Restart=on-failure 自动重启；Run 内部 defer 已关闭数据库连接。
 				fmt.Fprintf(os.Stderr, "致命错误: 存储模块退出（数据写入失败）: %v\n", err)
 				os.Exit(1)
@@ -138,7 +138,7 @@ func main() {
 			})
 		})
 
-		// DEV-042：SSH 成功登录自动白名单学习（仅落库模式；依赖主库 ssh_attempts）。
+		// SSH 成功登录自动白名单学习（仅落库模式；依赖主库 ssh_attempts）。
 		// 启动时加载近 window_days 天成功登录 IP 到白名单 + 每 interval 轮询增量更新；
 		// 等待 fw producer 投递 filter 后开始（fwFilterReady）。
 		if cfg.FW.SSHLearnEnabled {
@@ -148,7 +148,7 @@ func main() {
 			})
 		}
 
-		// M-07 API + WebSocket（仅落库模式：查询依赖主库；独立只读连接，auditor 坑点）。
+		// M-07 API + WebSocket（仅落库模式：查询依赖主库；独立只读连接）。
 		startService(func() {
 			// M-02：监听回环地址时允许无 Origin 的 WS 请求（本机工具）；
 			// 非回环（0.0.0.0 等）时拒绝无 Origin 并告警（D-03 暴露面自担提示）。
@@ -171,7 +171,7 @@ func main() {
 			// 以下 setter 注入须全部在 Serve 之前完成（api.Server 时序约束，
 			// 运行期不热更新，见 api.Server.SetLimits 等注释）。
 			srv.SetDBPath(cfg.DB.Path)
-			// A-04（AUDIT-005）：注入数据保留天数（health 返回，前端 range 提示）。
+			// 注入数据保留天数（health 返回，前端 range 提示）。
 			srv.SetRetentionDays(cfg.DB.RetentionDays)
 			// VS-03/VS-04（DEV-P1-001）：注入 WS 连接数上限与速率限制（config 默认
 			// 100 连接 / 全局 10 rps burst 20 / 重聚合 1 rps；前端 5s 轮询 9 请求/轮
@@ -190,7 +190,7 @@ func main() {
 			}
 		})
 
-		// 磁盘水位监控（方案 7.3 三级告警，A-02 完整形态；每 5 分钟）。
+		// 磁盘水位监控（方案 7.3 三级告警；每 5 分钟）。
 		startService(func() {
 			_ = diskmon.RunDiskMonitor(ctx, 5*time.Minute, cfg.DB.ArchiveDir,
 				cfg.Disk.WarnPercent, cfg.Disk.CriticalPercent, cfg.Disk.EmergencyPercent, ch.System)
@@ -205,7 +205,7 @@ func main() {
 	})
 
 	// M-02 连接监听：conntrack 主通道；不可用自动切换 B5 降级（ss diff 近似）。
-	// DEV-031 优化④：mode=fallback 跳过主通道直接降级；主通道连续 3 次启动失败
+	// mode=fallback 跳过主通道直接降级；主通道连续 3 次启动失败
 	// 自动放弃并降级（修复 NET_ADMIN 缺失导致无限重启、B5 永不触发的缺陷）。
 	startProducer(func() {
 		runConnChannel(ctx, cfg, ch, &overrunTotal)
@@ -223,7 +223,7 @@ func main() {
 		}
 	})
 
-	// M-04 防火墙日志解析（DEV-031 优化②：采集层过滤内网/自身来源，B.2）。
+	// M-04 防火墙日志解析（采集层过滤内网/自身来源，B.2）。
 	startProducer(func() {
 		// internal_cidrs 格式已由 config.Validate 校验；此处失败仅理论路径，
 		// 保守关闭过滤（恢复全量记录）并留痕。
@@ -232,7 +232,7 @@ func main() {
 			event.ReportSys(ch.System, "fw", "warn", "fw.internal_cidrs 解析失败，本次启动关闭内网过滤（全量记录）: "+err.Error())
 			cidrs = nil
 		}
-		// DEV-039 用户需求2：exclude_ips 格式已由 config.Validate 校验；失败仅理论路径，
+		// exclude_ips 格式已由 config.Validate 校验；失败仅理论路径，
 		// 保守不排除（保留全量）并留痕。
 		excludeIPs, err := fw.ParseExcludeIPs(cfg.FW.ExcludeIPs)
 		if err != nil {
@@ -245,7 +245,7 @@ func main() {
 			CIDRs:             cidrs,
 			ExcludeIPs:        excludeIPs,
 		}
-		// DEV-042：初始化动态白名单槽位并投递 filter 给学习器——学习器经
+		// 初始化动态白名单槽位并投递 filter 给学习器——学习器经
 		// SetDynamicExcludeIPs 更新共享槽位，RunFwParser 持有的副本判定可见。
 		filter.SetDynamicExcludeIPs(nil)
 		fwFilterReady <- &filter
@@ -281,7 +281,7 @@ func main() {
 	fmt.Fprintln(os.Stderr, "sentry-agent 已退出")
 }
 
-// runConnChannel 启动连接采集通道（M-02，DEV-031 优化④）。
+// runConnChannel 启动连接采集通道（M-02）。
 // 决策：conntrack.mode=fallback → 跳过主通道尝试直接走 B5 降级（消除预期降级告警噪音）；
 // auto → 尝试主通道，失败（含连续 3 次启动失败，见 conn.connStartTracker）切换 B5 降级。
 func runConnChannel(ctx context.Context, cfg *config.Config, ch *event.Channels, counter *atomic.Uint64) {
@@ -301,15 +301,15 @@ func runConnChannel(ctx context.Context, cfg *config.Config, ch *event.Channels,
 	}
 }
 
-// refreshBanned 查询 fail2ban 当前封禁名单（M-05 联调，方案 3.5；DEV-031 优化①）。
+// refreshBanned 查询 fail2ban 当前封禁名单（M-05 联调，方案 3.5）。
 // 启动后立即执行一次（不等 60s 周期）；结果经 system_event 记录（条数变化信息/查询失败告警，限频）。
 func refreshBanned(ctx context.Context, dbPath string, sys chan<- event.SystemEvent) {
 	rep := event.NewRateLimiter(5 * time.Minute)
 	query := func() {
 		banned, err := f2b.QueryBanned(ctx, dbPath)
 		if err != nil {
-			// 错误文案由 f2b 携带根因分类与修复指引（DEV-031 B.1.2）。
-			// DEV-033（DEV-032 现场核查结论 5）：hot journal 待恢复场景为预期瞬时状态
+			// 错误文案由 f2b 携带根因分类与修复指引（B.1.2）。
+			// 现场核查结论 5：hot journal 待恢复场景为预期瞬时状态
 			// （下轮 60s 自动重试），info 级留痕不告警；其余分类按 warn 告警。
 			var qe *f2b.BannedQueryError
 			if errors.As(err, &qe) && qe.Kind == "hotjournal" {
@@ -321,7 +321,7 @@ func refreshBanned(ctx context.Context, dbPath string, sys chan<- event.SystemEv
 		}
 		event.ReportSys(sys, "f2b", "info", fmt.Sprintf("当前封禁 IP 数: %d", len(banned)))
 	}
-	query() // 启动后立即执行一次（DEV-031：首次封禁名单不再等 60s）
+	query() // 启动后立即执行一次（首次封禁名单不再等 60s）
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -336,7 +336,7 @@ func refreshBanned(ctx context.Context, dbPath string, sys chan<- event.SystemEv
 
 // isLoopbackListen 判断监听地址是否为回环（127.0.0.1/localhost/::1）。
 // M-02：回环监听允许无 Origin 的 WS 请求；非回环（0.0.0.0/具体 IP/空 host）拒绝。
-// R-01（reviewer Major）：空 host（":8080"）在 Go net 语义中等价监听全部接口（0.0.0.0），
+// 关键点：空 host（":8080"）在 Go net 语义中等价监听全部接口（0.0.0.0），
 // 必须判为非回环——否则 M-02 的无 Origin 拒绝被 ":8080" 配置绕过。
 func isLoopbackListen(listen string) bool {
 	host, _, err := net.SplitHostPort(listen)
