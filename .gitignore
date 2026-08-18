@@ -87,6 +87,10 @@ pyghidra_mcp_projects/
 # ===== Agent 运行基础设施（内部目录，不入库）=====
 .opencode/
 
+# ===== 部署配置（DEV-GEO-001 凭据安全：MaxMind account_id/license_key 仅存放于此，
+# 必须保持未跟踪——解除跟踪后本地文件保留，用户部署时填写真实凭据）=====
+deploy/config.json
+
 # ===== 运行时数据（采集工具本地存储）=====
 *.db
 *.db-wal
@@ -94,6 +98,11 @@ pyghidra_mcp_projects/
 *.sqlite
 *.sqlite3
 data/
+# DEV-GEO-001：GeoIP 离线库与更新状态（部署时 fetch_geolite2.sh/agent 每日更新产生；
+# 旧库备份 .bak 已由上方 *.bak 规则覆盖）
+*.mmdb
+*.mmdb.state
+*.mmdb.tmp
 # 注（DEV-005）：archive/ 曾为裸规则误伤 internal/archive/ 源码目录；
 # 运行时归档目录由配置 db.archive_dir 指定（默认 /var/lib/sentry-agent/archive，
 # 不在仓库内），故删除该规则，不做根级保留。

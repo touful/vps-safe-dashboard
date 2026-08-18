@@ -1,5 +1,5 @@
 {
-  "_comment": "DEV-031 新增配置：conntrack.mode（auto|fallback，fallback 强制走 ss 快照 diff 降级）、fw.exclude_internal（默认 true 排除内网/自身来源事件）、fw.internal_cidrs（空=内置默认网段 127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,169.254.0.0/16,224.0.0.0/4；显式填充时须含完整列表，172.16.0.0/12 已覆盖 172.17/172.18/172.19 容器网段）、fw.filter_dst_internal（扩展模式默认 false，开启后外部→内网目的事件也过滤）、fw.exclude_ips（DEV-039：排除指定来源 IP 的事件，操作方/可信 IP 白名单，命中 SRC 即丢弃；【安全提示】仅配置可信 IP，误配攻击者 IP 将使其流量完全绕过防火墙事件记录；用户裁定 2026-08-18：本字段为操作方自身 IP 白名单，属正常运维配置，不做脱敏处理）、fw.ssh_learn_enabled（DEV-042：SSH 密钥认证成功自动白名单学习（A-01 整改：仅 publickey 成功登录学习），默认 true，从 ssh_attempts 表提取近 window_days 天 auth_method='publickey' 且 result=1 的源 IP 自动加入白名单，操作方 IP 变化自动更新）、fw.ssh_learn_window_days（学习窗口天数，默认 30）、fw.ssh_learn_interval_min（轮询间隔分钟，默认 10）、db.retention_days（默认 7，<=0 禁用清理；小于 archive.copy_after_days+30 时归档副本含空洞）",
+  "_comment": "DEV-031 新增配置：conntrack.mode（auto|fallback，fallback 强制走 ss 快照 diff 降级）、fw.exclude_internal（默认 true 排除内网/自身来源事件）、fw.internal_cidrs（空=内置默认网段 127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,169.254.0.0/16,224.0.0.0/4；显式填充时须含完整列表，172.16.0.0/12 已覆盖 172.17/172.18/172.19 容器网段）、fw.filter_dst_internal（扩展模式默认 false，开启后外部→内网目的事件也过滤）、fw.exclude_ips（DEV-039：排除指定来源 IP 的事件，操作方/可信 IP 白名单，命中 SRC 即丢弃；【安全提示】仅配置可信 IP，误配攻击者 IP 将使其流量完全绕过防火墙事件记录；用户裁定 2026-08-18：本字段为操作方自身 IP 白名单，属正常运维配置，不做脱敏处理）、fw.ssh_learn_enabled（DEV-042：SSH 密钥认证成功自动白名单学习（A-01 整改：仅 publickey 成功登录学习），默认 true，从 ssh_attempts 表提取近 window_days 天 auth_method='publickey' 且 result=1 的源 IP 自动加入白名单，操作方 IP 变化自动更新）、fw.ssh_learn_window_days（学习窗口天数，默认 30）、fw.ssh_learn_interval_min（轮询间隔分钟，默认 10）、db.retention_days（默认 7，<=0 禁用清理；小于 archive.copy_after_days+30 时归档副本含空洞）、geoip（DEV-GEO-001：全球攻击地图 GeoIP 离线库；db_path 为 mmdb 路径，account_id/license_key 为 MaxMind 凭据——【凭据安全】本 example 不填真实值，部署时填写到 deploy/config.json（已 gitignore 保护），agent 每日 update_hour:update_minute（UTC，默认 02:30）自动更新，库缺失且凭据齐全时启动即拉取；未配置凭据时仅离线查询、不自动更新）",
   "collect": {
     "resource_interval_seconds": 5
   },
@@ -58,6 +58,14 @@
     "warn_percent": 80,
     "critical_percent": 90,
     "emergency_percent": 95
+  },
+  "geoip": {
+    "db_path": "/var/lib/sentry-agent/GeoLite2-Country.mmdb",
+    "account_id": "",
+    "license_key": "",
+    "update_enabled": true,
+    "update_hour": 2,
+    "update_minute": 30
   },
   "log": {
     "level": "info"
