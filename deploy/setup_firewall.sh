@@ -91,7 +91,7 @@ mkdir -p /var/lib/sentry-agent
 # iptables 后端蜜罐放行从未生效（基线既有缺陷，H-02 修复暴露）。
 insert_honeypot_accept() {
   local cfg="${HONEYPOT_CONFIG:-/etc/sentry-agent/config.json}"
-  local block ports portlist
+  local block ports portlist FAILED
   if [ ! -f "$cfg" ]; then
     echo "[提示] 未找到 $cfg——蜜罐放行跳过（保持原 DROP 行为；部署后重跑本脚本）"
     return
