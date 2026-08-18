@@ -35,6 +35,10 @@ const (
 	ipWindow = time.Minute
 	// loginRoundsMax telnet 登录轮次上限（防单连接无限循环）。
 	loginRoundsMax = 5
+	// credsPerConnLimit 单连接凭据记录上限（D-A audit Major 修复）：攻击脚本可在
+	// 单连接内洪泛认证尝试（实测 ftp PASS 洪泛 1s 约 58 条）；超限后忽略后续记录
+	// （连接继续维持，凭据不再落库）——防批量注入污染统计与存储。
+	credsPerConnLimit = 10
 	// rateLimiterMaxBuckets IP 限速器活跃桶上限，超过触发惰性清理（防 map 无限增长）。
 	rateLimiterMaxBuckets = 10000
 )
@@ -228,6 +232,9 @@ func (s *Server) handleConn(proto string, conn net.Conn) {
 	}
 	c := &countingConn{Conn: conn}
 	h(context.Background(), c, srcIP, func(ev event.CredEvent) {
+		if !validCredText(ev.Username) || !validCredText(ev.Password) {
+			return // D-A：畸形凭据（控制字节）不落库——批量注入噪声不入库
+		}
 		ev.TS = time.Now().Unix()
 		ev.Proto = proto
 		ev.SrcIP = srcIP
@@ -236,6 +243,18 @@ func (s *Server) handleConn(proto string, conn net.Conn) {
 	s.mu.Lock()
 	s.stats.TotalBytes += c.in + c.out
 	s.mu.Unlock()
+}
+
+// validCredText 凭据文本有效性判定（D-A audit Major 修复）。
+// 含控制字符（0x00-0x08、0x0B、0x0C、0x0E-0x1F、0x7F；保留 \t）的凭据视为
+// 畸形输入（协议凭据应为可打印文本），在框架层统一过滤不落库。
+func validCredText(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if (s[i] < 0x20 && s[i] != '\t') || s[i] == 0x7F {
+			return false
+		}
+	}
+	return true
 }
 
 // emit 投递凭据事件（非阻塞：通道满时丢弃并限频留痕，不阻塞连接处理路径）。

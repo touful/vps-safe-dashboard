@@ -20,6 +20,7 @@ import (
 // （空格分词，兼容 telnet 式攻击脚本）。
 func handleRedis(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.CredEvent)) {
 	br := bufio.NewReader(conn)
+	credCount := 0 // 单连接凭据记录计数（D-A：超 credsPerConnLimit 后忽略后续）
 	for {
 		cmd, args, err := readRESPCommand(br)
 		if err != nil {
@@ -38,13 +39,19 @@ func handleRedis(ctx context.Context, conn net.Conn, srcIP uint32, rec func(even
 				continue
 			}
 			// 凭据记录（明文捕获；redis 无用户概念时 username 留空）。
-			rec(event.CredEvent{Username: user, Password: pass})
+			if credCount < credsPerConnLimit {
+				rec(event.CredEvent{Username: user, Password: pass})
+			}
+			credCount++
 			_, _ = conn.Write([]byte("-ERR invalid password\r\n"))
 		case "HELLO":
 			// HELLO 3 AUTH <user> <pass>：带 AUTH 参数时尝试捕获（redis-cli 升级握手路径）。
 			if len(args) >= 4 && strings.EqualFold(args[1], "AUTH") {
-				rec(event.CredEvent{Username: args[2], Password: args[3],
-					Extra: "HELLO 3 AUTH 参数"})
+				if credCount < credsPerConnLimit {
+					rec(event.CredEvent{Username: args[2], Password: args[3],
+						Extra: "HELLO 3 AUTH 参数"})
+				}
+				credCount++
 			}
 			// 最小响应：不回真实 server 信息；客户端 HELLO 失败后通常回退 AUTH 命令。
 			_, _ = conn.Write([]byte("-ERR unknown command 'HELLO'\r\n"))

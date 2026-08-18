@@ -22,6 +22,7 @@ func handleFTP(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.
 	}
 	br := bufio.NewReader(conn)
 	var pendingUser string // 最近一次 USER 命令的用户名（PASS 后清空）
+	credCount := 0         // 单连接凭据记录计数（D-A：超 credsPerConnLimit 后忽略后续）
 	for {
 		line, err := readLine(br)
 		if err != nil {
@@ -36,7 +37,10 @@ func handleFTP(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.
 			}
 		case "PASS":
 			// 凭据记录（明文捕获；无 USER 直接 PASS 时用户名留空）。
-			rec(event.CredEvent{Username: pendingUser, Password: arg})
+			if credCount < credsPerConnLimit {
+				rec(event.CredEvent{Username: pendingUser, Password: arg})
+			}
+			credCount++
 			pendingUser = ""
 			if _, err := conn.Write([]byte("530 Login incorrect\r\n")); err != nil {
 				return

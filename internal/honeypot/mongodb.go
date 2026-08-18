@@ -16,6 +16,7 @@ import (
 // username + client nonce（Extra 注明 SCRAM 不可逆）→ 回 {ok:0, errmsg:"Authentication failed"}。
 // 无法捕获明文密码（SCRAM 盐化哈希不可逆），如实记录。
 func handleMongoDB(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.CredEvent)) {
+	credCount := 0 // 单连接凭据记录计数（D-A：超 credsPerConnLimit 后忽略后续）
 	for {
 		// 消息头：messageLength(4) + requestID(4) + responseTo(4) + opCode(4)。
 		var hdr [16]byte
@@ -62,11 +63,14 @@ func handleMongoDB(ctx context.Context, conn net.Conn, srcIP uint32, rec func(ev
 			continue // 非认证命令（ping/hello/isMaster 等）：静默忽略
 		}
 		// 凭据记录：user 明文 + client nonce（SCRAM 不可逆，如实记录）。
-		extra := "SCRAM 认证（" + cmd + "），密码经盐化哈希不可逆"
-		if rnonce != "" {
-			extra += "；client nonce=" + rnonce
+		if credCount < credsPerConnLimit {
+			extra := "SCRAM 认证（" + cmd + "），密码经盐化哈希不可逆"
+			if rnonce != "" {
+				extra += "；client nonce=" + rnonce
+			}
+			rec(event.CredEvent{Username: user, Extra: extra})
 		}
-		rec(event.CredEvent{Username: user, Extra: extra})
+		credCount++
 		// 回 {ok: 0, errmsg: "Authentication failed"}（拒绝继续）。
 		resp := buildMongoReply("Authentication failed")
 		if err := writeMongoMsg(conn, resp, reqID); err != nil {

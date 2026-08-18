@@ -189,7 +189,7 @@ func buildSMB2NegotiateResponse(msgID uint64) []byte {
 	nb = append(nb, 0x01, 0x00)            // SecurityMode: SIGNING_ENABLED
 	nb = append(nb, 0x10, 0x02)            // DialectRevision: SMB 2.1（广泛兼容）
 	nb = append(nb, 0, 0)                  // Reserved
-	nb = append(nb, []byte("SENTRYH0N3YP0T!!")...) // ServerGuid（16 字节）
+	nb = append(nb, []byte("1234567890ABCDEF")...) // ServerGuid（16 字节；H-03：中性值，原含蜜罐标识）
 	nb = append(nb, 0, 0, 0, 0) // Capabilities
 	nb = append(nb, 0x00, 0x10, 0x00, 0x00) // MaxTransactSize 4MB
 	nb = append(nb, 0x00, 0x10, 0x00, 0x00) // MaxReadSize
@@ -270,6 +270,9 @@ func parseNTLMSSPAuth(b []byte) (string, string, string, bool) {
 }
 
 // utf16leToString 将消息内 UTF-16LE 字段转为字符串（截断 NUL）。
+// 注意（H-09）：按 code unit 直映（rune(u16)），未做代理对（surrogate pair）/
+// 组合字符合并等完整 Unicode 解码——蜜罐场景凭据用户名几乎为 BMP 字符，
+// 直映可接受；完整解码（utf16.Decode）留待有非 BMP 用户名捕获需求时。
 func utf16leToString(b []byte, off, ln int) string {
 	if off < 0 || ln < 0 || off+ln > len(b) || ln%2 != 0 {
 		return ""

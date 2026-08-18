@@ -17,7 +17,8 @@ import (
 func handleMemcached(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.CredEvent)) {
 	br := bufio.NewReader(conn)
 	// 记录首条命令（命令概览：get/set/delete/stats/version/flush_all 等）。
-	line, err := br.ReadString('\n')
+	// H-01 修复：readLine 有界读取（原 ReadString 无换行持续输入内存无界）。
+	line, err := readLine(br)
 	if err != nil {
 		return
 	}

@@ -48,33 +48,47 @@ func handleTelnet(ctx context.Context, conn net.Conn, srcIP uint32, rec func(eve
 	}
 }
 
+// maxLineLen 单行读取上限（H-01 audit Blocker 修复）：攻击者可在无换行情况下
+// 持续发送数据；bufio.ReadString 会持续累积内存直至连接超时（30s），蜜罐端口
+// 默认 0.0.0.0 全开（远程无认证）时可触发 OOM 全杀进程。改为有界读取：
+// 超过上限按当前行截断处理（后续数据留在缓冲，连接超时/断开回收）。
+const maxLineLen = 64 * 1024
+
 // readLine 读取一行（\n 结尾），剥离 \r\n，去除行内 TELNET 控制序列。
 // IAC（0xFF）协商：0xFF + command(1) + option(1) 三字节整体剥离
 // （R-13 reviewer 整改：原实现仅丢 0xFF，选项残留进用户名）。
-// 行长度上限 4KB（防单行内存放大；超限截断按当前行处理）。
+// 安全（H-01）：ReadSlice 分段读取 + maxLineLen 上限，无换行持续输入内存有界。
+// 行长度上限 4KB（凭据记录截断；防超大字段入库）。
 func readLine(br *bufio.Reader) (string, error) {
-	line, err := br.ReadString('\n')
-	if err != nil {
-		// 已读到部分数据时仍返回（客户端不发 \n 直接断开的场景）；
-		// 无数据时返回错误。
-		if len(line) == 0 {
+	var line []byte
+	for {
+		seg, err := br.ReadSlice('\n')
+		line = append(line, seg...)
+		if err == bufio.ErrBufferFull {
+			if len(line) >= maxLineLen {
+				break // 超限：按当前行截断
+			}
+			continue // 继续读下一段
+		}
+		if err != nil && len(line) == 0 {
 			return "", err
 		}
+		break
 	}
-	line = strings.TrimRight(line, "\r\n")
+	lineStr := strings.TrimRight(string(line), "\r\n")
 	// 字节级扫描剥离 IAC 序列（0xFF 后两字节一并丢弃；结尾残缺 IAC 一并丢弃）。
-	out := make([]byte, 0, len(line))
-	for i := 0; i < len(line); i++ {
-		if line[i] == 0xFF {
+	out := make([]byte, 0, len(lineStr))
+	for i := 0; i < len(lineStr); i++ {
+		if lineStr[i] == 0xFF {
 			i += 2 // 跳过 command + option（IAC 三字节序列）
 			continue
 		}
-		out = append(out, line[i])
+		out = append(out, lineStr[i])
 	}
-	line = string(out)
+	lineStr = string(out)
 	// 截断保护：超长行按 4KB 截断（其余丢弃）。
-	if len(line) > 4096 {
-		line = line[:4096]
+	if len(lineStr) > 4096 {
+		lineStr = lineStr[:4096]
 	}
-	return line, nil
+	return lineStr, nil
 }

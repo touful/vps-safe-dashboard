@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -496,8 +497,14 @@ func (c *Config) validateHoneypot() error {
 		if addr == "" {
 			continue // 空串 = 禁用该协议
 		}
-		if _, _, err := net.SplitHostPort(addr); err != nil {
+		_, portStr, err := net.SplitHostPort(addr)
+		if err != nil {
 			return fmt.Errorf("honeypot.listen[%s]=%q 非法监听地址（须 host:port）: %w", proto, addr, err)
+		}
+		// H-05（audit Minor）：端口须为 1-65535 数字——超范围地址通过格式校验
+		// 但 net.Listen 必然失败（协议静默禁用），尽早报错便于运维发现。
+		if p, err := strconv.Atoi(portStr); err != nil || p < 1 || p > 65535 {
+			return fmt.Errorf("honeypot.listen[%s]=%q 端口非法（须 1-65535 数字）", proto, addr)
 		}
 	}
 	return nil

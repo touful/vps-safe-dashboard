@@ -173,6 +173,11 @@ func parseLogin7(data []byte) (string, string, bool) {
 
 // writeTDSLoginFailed 发送 TDS ERROR token（0xAA）消息：错误 18456（登录失败）。
 func writeTDSLoginFailed(conn net.Conn, user string) error {
+	// H-04（audit Minor）：响应消息内用户名钳制 256 字节——攻击者发送超长
+	// UserName 时避免 msg 超 64KB 导致 TDS length 字段 uint16 回绕（畸形响应）。
+	if len(user) > 256 {
+		user = user[:256]
+	}
 	// EDB message: 0xAA + length(2) + number(4) + state(1) + class(1) + msgText(VarChar)
 	msg := "Login failed for user '" + user + "'. (Microsoft SQL Server, Error: 18456)"
 	token := make([]byte, 0, 2+4+1+1+len(msg)+1)

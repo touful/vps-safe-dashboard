@@ -26,9 +26,10 @@ func handleMySQL(ctx context.Context, conn net.Conn, srcIP uint32, rec func(even
 	// connection_id(4) | auth_plugin_data_part1(8) | filler(1) | caps_lower(2) |
 	// charset(1) | status(2) | caps_upper(2) | auth_plugin_data_len(1) |
 	// reserved(10) | auth_plugin_data_part2(max(13, len-8)-1=12) | auth_plugin_name(NUL)
-	salt := []byte("sentryH0n3yp0tS4lt12") // 恰好 20 字节（part1 "sentryH0" 8 + part2 "n3yp0tS4lt12" 12）
+	salt := []byte("FixedSrvSalt00112233") // 恰好 20 字节（part1 "FixedSrv" 8 + part2 "Salt00112233" 12）；
+	// H-03：中性伪随机串（原 "sentryH0n3yp0tS4lt12" 含蜜罐标识，攻击者可据 banner 特征规避）
 	greeting := []byte{10} // protocol version 10（version 字段紧随其后 NUL 终止）
-	version := []byte("8.0.35-honeypot\x00") // 伪装版本串（仅诱导客户端继续认证，非真实信息）
+	version := []byte("8.0.35\x00") // 伪装版本串（H-03：去 "honeypot" 后缀标识；仅诱导客户端继续认证，非真实信息）
 	greeting = append(greeting, version...)
 	var connID [4]byte
 	binary.LittleEndian.PutUint32(connID[:], 0xDEADBEEF) // 固定 connection id（伪装）
