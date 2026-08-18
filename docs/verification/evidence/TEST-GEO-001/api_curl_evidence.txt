@@ -1,0 +1,13 @@
+# TEST-GEO-001 API 实测记录（curl，双实例 18080 有 mmdb / 18081 无 mmdb）
+# attacks/geo range=24h: mmdb_ok=true rows=9（RU 45.155.205.2=24/DE 185.220.101.2=23/DE 185.220.101.4=22/HK 91.240.118.77=21/RU 45.155.205.3=20 ...）
+# attacks/geo range=bad -> range 回显 24h rows=9
+# attacks/geo country=CN -> rows=0（种子无 CN 源，过滤生效）
+# attacks/geo min_count=20 -> rows=6（count>=20 全部）
+# attacks/geo 无 mmdb(18081) -> mmdb_ok=false rows=9 全 Unknown
+# attacks/geo 无 mmdb country=Unknown -> rows=0【缺陷 D-1：ToUpper(UNKNOWN)!=Unknown】
+# attacks_csv: Content-Type=text/csv; charset=utf-8; Content-Disposition=attachment filename=sentry_attacks_geo_*.csv; 9 行三列 IP,国家名,次数
+# attacks_csv country=RU&min_count=20 -> 2 行（45.155.205.2,俄罗斯联邦,24 / 45.155.205.3,俄罗斯联邦,20）
+# export/csv range=24h -> 395 行（fw+ssh 合并）；第三列为空行数=0（无 ban 残留）
+# /api/v1/bans -> 26 行（ban/unban 保留可用）
+# 限流: attacks/geo 9 连发 -> 200x5+429x4（limitHeavy 生效）
+# 逗号转义: 单测覆盖（geo_test.go L191 RFC4180 引号转义）；当前种子数据无含逗号国家名
