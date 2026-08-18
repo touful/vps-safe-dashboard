@@ -52,6 +52,10 @@ release/
 *.so
 *.dylib
 
+# ===== 发布内部文档（含敏感分布与脱敏映射，默认不推送；DEV-PUSH-001 §3.2/§4.1）=====
+/docs/发布推送方案.md
+/docs/verification/AUD-PUSH-001_发布安全审计.md
+
 # ===== Python 缓存与字节码 =====
 __pycache__/
 *.pyc
