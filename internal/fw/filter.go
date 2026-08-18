@@ -1,4 +1,4 @@
-// 采集层来源语义过滤（DEV-031 优化②，B.2）。
+// 采集层来源语义过滤（B.2）。
 // 定位：过滤放在采集层（fw.go handleLine 发送前）而非展示层——过滤后 summary 计数、
 // TOP 端口/源、时间线、CSV 导出、WS 推送全链路自动干净（DRY，无需改 API/前端消费点）。
 // 判定规则（运营官 D.4 裁定 3）：默认仅按 SRC 内网过滤；fw.filter_dst_internal=true
@@ -37,16 +37,16 @@ type FwFilter struct {
 	FilterDstInternal bool
 	// CIDRs 内网网段（fw.internal_cidrs 预编译；空列表 = 使用内置默认列表）。
 	CIDRs []net.IPNet
-	// ExcludeIPs 排除指定来源 IP（fw.exclude_ips 预编译，DEV-039 用户需求2：
+	// ExcludeIPs 排除指定来源 IP（fw.exclude_ips 预编译：
 	// 操作方/可信 IP 白名单排除；命中 SRC 的事件在采集层丢弃）。
 	ExcludeIPs []net.IP
-	// DynamicExcludeIPs 动态白名单（DEV-042 SSH 成功登录自动学习）：指向共享
+	// DynamicExcludeIPs 动态白名单（SSH 成功登录自动学习）：指向共享
 	// atomic.Pointer（存 []net.IP）。FwFilter 值复制后仍共享同一指针——学习器经
 	// SetDynamicExcludeIPs 更新，所有副本的 ShouldDrop 判定可见。nil = 未启用动态白名单。
 	DynamicExcludeIPs *atomic.Pointer[[]net.IP]
 }
 
-// SetDynamicExcludeIPs 更新动态白名单（DEV-042 SSH 成功登录自动学习）。
+// SetDynamicExcludeIPs 更新动态白名单（SSH 成功登录自动学习）。
 // 首次调用初始化共享槽位；后续调用原子替换（学习器并发安全）。
 // 注意：须在 FwFilter 值复制（如传入 RunFwParser）之前调用，确保副本共享同一槽位。
 func (f *FwFilter) SetDynamicExcludeIPs(ips []net.IP) {
@@ -58,9 +58,9 @@ func (f *FwFilter) SetDynamicExcludeIPs(ips []net.IP) {
 
 // ShouldDrop 判定事件是否应在采集层丢弃（解析成功后、入队前调用）。
 func (f FwFilter) ShouldDrop(ev event.FirewallEvent) bool {
-	// DEV-039 用户需求2：排除指定来源 IP（操作方/可信 IP）——优先于内网判定，
+	// 排除指定来源 IP（操作方/可信 IP）——优先于内网判定，
 	// 与 ExcludeInternal 开关独立（exclude_internal=false 时仍排除操作方 IP）。
-	// DEV-042：动态白名单（SSH 成功登录学习）与静态 exclude_ips 合并判定。
+	// 动态白名单（SSH 成功登录学习）与静态 exclude_ips 合并判定。
 	if ev.SrcIP != 0 {
 		if len(f.ExcludeIPs) > 0 && containsIPv4(ev.SrcIP, f.ExcludeIPs) {
 			return true
@@ -92,7 +92,7 @@ func containsIPv4(ip uint32, ips []net.IP) bool {
 	return false
 }
 
-// IsInternalSrc 默认语义：仅判定 SRC 是否内网来源（B.2.2 判定规则，reviewer R-01a）。
+// IsInternalSrc 默认语义：仅判定 SRC 是否内网来源（B.2.2 判定规则）。
 // SrcIP==0（IPv6 行/解析失败）无法判定 → 返回 false（保守保留，避免误杀真实威胁）。
 func IsInternalSrc(ev event.FirewallEvent, cidrs []net.IPNet) bool {
 	if ev.SrcIP == 0 {
@@ -145,7 +145,7 @@ func ParseCIDRs(cidrs []string) ([]net.IPNet, error) {
 	return out, nil
 }
 
-// ParseExcludeIPs 校验并预编译排除 IP 列表（DEV-039 用户需求2）。
+// ParseExcludeIPs 校验并预编译排除 IP 列表（用户需求2）。
 // 仅接受 IPv4 点分十进制（与 config.Validate 一致）；空输入返回 nil（不排除）。
 func ParseExcludeIPs(ips []string) ([]net.IP, error) {
 	out := make([]net.IP, 0, len(ips))

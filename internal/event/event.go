@@ -1,7 +1,7 @@
 // Package event 定义各采集模块的公共事件类型与常量。
 // 类型签名与《技术方案》第 3 章伪代码保持一致：所有时间戳统一为 Unix 秒（int64）。
 //
-// 时间戳口径（auditor n-03 统一说明，M2 落库固化）：
+// 时间戳口径（M2 落库固化）：
 //   - 日志类通道（ssh/fw/f2b）：TS = 日志源时间戳（journal 条目时间戳 / 行首时间解析），
 //     源时间戳缺失时回退为处理时刻；
 //   - 事件类通道（conn/overrun）：TS = 处理时刻（内核事件无源时间戳语义，netlink 消息
@@ -88,7 +88,7 @@ type SnapConn struct {
 }
 
 // ConnSnapshot ss 快照（最新值经 atomic.Value 共享，供面板读取）。
-// Cnt 为 conntrack 当前连接数（nf_conntrack_count，DEV-033：/proc/net/nf_conntrack 因内核
+// Cnt 为 conntrack 当前连接数（nf_conntrack_count，/proc/net/nf_conntrack 因内核
 // 编译配置可能不存在，连接数改读 sysctl count 文件）；-1 表示不可读（调用方回退 ss 口径）。
 type ConnSnapshot struct {
 	TS   int64

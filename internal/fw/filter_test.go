@@ -1,4 +1,4 @@
-// 采集层来源过滤单元测试（DEV-031 优化②，B.2.5）。
+// 采集层来源过滤单元测试（B.2.5）。
 package fw
 
 import (
@@ -80,7 +80,7 @@ func TestIsInternalIPv4(t *testing.T) {
 	}
 }
 
-// TestIsInternalSrc 默认语义双态（reviewer R-01a：仅按 SRC 判定）：
+// TestIsInternalSrc 默认语义双态（仅按 SRC 判定）：
 // SRC 内网→过滤；SRC 公网→保留（无论 DST 内外，覆盖 forward 链外部→容器形态）。
 func TestIsInternalSrc(t *testing.T) {
 	ns := mustCIDRs(t)
@@ -194,7 +194,7 @@ func TestParseCIDRs(t *testing.T) {
 	}
 }
 
-// TestParseExcludeIPs 排除 IP 列表解析（DEV-039 用户需求2：空=不排除；非法报错）。
+// TestParseExcludeIPs 排除 IP 列表解析（用户需求2：空=不排除；非法报错）。
 func TestParseExcludeIPs(t *testing.T) {
 	// 空输入 → nil（不排除）。
 	ips, err := ParseExcludeIPs(nil)
@@ -225,7 +225,7 @@ func TestParseExcludeIPs(t *testing.T) {
 	}
 }
 
-// TestFwFilterShouldDropExcludeIPs 排除指定来源 IP 判定（DEV-039 用户需求2）：
+// TestFwFilterShouldDropExcludeIPs 排除指定来源 IP 判定（用户需求2）：
 // 命中 exclude_ips 的 SRC 丢弃；与 ExcludeInternal 开关独立。
 func TestFwFilterShouldDropExcludeIPs(t *testing.T) {
 	ns := mustCIDRs(t)
@@ -265,7 +265,7 @@ func TestFwFilterShouldDropExcludeIPs(t *testing.T) {
 	}
 }
 
-// TestFwFilterDynamicExcludeIPs 动态白名单（DEV-042 SSH 成功登录学习）：
+// TestFwFilterDynamicExcludeIPs 动态白名单（SSH 成功登录学习）：
 // SetDynamicExcludeIPs 更新后 ShouldDrop 合并静态+动态判定；值复制共享同一槽位。
 func TestFwFilterDynamicExcludeIPs(t *testing.T) {
 	ns := mustCIDRs(t)

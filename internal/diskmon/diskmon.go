@@ -1,4 +1,4 @@
-// Package diskmon 实现磁盘水位监控（方案 7.3 三级告警，A-02 完整形态）。
+// Package diskmon 实现磁盘水位监控（方案 7.3 三级告警）。
 // diskMonitor 协程每 5 分钟检查归档目录所在分区使用率：
 //   - >= emergency（95%）：error 级告警（最高优先级，R-09）
 //   - >= critical（90%）：warn 级告警（归档跳过阈值，与 archive.ShouldSkipArchive 衔接）
@@ -43,7 +43,7 @@ func Classify(usagePercent float64, warn, critical, emergency int) Level {
 // RunDiskMonitor 磁盘水位检查协程（方案 2.3.2 diskMonitor，每 5 分钟）。
 // 分级告警写 system_events（限频：同级别 10 分钟内不重复，避免风暴）；
 // 水位从非 OK 回落至 OK 时写恢复事件。
-// M-03（auditor Note）：首轮 checkOnce 返回 level 并同步 lastLevel/lastReport，
+// 首轮 checkOnce 返回 level 并同步 lastLevel/lastReport，
 // 避免首轮告警后第一个 ticker 周期重复报同级别告警。
 func RunDiskMonitor(ctx context.Context, interval time.Duration, dir string, warn, critical, emergency int, sys chan<- event.SystemEvent) error {
 	return RunDiskMonitorWithUsage(ctx, interval, func() (float64, error) {
@@ -110,5 +110,5 @@ func report(sys chan<- event.SystemEvent, level Level, usage float64) {
 	}
 }
 
-// 注（reviewer R-06）：checkOnce 已删除——首轮检查逻辑并入 RunDiskMonitorWithUsage
-// 且同步 lastLevel/lastReport（M-03），原独立封装为死代码。
+// 注：checkOnce 已删除——首轮检查逻辑并入 RunDiskMonitorWithUsage
+// 且同步 lastLevel/lastReport，无需独立封装。

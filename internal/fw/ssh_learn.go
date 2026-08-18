@@ -1,4 +1,4 @@
-// SSH 密钥认证成功自动白名单学习（DEV-042；A-01 整改：仅 publickey 学习）。
+// SSH 密钥认证成功自动白名单学习（仅 publickey 学习）。
 // 数据源：ssh_attempts 表（store.Store 实现 SuccessfulSSHIPSource 接口）。
 // 学习窗口：近 windowDays 天 publickey 密钥认证成功（result=1 且 auth_method='publickey'）的源 IP（去重）。
 // 触发时机：启动立即学习一次 + 每 interval 轮询增量更新。
@@ -15,7 +15,7 @@ import (
 	"sentry-agent/internal/event"
 )
 
-// SuccessfulSSHIPSource 成功登录 IP 数据源接口（由 store.Store 实现，DEV-042）。
+// SuccessfulSSHIPSource 成功登录 IP 数据源接口（由 store.Store 实现）。
 type SuccessfulSSHIPSource interface {
 	QuerySuccessfulSSHIPs(ctx context.Context, windowDays int) ([]uint32, error)
 }

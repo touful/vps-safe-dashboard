@@ -16,7 +16,7 @@ import (
 )
 
 // ArchivedTables 返回归档导出表清单（方案 4.4 示例；meta 不导出）。
-// 单点定义：store 包归档执行与 archive 包均引用此处（DRY，reviewer R-09）。
+// 单点定义：store 包归档执行与 archive 包均引用此处（DRY）。
 func ArchivedTables() []string {
 	return []string{"resources", "connections", "ssh_attempts", "firewall_events", "ban_events", "system_events"}
 }
@@ -167,7 +167,7 @@ func monthHasData(db *sql.DB, start, end int64) (bool, error) {
 // 实现：主库连接上 ATTACH 副本文件 → 逐表复制结构+数据 → 行数+MAX(ts) 校验 → DETACH。
 func exportMonth(db *sql.DB, tmpPath string, start, end int64) error {
 	// ATTACH 自动创建不存在的副本文件；路径按 SQLite 字符串字面量规则转义
-	// （A-03：单引号双写，兼容含引号/反斜杠路径；%q Go 转义与 SQLite 语义不一致）。
+	// （单引号双写，兼容含引号/反斜杠路径；%q Go 转义与 SQLite 语义不一致）。
 	if _, err := db.Exec("ATTACH DATABASE " + sqliteQuote(tmpPath) + " AS arc"); err != nil {
 		return fmt.Errorf("ATTACH 归档副本失败: %w", err)
 	}
@@ -212,7 +212,7 @@ func exportMonth(db *sql.DB, tmpPath string, start, end int64) error {
 }
 
 // gzipFile 将 src 压缩为 dst.gz（gzip_level 1-9）。
-// 注（reviewer N-01）：关闭前 fsync 落盘，降低"rename 已生效但数据仍滞留 page cache"
+// 注：关闭前 fsync 落盘，降低"rename 已生效但数据仍滞留 page cache"
 // 的掉电窗口（与主库 synchronous=NORMAL 的掉电风险级别相当；进程中断路径已由
 // .tmp/半截自愈闭环覆盖，此 Sync 仅封堵掉电场景）。
 func gzipFile(src, dst string, gzipLevel int) error {
@@ -351,8 +351,8 @@ func RunArchiver(ctx context.Context, checkInterval time.Duration, monthlyHour s
 }
 
 // DefaultCriticalUsagePct 磁盘 critical 水位默认值（方案 7.3：warn 80 / critical 90 / emergency 95）。
-// 归档在 critical 及以上时跳过（方案 3.9"critical 时跳过归档并告警"，A-02 最小形态落实）。
-// 实际阈值由配置 disk.critical_percent 传入（R-01：与 diskmon 共用配置，见 ShouldSkipArchive 签名）。
+// 归档在 critical 及以上时跳过（方案 3.9"critical 时跳过归档并告警"）。
+// 实际阈值由配置 disk.critical_percent 传入（与 diskmon 共用配置，见 ShouldSkipArchive 签名）。
 const DefaultCriticalUsagePct = 90.0
 
 // ShouldSkipArchive 判定磁盘水位是否阻止归档（纯函数，可单测）：
@@ -364,7 +364,7 @@ func ShouldSkipArchive(usagePercent float64, statfsOK bool, criticalPercent floa
 	return usagePercent >= criticalPercent
 }
 
-// sqliteQuote 将字符串转为 SQLite 字符串字面量（A-03）：单引号双写（'' 转义），
+// sqliteQuote 将字符串转为 SQLite 字符串字面量：单引号双写（” 转义），
 // 与 SQLite 字面量语义一致；Go 的 %q 转义（\x 风格）在 SQLite 中不生效。
 func sqliteQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"

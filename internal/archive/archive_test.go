@@ -232,7 +232,7 @@ func TestArchiveMetaMissingFile(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, month+".db.gz")); err != nil {
 		t.Errorf("副本未重建: %v", err)
 	}
-	// 重建后 meta 最终状态应重新包含该月（reviewer N-07）。
+	// 重建后 meta 最终状态应重新包含该月。
 	copied, err := readCopiedMonths(db)
 	if err != nil || !containsMonth(copied, month) {
 		t.Errorf("重建后 meta 未重新记录归档月份: %v %v", copied, err)
@@ -286,7 +286,7 @@ func TestArchiveMonthOf(t *testing.T) {
 	}
 }
 
-// TestSqliteQuote（A-03）：SQLite 字面量单引号双写转义。
+// TestSqliteQuote：SQLite 字面量单引号双写转义。
 func TestSqliteQuote(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{`/var/lib/sentry-agent/archive/2026-07.db`, `'/var/lib/sentry-agent/archive/2026-07.db'`},
@@ -302,7 +302,7 @@ func TestSqliteQuote(t *testing.T) {
 	}
 }
 
-// TestArchiveWithQuotePath（A-03 端到端）：归档目录路径含单引号时 ATTACH 正常。
+// TestArchiveWithQuotePath（端到端）：归档目录路径含单引号时 ATTACH 正常。
 func TestArchiveWithQuotePath(t *testing.T) {
 	db, _ := newTestMainDB(t)
 	defer db.Close()
@@ -322,7 +322,7 @@ func TestArchiveWithQuotePath(t *testing.T) {
 	}
 }
 
-// TestShouldSkipArchive（A-02/R-01）：磁盘水位判定（阈值参数化）。
+// TestShouldSkipArchive：磁盘水位判定（阈值参数化）。
 func TestShouldSkipArchive(t *testing.T) {
 	cases := []struct {
 		usage float64

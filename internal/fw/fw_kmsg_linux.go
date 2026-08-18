@@ -13,11 +13,11 @@ import (
 
 // kmsgReadLoop 读取 /dev/kmsg 消息并逐条回调（Linux 实现）。
 //
-// 防重放（tester D-07 / auditor m-03）：/dev/kmsg 每次 open 从环形缓冲头部读取；
+// 防重放：/dev/kmsg 每次 open 从环形缓冲头部读取；
 // 本实现以 O_NONBLOCK 打开后先排空历史到 EAGAIN（当前尾部），仅回调之后的实时消息——
 // 语义等价于 "dmesg -w --since 启动时刻"，保证注入 N 条仅产出 N 条。
 //
-// 排空窗口竞态防御（reviewer R-02）：排空阶段记录最后一条已读消息的 SEQUENCE（drainSeq），
+// 排空窗口竞态防御：排空阶段记录最后一条已读消息的 SEQUENCE（drainSeq），
 // 实时阶段解析每条消息 SEQUENCE 并跳过 SEQUENCE <= drainSeq 的消息——
 // 防御目标：多读者消费 / 内核 seq 行为差异（单读者 + 单调 seq 下该条件理论不可达，
 // 属防御性冗余，防内核行为变化时静默重放）。
@@ -25,7 +25,7 @@ import (
 // 可取消读（tester D-08）：非阻塞读 + 100ms 轮询，ctx 取消可在 EAGAIN 等待期及时退出。
 //
 // 记录格式：PRIORITY,SEQUENCE,TIMESTAMP,FLAGS;MESSAGE（read 返回单条记录，以 \0 结尾）。
-// 时间戳口径（reviewer R-11）：kmsg 头部的 TIMESTAMP 为内核单调时间（boot time），
+// 时间戳口径：kmsg 头部的 TIMESTAMP 为内核单调时间（boot time），
 // 与 Unix 时间不可直接换算；M2 采用接收时刻（time.Now）近似，事件注释已说明。
 func kmsgReadLoop(ctx context.Context, onLine func(string)) error {
 	fd, err := unix.Open("/dev/kmsg", unix.O_RDONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
@@ -37,7 +37,7 @@ func kmsgReadLoop(ctx context.Context, onLine func(string)) error {
 	buf := make([]byte, 64*1024)
 	var drainSeq uint64 // 排空阶段最后一条已读消息的 SEQUENCE
 	// 阶段一：排空历史（读至 EAGAIN），记录最后 SEQUENCE。
-	// A-04（auditor Note）：排空循环定期检查 ctx——环形缓冲较大时排空可能耗时，
+	// 排空循环定期检查 ctx——环形缓冲较大时排空可能耗时，
 	// 必须可被取消（避免退出时排空循环阻塞 5s 兜底超时）。
 	for {
 		select {

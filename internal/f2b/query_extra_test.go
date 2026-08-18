@@ -42,7 +42,7 @@ func TestQueryBannedBipsNoTimeColsFallback(t *testing.T) {
 	}
 }
 
-// TestQueryBannedSchemaMismatch 库存在但 bips/bans 表均无 → "empty" 分类错误（DEV-031 优化①：
+// TestQueryBannedSchemaMismatch 库存在但 bips/bans 表均无 → "empty" 分类错误（探测式适配：
 // 库为空/未初始化或 fail2ban 0.9.x 及更早无 sqlite 库；附修复指引文案）。
 func TestQueryBannedSchemaMismatch(t *testing.T) {
 	dir := t.TempDir()
@@ -170,7 +170,7 @@ type fakeCodeError struct{ code int }
 func (f fakeCodeError) Error() string { return "fake sqlite error" }
 func (f fakeCodeError) Code() int     { return f.code }
 
-// TestClassifyQueryErrHotJournal（DEV-033 新增测试）：SQLITE_READONLY_RECOVERY（264）→
+// TestClassifyQueryErrHotJournal：SQLITE_READONLY_RECOVERY（264）→
 // hotjournal 分类（调用方 info 级留痕、返回空名单、下轮重试）；普通 readonly（8）与
 // 其他错误归 unreadable；包装错误 errors.As 穿透识别。
 func TestClassifyQueryErrHotJournal(t *testing.T) {
@@ -200,7 +200,7 @@ func TestClassifyQueryErrHotJournal(t *testing.T) {
 	}
 }
 
-// TestReadOnlyDSNRejectsWrite（DEV-033 核对点 4 证据）：mode=ro 只读打开生效——
+// TestReadOnlyDSNRejectsWrite（核对点 4 证据）：mode=ro 只读打开生效——
 // 写操作被 SQLite 拒绝（readonly database），查询正常。
 func TestReadOnlyDSNRejectsWrite(t *testing.T) {
 	dir := t.TempDir()
@@ -236,7 +236,7 @@ func TestReadOnlyDSNRejectsWrite(t *testing.T) {
 	}
 }
 
-// TestQueryBannedInvalidDB（DEV-033）：非 SQLite 文件（垃圾字节）→ tableExists 探测
+// TestQueryBannedInvalidDB：非 SQLite 文件（垃圾字节）→ tableExists 探测
 // 失败 → unreadable 分类（真实驱动错误路径，覆盖 tableExists 错误分支）。
 func TestQueryBannedInvalidDB(t *testing.T) {
 	dir := t.TempDir()
@@ -257,7 +257,7 @@ func TestQueryBannedInvalidDB(t *testing.T) {
 	}
 }
 
-// TestQueryBannedNonTextIPSkipped（DEV-033）：ip 列值为非 IP 文本/数字（SQLite 动态类型
+// TestQueryBannedNonTextIPSkipped：ip 列值为非 IP 文本/数字（SQLite 动态类型
 // 不强制）→ 该行被 ParseIP 跳过、不崩溃、不影响正常行（实测 modernc 将 INTEGER 宽容
 // 转换为文本，不触发扫描错误——防御行为验证）。
 func TestQueryBannedNonTextIPSkipped(t *testing.T) {
@@ -290,7 +290,7 @@ func TestQueryBannedNonTextIPSkipped(t *testing.T) {
 	}
 }
 
-// TestReadOnlyDSNBusyTimeout（DEV-031 优化①）：只读 DSN 追加 busy_timeout=5000。
+// TestReadOnlyDSNBusyTimeout：只读 DSN 追加 busy_timeout=5000。
 func TestReadOnlyDSNBusyTimeout(t *testing.T) {
 	dsn := readOnlyDSN("/var/lib/fail2ban/fail2ban.sqlite3")
 	if !strings.Contains(dsn, "mode=ro") {
@@ -301,9 +301,9 @@ func TestReadOnlyDSNBusyTimeout(t *testing.T) {
 	}
 }
 
-// TestReadOnlyDSNSpecialChars（A-11）：路径含 '?'/'#' 等 DSN 特殊字符时查询正常。
+// TestReadOnlyDSNSpecialChars：路径含 '?'/'#' 等 DSN 特殊字符时查询正常。
 // 注意：创建环节亦须用转义 DSN——未转义时 SQLite URI 解析会把 '?' 视为查询分隔符，
-// 实际创建的文件名被截断（这正是 A-11 要防的路径语义错误）。
+// 实际创建的文件名被截断（这正是本函数要防的路径语义错误）。
 // Windows 文件系统不允许 '?'/'#' 文件名（创建即失败），该场景在 Linux/WSL 验证。
 func TestReadOnlyDSNSpecialChars(t *testing.T) {
 	if runtime.GOOS == "windows" {

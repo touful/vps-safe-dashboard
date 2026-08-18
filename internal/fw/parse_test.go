@@ -110,7 +110,7 @@ func TestProtoMap(t *testing.T) {
 	}
 }
 
-// TestParseFWLinePreroutingInbound（DEV-042）：raw PREROUTING 入站 LOG 前缀解析——
+// TestParseFWLinePreroutingInbound：raw PREROUTING 入站 LOG 前缀解析——
 // SENTRY_FW:PREROUTING:inbound → Chain=PREROUTING Action=inbound（区别于 drop/reject 语义）。
 func TestParseFWLinePreroutingInbound(t *testing.T) {
 	line := "SENTRY_FW:PREROUTING:inbound IN=eth0 OUT= MAC=01:02:03:04:05:06:07:08:09:0a:0b:0c:08:00 " +

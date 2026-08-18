@@ -166,7 +166,7 @@ func ParseProcStat(content string) (total, idle uint64, err error) {
 		}
 		fields := strings.Fields(line)
 		// 至少需要 user nice system idle iowait 5 个数值（索引 1..5），
-		// 否则后续 vals[4]（iowait）越界（auditor m-06 防御）。
+		// 否则后续 vals[4]（iowait）越界（畸形行防御）。
 		if len(fields) < 6 {
 			return 0, 0, fmt.Errorf("cpu 行字段不足: %q", line)
 		}

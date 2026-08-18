@@ -21,7 +21,7 @@ import (
 // RunFwParser 流式解析内核日志（方案 3.4 签名 + sys 通道）。
 // source: journald-kernel（journalctl -f -o json -k，默认）| kmsg（/dev/kmsg，分支 B1）。
 // 仅处理包含 prefix 的行，其余内核日志行忽略。
-// filter 为采集层来源过滤（DEV-031 优化②：内网/自身来源事件发送前丢弃）。
+// filter 为采集层来源过滤（内网/自身来源事件发送前丢弃）。
 func RunFwParser(ctx context.Context, source, prefix string, filter FwFilter, sink chan<- event.FirewallEvent, sys chan<- event.SystemEvent) error {
 	rep := event.NewRateLimiter(time.Minute)
 	stats := newFilterStats()
@@ -78,7 +78,7 @@ func runJournaldKernel(ctx context.Context, prefix string, filter FwFilter, stat
 }
 
 // runKmsg 直接读取 /dev/kmsg（分支 B1，非 systemd 环境；需特权访问）。
-// 防重放（tester D-07 / auditor m-03）：打开后先排空环形缓冲历史到当前尾部，
+// 防重放：打开后先排空环形缓冲历史到当前尾部，
 // 仅解析之后的实时消息——"注入 N 条仅产出 N 条"。
 // 可取消读（tester D-08）：非阻塞读 + 轮询，ctx 取消可及时退出。
 // 具体实现平台分离（unix 包仅 Linux 可编译）：fw_kmsg_linux.go / fw_kmsg_other.go。
@@ -89,7 +89,7 @@ func runKmsg(ctx context.Context, prefix string, filter FwFilter, stats *filterS
 }
 
 // handleLine 处理单行内核日志：前缀匹配则解析发送；前缀匹配但解析失败限频告警；非前缀行忽略。
-// DEV-031 优化②：解析成功后、入队前执行采集层来源过滤（内网/自身来源丢弃并留痕）。
+// 解析成功后、入队前执行采集层来源过滤（内网/自身来源丢弃并留痕）。
 func handleLine(ctx context.Context, sink chan<- event.FirewallEvent, sys chan<- event.SystemEvent, rep *event.RateLimiter, line string, ts int64, prefix string, filter FwFilter, stats *filterStats) {
 	if !strings.Contains(line, prefix) {
 		return // 非 SENTRY_FW 前缀行，忽略（方案 3.4：仅处理该前缀行）

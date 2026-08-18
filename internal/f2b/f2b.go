@@ -20,7 +20,7 @@ import (
 
 // RunF2BListener 流式读取 fail2ban 日志，产出封禁事件（方案 3.5 签名 + sys 通道）。
 // 实现：tail -F -n 0 子进程（轮转跟随，不追溯历史），逐行解析 Ban/Unban/Found。
-// 已知限制（DEV-033，DEV-032 现场核查结论 1）：容器环境日志 640 root:systemd-journal
+// 已知限制（现场核查结论 1）：容器环境日志 640 root:systemd-journal
 // 对 user 1000 不可读，本监听会启动失败并留痕（不阻塞名单查询——名单走 sqlite）。
 func RunF2BListener(ctx context.Context, logPath string, sink chan<- event.BanEvent, sys chan<- event.SystemEvent) error {
 	tail, err := exec.LookPath("tail")
@@ -59,7 +59,7 @@ func RunF2BListener(ctx context.Context, logPath string, sink chan<- event.BanEv
 	return fmt.Errorf("fail2ban 日志流提前结束: %w", waitErr)
 }
 
-// BannedQueryError 封禁名单查询分类错误（DEV-031 优化①：探测式适配，按根因分类）。
+// BannedQueryError 封禁名单查询分类错误（探测式适配，按根因分类）。
 // Kind 取值：
 //   - "unreadable"：库不可访问（打开/探测失败）——空目录挂载（Docker bind mount 源不存在
 //     形态）、权限/ACL 缺失、路径错位（附检查建议）
@@ -67,7 +67,7 @@ func RunF2BListener(ctx context.Context, logPath string, sink chan<- event.BanEv
 //   - "schema"：表存在但缺 ip 列（或 bips 缺 timeofban/bantime 无法活跃判定时回退 bans）——
 //     未知版本结构差异（附 PRAGMA table_info 摘要）
 //   - "hotjournal"：库处于 hot journal 待恢复状态（崩溃/断电残留），只读打开失败——
-//     本次返回空名单，下轮自动重试（DEV-033，DEV-032 现场核查结论 5）
+//     本次返回空名单，下轮自动重试（现场核查结论 5）
 type BannedQueryError struct {
 	Kind string
 	Msg  string
@@ -82,18 +82,18 @@ func (e *BannedQueryError) Unwrap() error { return e.Err }
 // 实测 modernc v1.56.0 Windows/Linux 均不触发、直接读主库，此处防御驱动/版本/环境差异）。
 const readonlyRecoveryCode = 264
 
-// bipsActiveWhere bips 表活跃封禁判定 WHERE 片段（DEV-033，DEV-032 现场核查结论 3/5）：
+// bipsActiveWhere bips 表活跃封禁判定 WHERE 片段（现场核查结论 3/5）：
 //   - bantime = -1：永久封禁恒保留（豁免，必须）
 //   - bantime IS NULL：schema 无 NOT NULL，理论可为 NULL——未知时长保守保留（防漏报，不误删）
 //   - timeofban IS NULL：schema 无 NOT NULL，理论可为 NULL——未知封禁时刻保守保留
-//     （AUDIT-005 A-02：与 bantime NULL 豁免对称，防漏报）
+//     （与 bantime NULL 豁免对称，防漏报）
 //   - timeofban + bantime > ?：未过期保留（now 为 Unix 秒参数）
 //   - 其余（已过期/异常残留）：过滤。bans 非历史表（unban 即删行，结论 6），bips 同理双删。
 const bipsActiveWhere = `bantime = -1 OR bantime IS NULL OR timeofban IS NULL OR (timeofban + bantime) > ?`
 
 // QueryBanned 探测式查询 fail2ban.sqlite3 当前封禁名单（方案 3.5，每 60s 刷新）。
 // 只读打开（mode=ro + busy_timeout=5000，缓解 fail2ban 写库瞬间 SQLITE_BUSY）。
-// 数据源（DEV-033，DEV-032 现场核查结论 1）：只能走 sqlite——日志 640 root:systemd-journal
+// 数据源（现场核查结论 1）：只能走 sqlite——日志 640 root:systemd-journal
 // 容器 user 1000 不可读，不能走日志解析；库 644 root:root 可读。
 // 表结构（结论 2）：fail2ban 1.x 五表结构，封禁记录在 bans 与 bips 双表（addBan/delBan
 // 双写双删）；bips 列 ip/jail/timeofban/bantime/bancount/data（ip+jail 唯一）。
@@ -137,7 +137,7 @@ func queryBannedBips(ctx context.Context, db *sql.DB) ([]uint32, error) {
 		return queryBannedBans(ctx, db)
 	}
 	// 标准结构：活跃判定查询（bantime=-1 永久豁免 / NULL 保守保留 / 未过期保留 / 残留过滤）。
-	// DISTINCT（reviewer R-02）：bips UNIQUE(ip, jail)，同 IP 可同时封禁于多个 jail
+	// DISTINCT：bips UNIQUE(ip, jail)，同 IP 可同时封禁于多个 jail
 	// （如 sshd + recidive）——按 IP 去重，与 bans 回退路径口径一致。
 	rows, err := db.QueryContext(ctx, `SELECT DISTINCT ip FROM bips WHERE `+bipsActiveWhere, time.Now().Unix())
 	if err != nil {
@@ -190,7 +190,7 @@ func scanBannedIPs(rows *sql.Rows) ([]uint32, error) {
 	for rows.Next() {
 		var ipStr string
 		if err := rows.Scan(&ipStr); err != nil {
-			// 分类一致性（reviewer R-05）：扫描错误归 unreadable（罕见路径：列类型异常）。
+			// 分类一致性：扫描错误归 unreadable（罕见路径：列类型异常）。
 			return nil, fmt.Errorf("读取封禁行失败: %w", err)
 		}
 		ip := net.ParseIP(ipStr)
@@ -222,7 +222,7 @@ func tableExists(ctx context.Context, db *sql.DB, table string) (bool, error) {
 // 接口化便于单测构造，不依赖驱动具体类型）。
 type sqliteCodeError interface{ Code() int }
 
-// classifyQueryErr 查询类错误分类（DEV-033，DEV-032 现场核查结论 5）：
+// classifyQueryErr 查询类错误分类（现场核查结论 5）：
 // hot journal 场景（SQLITE_READONLY_RECOVERY=264）→ Kind=hotjournal（调用方 info 级留痕，
 // 返回空名单，下轮 60s 重试，不崩溃）；其余归 unreadable。
 func classifyQueryErr(err error, msg string) error {
@@ -265,8 +265,8 @@ func containsStr(cols []string, want string) bool {
 	return false
 }
 
-// readOnlyDSN 构造只读 DSN（A-11）：路径 URL 编码（PathEscape 保留 '/'，转义 '?'/'#' 等），
-// 追加 mode=ro + busy_timeout=5000（DEV-031 优化①：缓解 fail2ban 写库瞬间 SQLITE_BUSY）。
+// readOnlyDSN 构造只读 DSN：路径 URL 编码（PathEscape 保留 '/'，转义 '?'/'#' 等），
+// 追加 mode=ro + busy_timeout=5000（缓解 fail2ban 写库瞬间 SQLITE_BUSY）。
 // URI 解析由 modernc 驱动自动启用（file: 前缀即触发；实证：只读写拒绝、busy_timeout 生效）。
 func readOnlyDSN(path string) string {
 	return "file:" + url.PathEscape(path) + "?mode=ro&_pragma=busy_timeout(5000)"

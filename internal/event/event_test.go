@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// TEST-001 整改（reviewer R-01）：event 包纯函数最小单测，补齐可测纯函数口径缺口。
+// event 包纯函数最小单测，补齐可测纯函数口径缺口。
 
 func TestIPv4ToUint32(t *testing.T) {
 	cases := []struct {
@@ -124,7 +124,7 @@ func TestReportSysNilChannel(t *testing.T) {
 	ReportSys(nil, "x", "info", "msg")
 }
 
-// TestReportSysFullChannel：通道满时丢弃且不阻塞（reviewer R-13 补充）。
+// TestReportSysFullChannel：通道满时丢弃且不阻塞。
 func TestReportSysFullChannel(t *testing.T) {
 	sys := make(chan SystemEvent, 1)
 	sys <- SystemEvent{TS: 1, Source: "pre", Level: "info", Message: "pre"}

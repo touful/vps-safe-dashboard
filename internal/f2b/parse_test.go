@@ -80,7 +80,7 @@ func TestParseF2BLine(t *testing.T) {
 	}
 }
 
-// TestParseF2BTime 行首时间戳解析（auditor m-01）。
+// TestParseF2BTime 行首时间戳解析。
 func TestParseF2BTime(t *testing.T) {
 	ts, ok := ParseF2BTime("2026-08-13 00:00:00,123 fail2ban.actions [2912]: NOTICE  [sshd] Ban 1.2.3.4")
 	if !ok {

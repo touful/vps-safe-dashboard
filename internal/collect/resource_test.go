@@ -51,7 +51,7 @@ func TestParseProcStatNoCPULine(t *testing.T) {
 }
 
 func TestParseProcStatShortLine(t *testing.T) {
-	// 恰好 5 字段的畸形行（无 iowait）不应 panic（auditor m-06）。
+	// 恰好 5 字段的畸形行（无 iowait）不应 panic。
 	for _, content := range []string{"cpu 100 0 50 200\n", "cpu 1 2 3 4\n"} {
 		if _, _, err := ParseProcStat(content); err == nil {
 			t.Errorf("字段不足的 cpu 行应报错: %q", content)

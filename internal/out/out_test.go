@@ -11,7 +11,7 @@ import (
 	"sentry-agent/internal/event"
 )
 
-// TEST-001 整改（reviewer R-01）：out 包 conv* 纯函数最小单测，补齐可测纯函数口径缺口。
+// out 包 conv* 纯函数最小单测，补齐可测纯函数口径缺口。
 
 func TestConvResource(t *testing.T) {
 	v := convResource(event.ResourceSample{
@@ -131,7 +131,7 @@ func TestTsOf(t *testing.T) {
 	}
 }
 
-// ===== M2 新增：两阶段排空协议测试（auditor M-02） =====
+// ===== M2 新增：两阶段排空协议测试 =====
 
 // TestRunDrainNoLoss 验证两阶段排空协议：ctx 取消瞬间生产者仍未退出（wg 未释放）时，
 // 在途事件不丢失（consume 先等 producers.Wait() 再 drain）。

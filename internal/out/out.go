@@ -47,7 +47,7 @@ type counters struct {
 }
 
 // Run 启动 stdout 输出器：消费全部采集 channel，输出 JSON 行；每 60s 输出统计行。
-// producers 为全部采集协程的 WaitGroup——两阶段排空协议（auditor M-02 修复）：
+// producers 为全部采集协程的 WaitGroup——两阶段排空协议：
 // ctx 取消后先等待所有生产者退出（不再有新的 send），再排空 channel 中在途事件，
 // 消除"ctx 取消瞬间生产者最后 send 落在排空完成后"的丢失竞态。
 func Run(ctx context.Context, w io.Writer, ch *event.Channels, producers *sync.WaitGroup, snapshotFn SnapshotFn) error {

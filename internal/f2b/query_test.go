@@ -9,7 +9,7 @@ import (
 )
 
 // newF2BDB 创建 fail2ban 1.x 风格库（bips+bans 双表，addBan/delBan 双写双删语义，
-// DEV-032 现场核查结论 2）；返回连接与库路径。
+// 现场核查结论 2）；返回连接与库路径。
 func newF2BDB(t *testing.T, dir string) (*sql.DB, string) {
 	t.Helper()
 	dbPath := filepath.Join(dir, "fail2ban.sqlite3")
@@ -18,7 +18,7 @@ func newF2BDB(t *testing.T, dir string) (*sql.DB, string) {
 		t.Fatal(err)
 	}
 	// bips 列：ip/jail/timeofban/bantime/bancount/data（timeofban/bantime 均无 NOT NULL，
-	// 理论可为 NULL——AUDIT-005 A-02 用例依赖 timeofban 可空）。
+	// 理论可为 NULL——NULL 可空用例依赖此行为）。
 	if _, err := db.Exec(`CREATE TABLE bips (id INTEGER PRIMARY KEY, ip TEXT NOT NULL, jail TEXT NOT NULL,
 		timeofban INTEGER, bantime INTEGER, bancount INTEGER NOT NULL, data TEXT, UNIQUE(ip, jail))`); err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func addBan(t *testing.T, db *sql.DB, ip string, timeofban int64, bantime any) {
 	}
 }
 
-// TestQueryBannedActive（DEV-033，DEV-032 核查结论 3/6）：bips 路径活跃判定——
+// TestQueryBannedActive（现场核查结论 3/6）：bips 路径活跃判定——
 // 未过期保留、bantime=-1 永久封禁豁免保留、bantime NULL 保守保留、过期异常残留过滤。
 func TestQueryBannedActive(t *testing.T) {
 	dir := t.TempDir()
@@ -72,7 +72,7 @@ func TestQueryBannedActive(t *testing.T) {
 	}
 }
 
-// TestQueryBannedBantimeMinusOnePermanent（DEV-033 新增测试）：bantime=-1 永久封禁
+// TestQueryBannedBantimeMinusOnePermanent：bantime=-1 永久封禁
 // 恒保留（timeofban 即使远早于 now 也不过滤——必须豁免）。
 func TestQueryBannedBantimeMinusOnePermanent(t *testing.T) {
 	dir := t.TempDir()
@@ -89,7 +89,7 @@ func TestQueryBannedBantimeMinusOnePermanent(t *testing.T) {
 	}
 }
 
-// TestQueryBannedBantimeNullNoCrash（DEV-033 新增测试）：bantime NULL（schema 无
+// TestQueryBannedBantimeNullNoCrash：bantime NULL（schema 无
 // NOT NULL，理论可为 NULL）不崩溃、不误删（保守保留，防漏报）。
 func TestQueryBannedBantimeNullNoCrash(t *testing.T) {
 	dir := t.TempDir()
@@ -106,7 +106,7 @@ func TestQueryBannedBantimeNullNoCrash(t *testing.T) {
 	}
 }
 
-// TestQueryBannedTimeofbanNull（AUDIT-005 A-02 新增测试）：timeofban NULL（schema 无
+// TestQueryBannedTimeofbanNull：timeofban NULL（schema 无
 // NOT NULL，理论可为 NULL）保守保留——与 bantime NULL 豁免对称，防漏报。
 func TestQueryBannedTimeofbanNull(t *testing.T) {
 	dir := t.TempDir()
@@ -149,7 +149,7 @@ func TestQueryBannedExpiredFiltered(t *testing.T) {
 	}
 }
 
-// TestQueryBannedSameIPMultiJail（reviewer R-02）：同 IP 封禁于多个 jail（bips
+// TestQueryBannedSameIPMultiJail：同 IP 封禁于多个 jail（bips
 // UNIQUE(ip,jail) 允许，如 sshd + recidive）→ DISTINCT 去重返回 1 条，与 bans 回退路径口径一致。
 func TestQueryBannedSameIPMultiJail(t *testing.T) {
 	dir := t.TempDir()
