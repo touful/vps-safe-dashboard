@@ -60,7 +60,7 @@ sentry-agent 全生命周期验证/测试/审计档案。命名约定：`Vn_验�
 
 > 一次性验证脚本已从 `scripts/` 清理（git 历史可恢复）；本目录保留的是不可再生的执行证据（原始输出与文本断言记录），请勿删除。
 
-> **大文件处理政策（DEV-CLEAN-001）**：超过 10MB 的执行证据以 gzip 压缩形式归档（如 `evidence/testfe001/trace_attack30s.json.gz`），原始文件不保留在仓库（63.5MB 压缩为 4.1MB，可解压还原）。历史报告/脚本中引用的原始 `.json` 路径已失效，复现分析时先解压 `.gz` 还原文件名（Linux/WSL：`gzip -dk trace_attack30s.json.gz`；Windows：`tar -xzf trace_attack30s.json.gz` 或 7-Zip 解压）。
+> **大文件处理政策（DEV-CLEAN-001）**：超过 10MB 的执行证据以 gzip 压缩形式归档（如 `evidence/testfe001/trace_attack30s.json.gz`），原始文件不保留在仓库（63.5MB 压缩为 4.1MB，可解压还原）。历史报告/脚本中引用的原始 `.json` 路径已失效，复现分析时先解压 `.gz` 还原文件名（Linux/WSL：`gzip -dk trace_attack30s.json.gz`；Windows：`tar -xzf trace_attack30s.json.gz` 或 7-Zip 解压）。注：该 gz 按下方政策**不入库**（仅本地工作区持有），公开仓库无法解压复现。
 >
 > **trace gz 不入库说明（DEV-RELEASE-001 / AUD-PUSH-001 S-01）**：`evidence/testfe001/trace_attack30s.json.gz` 含机器指纹（浏览器/系统特征），**有意不入库**（.gitignore 精确规则），仅存于本地工作区；公开仓库不推送该文件。其余 evidence 文件为不可再生执行证据，入库保护。
 

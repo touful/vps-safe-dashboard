@@ -1,5 +1,5 @@
 == dev015_seed_db.py ==
-SEED OK: D:\工具开发\安全态势展示工具\scripts\..\.dev015-test\state.db
+SEED OK: <PROJECT_ROOT>\scripts\..\.dev015-test\state.db
 
 == dev017_seed_noidle_db.py ==
 NOIDLE DB OK
