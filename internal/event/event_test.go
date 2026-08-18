@@ -49,7 +49,7 @@ func TestUint32ToIPv4(t *testing.T) {
 
 // 往返一致性：IPv4ToUint32 与 Uint32ToIPv4 互逆。
 func TestIPv4RoundTrip(t *testing.T) {
-	for _, s := range []string{"1.2.3.4", "10.0.0.1", "<LAN_IP>", "8.8.8.8"} {
+	for _, s := range []string{"1.2.3.4", "10.0.0.1", "198.51.100.8", "8.8.8.8"} {
 		v := IPv4ToUint32(net.ParseIP(s))
 		if got := Uint32ToIPv4(v); got != s {
 			t.Fatalf("round trip %s -> %d -> %s 不一致", s, v, got)
@@ -160,3 +160,4 @@ func TestMicrosToUnix(t *testing.T) {
 		}
 	}
 }
+
