@@ -97,12 +97,12 @@ func writeTDSPacket(conn net.Conn, pktType byte, payload []byte) error {
 // buildPreloginResponse 构造最小 Prelogin Response（MS-TDS 2.2.1.1）。
 // 选项表（token + offset + length 三元组，offset 从消息起始计算）：
 //   VERSION（token 0x00，8 字节伪 TDS 版本）
-//   ENCRYPTION（token 0x01，1 字节 = 0x01 OFF——诱导客户端走明文后续流程）
-// 消息总长按双字对齐补齐（客户端一般容忍；对齐符合协议建议）。
+//   ENCRYPTION（token 0x01，1 字节 = 0x00 OFF——诱导客户端走明文后续流程）
+// 选项表 15 字节（5+5+5）+ 1 字节对齐 pad = 16 字节，数据区从偏移 16 开始。
 func buildPreloginResponse() []byte {
-	const verOff = 16 // 选项表 12 字节 + 对齐 4 字节
+	const verOff = 16
 	resp := make([]byte, 0, 32)
-	// 选项表：VERSION 项。
+	// 选项表：VERSION 项（5 字节：token + offset(2) + length(2)）。
 	resp = append(resp, 0x00) // token
 	var off [2]byte
 	binary.BigEndian.PutUint16(off[:], verOff)
@@ -113,14 +113,14 @@ func buildPreloginResponse() []byte {
 	binary.BigEndian.PutUint16(off[:], verOff+8)
 	resp = append(resp, off[:]...)
 	resp = append(resp, 0x00, 0x01) // length 1
-	// 终止项（token 0 + offset 0 + length 0）。
-	resp = append(resp, 0x00, 0x00, 0x00, 0x00)
-	// 对齐填充到 16 字节（4 字节 pad）。
-	resp = append(resp, 0x00, 0x00, 0x00, 0x00)
+	// 终止项（token 0 + offset 0 + length 0，5 字节）。
+	resp = append(resp, 0x00, 0x00, 0x00, 0x00, 0x00)
+	// 对齐填充到 16 字节（1 字节 pad）。
+	resp = append(resp, 0x00)
 	// 数据区：VERSION 8 字节（TDS 7.4 伪版本）。
 	resp = append(resp, 0x07, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-	// ENCRYPTION 1 字节（0x01 = ENCRYPT_OFF）。
-	resp = append(resp, 0x01)
+	// ENCRYPTION 1 字节（MS-TDS 2.2.1.1：0x00=OFF，诱导明文后续流程）。
+	resp = append(resp, 0x00)
 	// 尾部对齐到双字（25 → 28）。
 	for len(resp)%4 != 0 {
 		resp = append(resp, 0x00)
@@ -159,9 +159,8 @@ func parseLogin7(data []byte) (string, string, bool) {
 		}
 		val := data[off : off+ln]
 		switch i {
-		case 1: // UserName（UTF-16LE，双字节；按单字节截断显示）
-			user = string(val)
-			user = trimNulls(user)
+		case 1: // UserName（UTF-16LE，双字节编码——按规范解码，R-02 reviewer 整改）
+			user = utf16leToString(val, 0, ln)
 		case 2: // Password（TDS 混淆：XOR 0xA5 + 逆序；记录 hex 摘要，不还原）
 			pass = hex.EncodeToString(val)
 		}
@@ -170,14 +169,6 @@ func parseLogin7(data []byte) (string, string, bool) {
 		return "", "", false
 	}
 	return user, pass, true
-}
-
-// trimNulls 去除字符串尾部 NUL（TDS 变长字段为字节数组，无隐式终止）。
-func trimNulls(s string) string {
-	for len(s) > 0 && s[len(s)-1] == 0 {
-		s = s[:len(s)-1]
-	}
-	return s
 }
 
 // writeTDSLoginFailed 发送 TDS ERROR token（0xAA）消息：错误 18456（登录失败）。

@@ -61,7 +61,7 @@ var protoHandlers = map[string]protoHandler{
 
 // Stats 蜜罐运行统计（连接治理与容量观测）。
 type Stats struct {
-	TotalConns int64 // 累计接受连接数（含被限速拒绝前的 accept）
+	TotalConns int64 // 累计通过治理并开始处理的连接数（限速/并发拒绝不计入）
 	Active     int64 // 当前活跃连接数
 	TotalBytes int64 // 累计读写字节数
 	Rejected   int64 // 被限速/并发上限拒绝的连接数
@@ -109,7 +109,9 @@ func NewServer(listen map[string]string, credCh chan<- event.CredEvent, sys chan
 func (s *Server) Run(ctx context.Context) error {
 	var lns []net.Listener
 	var mu sync.Mutex
-	var wg sync.WaitGroup
+	var wg sync.WaitGroup     // 监听 goroutine
+	var connWG sync.WaitGroup // 在途连接 goroutine（R-07 reviewer 整改：关闭时等待在途连接处理完毕，
+	// 避免最长 30s 超时窗口内的凭据事件丢失——先 wg.Wait 再 connWG.Wait，保证 Add 全部完成）
 	for proto, addr := range s.listen {
 		if addr == "" {
 			continue // 空串 = 禁用该协议
@@ -129,7 +131,7 @@ func (s *Server) Run(ctx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.serveProto(ctx, proto, ln)
+			s.serveProto(ctx, proto, ln, &connWG)
 		}()
 	}
 	if len(lns) == 0 {
@@ -141,12 +143,14 @@ func (s *Server) Run(ctx context.Context) error {
 		_ = ln.Close() // 关闭全部监听：accept 阻塞返回错误，serveProto 感知 ctx 后退出
 	}
 	mu.Unlock()
-	wg.Wait()
+	wg.Wait()     // 监听循环全部退出后，再无新连接进入 connWG
+	connWG.Wait() // 等待在途连接处理完毕（最长 connTimeout 30s），关闭窗口凭据不丢
 	return nil
 }
 
 // serveProto 单协议 accept 循环：连接治理（限速/并发）在接入点执行。
-func (s *Server) serveProto(ctx context.Context, proto string, ln net.Listener) {
+// connWG 跟踪在途连接 goroutine（Run 关闭路径等待，见 Run）。
+func (s *Server) serveProto(ctx context.Context, proto string, ln net.Listener, connWG *sync.WaitGroup) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -162,7 +166,11 @@ func (s *Server) serveProto(ctx context.Context, proto string, ln net.Listener) 
 		if !s.acceptConn(proto, conn) {
 			continue // 治理拒绝：acceptConn 内已关闭连接并统计
 		}
-		go s.handleConn(proto, conn)
+		connWG.Add(1)
+		go func() {
+			defer connWG.Done()
+			s.handleConn(proto, conn)
+		}()
 	}
 }
 
@@ -261,7 +269,10 @@ func (s *Server) Addrs() map[string]string {
 	return out
 }
 
-// remoteIPv4 提取远端 IPv4 地址（非 IPv4 返回 0——IPv6 连接记 0，字段限制）。
+// remoteIPv4 提取远端 IPv4 地址。
+// 已知边界（R-08 reviewer 备注）：非 IPv4（IPv6）返回 0——IPv6 连接共享同一
+// 0 值限速桶（每 IP 10 连接/分钟 的全局配额）且 CredEvent.SrcIP 归因失真。
+// 任务书为 IPv4 语义（VPS 双栈攻击面主要为 IPv4），IPv6 单独分桶留待后续。
 func remoteIPv4(conn net.Conn) uint32 {
 	ra := conn.RemoteAddr()
 	if ra == nil {

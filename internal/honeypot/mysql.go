@@ -15,17 +15,19 @@ import (
 // HandshakeResponse41（用户名明文 + auth-response（密码 hash，不可逆））→
 // 记录 username + auth-response hex（Extra 注明不可逆）→ 回 ERR 1045 拒绝。
 // 无法捕获明文密码（mysql_native_password 为 SHA1 链不可逆），如实记录。
+// 布线要点（R-01 reviewer 整改，对齐协议公式）：
+//   - auth-plugin-data 恰 20 字节（part1 8 + part2 12）；
+//   - auth_plugin_data_len = 21（20 salt + 1 NUL）；
+//   - 能力位不含 CLIENT_SSL（蜜罐无 TLS，置位会诱导客户端先发 SSLRequest）；
+//   - 消息序号按握手机制递增（greeting seq=0 → 客户端响应 seq=1 → ERR seq=2）。
 func handleMySQL(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.CredEvent)) {
 	// 1. HandshakeV10（报文头 4 字节：len + seq）。
 	// 字段布局（PAGE_PROTOCOL）：protocol_version(1) | server_version(NUL) |
 	// connection_id(4) | auth_plugin_data_part1(8) | filler(1) | caps_lower(2) |
 	// charset(1) | status(2) | caps_upper(2) | auth_plugin_data_len(1) |
-	// reserved(10) | auth_plugin_data_part2(12) | auth_plugin_name(NUL)
-	salt := []byte("sentryH0n3yp0tS4lt12!!") // 固定 20 字节 salt（伪随机，仅握手语义）
-	greeting := []byte{
-		10,          // protocol version 10
-		0,           // server version 占位（NUL 终止，下面拼）
-	}
+	// reserved(10) | auth_plugin_data_part2(max(13, len-8)-1=12) | auth_plugin_name(NUL)
+	salt := []byte("sentryH0n3yp0tS4lt12") // 恰好 20 字节（part1 "sentryH0" 8 + part2 "n3yp0tS4lt12" 12）
+	greeting := []byte{10} // protocol version 10（version 字段紧随其后 NUL 终止）
 	version := []byte("8.0.35-honeypot\x00") // 伪装版本串（仅诱导客户端继续认证，非真实信息）
 	greeting = append(greeting, version...)
 	var connID [4]byte
@@ -33,12 +35,13 @@ func handleMySQL(ctx context.Context, conn net.Conn, srcIP uint32, rec func(even
 	greeting = append(greeting, connID[:]...)
 	greeting = append(greeting, salt[:8]...)
 	greeting = append(greeting, 0) // filler
-	// capability flags（低位 2 字节）：CLIENT_PROTOCOL_41(0x200) | CLIENT_SECURE_CONNECTION(0x8000)
-	// | CLIENT_PLUGIN_AUTH(0x80000 高位) | CLIENT_CONNECT_WITH_DB(0x8)
-	greeting = append(greeting, 0x00, 0xFF) // caps_lower（简化为全高，兼容客户端能力探测）
+	// capability flags（低位 2 字节 LE）：0xF700 = 0xFF00 清除 CLIENT_SSL(0x0800)——
+	// 蜜罐无 TLS，置 SSL 位会诱导客户端先发 SSLRequest 导致握手路径错乱（R-01 整改）。
+	// 保留 PROTOCOL_41(0x200)/SECURE_CONNECTION(0x8000)/LONG_FLAG 等位。
+	greeting = append(greeting, 0x00, 0xF7) // caps_lower（LE 0xF700，不含 SSL 位 0x0800）
 	greeting = append(greeting, 45)         // charset: utf8mb4_general_ci
 	greeting = append(greeting, 0x02, 0x00) // status flags: SERVER_STATUS_AUTOCOMMIT
-	greeting = append(greeting, 0xF7, 0x7F) // caps_upper
+	greeting = append(greeting, 0x77, 0x77) // caps_upper（LE 0x7777：含 PLUGIN_AUTH(0x80000) 等高位）
 	greeting = append(greeting, 21)         // auth_plugin_data_len = 21（20 salt + 1 NUL）
 	greeting = append(greeting, make([]byte, 10)...) // reserved
 	greeting = append(greeting, salt[8:]...)         // auth_plugin_data_part2（12 字节）
@@ -100,7 +103,7 @@ func handleMySQL(ctx context.Context, conn net.Conn, srcIP uint32, rec func(even
 		})
 	}
 
-	// 4. ERR 1045（ER_ACCESS_DENIED_ERROR）拒绝。
+	// 4. ERR 1045（ER_ACCESS_DENIED_ERROR）拒绝。序号递增：greeting=0、客户端=1、ERR=2。
 	errMsg := []byte("Access denied for user '" + user + "'@'host' (using password: YES)")
 	errPkt := make([]byte, 0, 1+2+1+5+len(errMsg))
 	errPkt = append(errPkt, 0xFF) // ERR packet
@@ -110,7 +113,7 @@ func handleMySQL(ctx context.Context, conn net.Conn, srcIP uint32, rec func(even
 	errPkt = append(errPkt, '#')
 	errPkt = append(errPkt, []byte("28000")...) // SQLSTATE
 	errPkt = append(errPkt, errMsg...)
-	_ = writeMySQLPacket(conn, 1, errPkt)
+	_ = writeMySQLPacket(conn, 2, errPkt)
 }
 
 // writeMySQLPacket 写 MySQL 报文（3 字节长度 + 1 字节序号 + payload）。

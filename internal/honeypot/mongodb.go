@@ -23,6 +23,7 @@ func handleMongoDB(ctx context.Context, conn net.Conn, srcIP uint32, rec func(ev
 			return
 		}
 		msgLen := int(binary.LittleEndian.Uint32(hdr[:4]))
+		reqID := binary.LittleEndian.Uint32(hdr[4:8]) // 请求 ID（响应 responseTo 回显，R-11）
 		opCode := binary.LittleEndian.Uint32(hdr[12:16])
 		if msgLen < 16 || msgLen > 1<<20 {
 			return // 畸形长度（防御）
@@ -67,8 +68,8 @@ func handleMongoDB(ctx context.Context, conn net.Conn, srcIP uint32, rec func(ev
 		}
 		rec(event.CredEvent{Username: user, Extra: extra})
 		// 回 {ok: 0, errmsg: "Authentication failed"}（拒绝继续）。
-		resp := buildMongoReply(0, "Authentication failed")
-		if err := writeMongoMsg(conn, resp); err != nil {
+		resp := buildMongoReply("Authentication failed")
+		if err := writeMongoMsg(conn, resp, reqID); err != nil {
 			return
 		}
 	}
@@ -266,13 +267,13 @@ type bsonShortError struct{}
 func (e *bsonShortError) Error() string { return "BSON 数据不足" }
 
 // buildMongoReply 构造 OP_REPLY 文档（合法 BSON：{ok: 0, errmsg: "..."}——
-// 真实客户端可正确解析并中止认证（ok=0 即认证失败语义）。
-func buildMongoReply(reqID uint32, errmsg string) []byte {
+// 真实客户端可正确解析并中止认证（ok=0 即认证失败语义））。
+// 注意：最终 wire 响应由 writeMongoMsg 重写为 OP_MSG 并回填 responseTo。
+func buildMongoReply(errmsg string) []byte {
 	doc := buildBSONAuthFail(errmsg)
 	msg := make([]byte, 0, 16+len(doc))
 	var hdr [16]byte
 	binary.LittleEndian.PutUint32(hdr[:4], uint32(16+len(doc))) // messageLength
-	binary.LittleEndian.PutUint32(hdr[8:12], reqID)              // responseTo
 	binary.LittleEndian.PutUint32(hdr[12:16], 1)                 // OP_REPLY
 	msg = append(msg, hdr[:]...)
 	msg = append(msg, doc...)
@@ -304,16 +305,17 @@ func buildBSONAuthFail(errmsg string) []byte {
 }
 
 // writeMongoMsg 写 MongoDB 消息：将 OP_REPLY 重写为 OP_MSG（2013）响应
-// （现代驱动认证路径仅认 OP_MSG；header 响应方向 responseTo 关联）。
-func writeMongoMsg(conn net.Conn, msg []byte) error {
+// （现代驱动认证路径仅认 OP_MSG）；responseTo 回填请求 ID（R-11 reviewer 整改：
+// 校验 responseTo 的驱动才能正确关联认证失败语义）。
+func writeMongoMsg(conn net.Conn, msg []byte, reqID uint32) error {
 	if len(msg) < 16 {
 		return nil
 	}
 	out := make([]byte, 0, len(msg)+5)
 	var hdr [16]byte
 	binary.LittleEndian.PutUint32(hdr[:4], uint32(len(msg)+5))
-	binary.LittleEndian.PutUint32(hdr[8:12], binary.LittleEndian.Uint32(msg[4:8])) // responseTo
-	binary.LittleEndian.PutUint32(hdr[12:16], 2013)                                 // OP_MSG
+	binary.LittleEndian.PutUint32(hdr[8:12], reqID) // responseTo = 请求 ID
+	binary.LittleEndian.PutUint32(hdr[12:16], 2013) // OP_MSG
 	out = append(out, hdr[:]...)
 	out = append(out, 0, 0, 0, 0)   // flags
 	out = append(out, 0)            // section kind 0 = body

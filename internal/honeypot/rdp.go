@@ -51,12 +51,20 @@ func handleRDP(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.
 	}
 	rec(event.CredEvent{Extra: extra})
 
-	// 回 X.224 Connection Confirm（0x2F）：TPKT + X.224 CC。
-	// CC 载荷：0xD0 + 长度 + 0x00 + 目标引用(2) + 源引用(2) + class(1) + 选项(1)。
+	// 回 X.224 Connection Confirm（0x2F）：TPKT + X.224 CC（MS-RDPBCGR 2.2.1.2）。
+	// X.224 CC 结构：LI(1)=6 + PDUTYPE(1)=0xD0 + dst-ref(2) + src-ref(2) + class(1)
+	// （R-12 reviewer 整改：原实现 0xD0 提前占位 LI，结构错位）。
 	cc := []byte{
 		3, 0, 0, 0x0B, // TPKT: version 3, len 11
-		0xD0, 0x00, 0x08, // X.224 CC: 0xD0 + len(2)
-		0x00, 0x00, 0x00, 0x00, 0x00, // 引用/class/选项（全 0，最小 CC）
+		0x06, 0xD0, // X.224 CC: LI=6, PDU type=0xD0(CC)
+		0x00, 0x00, // dst-ref（回显客户端 src-ref）
+		0x00, 0x00, // src-ref
+		0x00, // class 0
+	}
+	// dst-ref 回显客户端 Connection Request 的 src-ref（cr[4:6]）。
+	if len(cr) >= 6 {
+		cc[7] = cr[4]
+		cc[8] = cr[5]
 	}
 	cc[2] = 0
 	cc[3] = byte(len(cc))

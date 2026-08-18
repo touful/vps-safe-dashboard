@@ -48,7 +48,9 @@ func handleTelnet(ctx context.Context, conn net.Conn, srcIP uint32, rec func(eve
 	}
 }
 
-// readLine 读取一行（\n 结尾），剥离 \r\n，去除行内控制字符（IAC 0xFF 协商残留）。
+// readLine 读取一行（\n 结尾），剥离 \r\n，去除行内 TELNET 控制序列。
+// IAC（0xFF）协商：0xFF + command(1) + option(1) 三字节整体剥离
+// （R-13 reviewer 整改：原实现仅丢 0xFF，选项残留进用户名）。
 // 行长度上限 4KB（防单行内存放大；超限截断按当前行处理）。
 func readLine(br *bufio.Reader) (string, error) {
 	line, err := br.ReadString('\n')
@@ -60,12 +62,16 @@ func readLine(br *bufio.Reader) (string, error) {
 		}
 	}
 	line = strings.TrimRight(line, "\r\n")
-	line = strings.Map(func(r rune) rune {
-		if r == 0xFF { // TELNET IAC 字节：丢弃（不解析选项协商）
-			return -1
+	// 字节级扫描剥离 IAC 序列（0xFF 后两字节一并丢弃；结尾残缺 IAC 一并丢弃）。
+	out := make([]byte, 0, len(line))
+	for i := 0; i < len(line); i++ {
+		if line[i] == 0xFF {
+			i += 2 // 跳过 command + option（IAC 三字节序列）
+			continue
 		}
-		return r
-	}, line)
+		out = append(out, line[i])
+	}
+	line = string(out)
 	// 截断保护：超长行按 4KB 截断（其余丢弃）。
 	if len(line) > 4096 {
 		line = line[:4096]

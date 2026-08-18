@@ -95,26 +95,59 @@ func handleSMB(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.
 	}
 }
 
-// readSMB2Body 读取 SMB2 消息剩余数据（含 64 字节头在内的完整帧）。
-// SMB2 无显式帧长——以连接剩余数据作为本消息体（蜜罐场景单帧往返，
-// 无 SMB2 复合消息（NextCommand=0），此近似成立）。
+// readSMB2Body 读取 SMB2 消息体（不含 64 字节头）。
+// 按命令类型读固定体长（R-10 reviewer 整改：TCP 分片下多帧安全）：
+//   NEGOTIATE（0x0000）：固定 28 字节 + dialects（DialectCount×2）——SMB2_NEGOTIATE_REQUEST
+//     （MS-SMB2 2.2.3）固定字段 = StructureSize(2)+DialectCount(2)+SecurityMode(2)+
+//     Reserved(2)+Capabilities(4)+ClientGuid(16) = 28；StructureSize 字段值 36 含
+//     SMB 3.x 的 NegotiateContext 字段，2.1 客户端不发送，故按 28 + dialects 消费；
+//   SESSION_SETUP（0x0001）：固定 24 字节（StructureSize 字段值 25 但结构实际
+//     2+1+1+4+4+2+2+8 = 24）+ SecurityBufferLength（体偏移 14）安全缓冲；
+//   SMB2 无显式帧总长，由结构体长度字段决定。
 func readSMB2Body(conn net.Conn, hdr []byte) ([]byte, bool) {
-	// 保守读取：客户端发送的完整请求帧通常一次到达；无总长字段时
-	// 采用"读取全部剩余数据"策略（读超时兜底 30s）。
-	// 简化：依赖框架连接超时——此处尝试读取剩余（可能阻塞至超时）。
-	// 改为按 SMB2 头 StructureSize 提供的 body 起点判定：
-	// NEGOTIATE 与 SESSION_SETUP 的请求无后续可选大字段，读取剩余即可。
-	buf := make([]byte, 4096)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return nil, false
+	// hdr 从 StructureSize 起（完整头偏移 4 处）；Command 位于 hdr[8:10]。
+	cmd := binary.LittleEndian.Uint16(hdr[8:10])
+	switch cmd {
+	case 0x0000: // NEGOTIATE：28 字节固定 + dialects（DialectCount×2）。
+		body := make([]byte, 28)
+		if _, err := readFullN(conn, body); err != nil {
+			return nil, false
+		}
+		count := int(binary.LittleEndian.Uint16(body[2:4]))
+		if count > 64 {
+			return nil, false // 畸形 DialectCount（防御）
+		}
+		dialects := make([]byte, count*2)
+		if _, err := readFullN(conn, dialects); err != nil {
+			return nil, false
+		}
+		return body, true
+	case 0x0001: // SESSION_SETUP：24 字节固定 + 安全缓冲（变长）。
+		fixed := make([]byte, 24)
+		if _, err := readFullN(conn, fixed); err != nil {
+			return nil, false
+		}
+		sbl := int(binary.LittleEndian.Uint16(fixed[14:16]))
+		if sbl > 1<<16 {
+			return nil, false // 畸形长度（防御）
+		}
+		extra := make([]byte, sbl)
+		if _, err := readFullN(conn, extra); err != nil {
+			return nil, false
+		}
+		return append(fixed, extra...), true
+	default:
+		// 未知命令：读剩余可用数据（蜜罐场景不深入，超时兜底）。
+		buf := make([]byte, 4096)
+		n, err := conn.Read(buf)
+		if err != nil {
+			return nil, false
+		}
+		if n == 0 {
+			return nil, false
+		}
+		return buf[:n], true
 	}
-	if n == 0 {
-		return nil, false
-	}
-	// 注意：本次 Read 可能只读到部分（TCP 分片）——蜜罐场景攻击脚本单帧发送，
-	// 一次 Read 即可；残余数据由下一轮循环丢弃（协议流程已结束）。
-	return buf[:n], true
 }
 
 // buildSMB2NegotiateResponse 构造 SMB2 Negotiate Response + NTLMSSP CHALLENGE。
@@ -145,13 +178,14 @@ func buildSMB2NegotiateResponse(msgID uint64) []byte {
 	challenge = append(challenge, 6, 1, 0, 0, 0, 0, 0, 0)
 
 	// Negotiate Response 主体（SMB2_NEGOTIATE_RESPONSE，MS-SMB2 2.2.4）：
-	// StructureSize(2)=65 + SecurityMode(2) + DialectRevision(2) + Reserved(2) +
-	// ServerGuid(16) + Capabilities(4) + MaxTransactSize(4) + MaxReadSize(4) +
-	// MaxWriteSize(4) + SystemTime(8) + ServerStartTime(8) +
-	// SecurityBufferOffset(2) + SecurityBufferLength(2) + Reserved(2) +
-	// (NegotiateContext 区，经典模式省略)。
-	nb := make([]byte, 0, 65+len(challenge))
-	nb = append(nb, 65, 0)                 // StructureSize
+	// StructureSize(2)=64（MS-SMB2 2.2.4：服务器 MUST 置 64，R-09 reviewer 整改；
+	// 实际字段 62 字节，SecurityBufferOffset 从头部计） + SecurityMode(2) +
+	// DialectRevision(2) + Reserved(2) + ServerGuid(16) + Capabilities(4) +
+	// MaxTransactSize(4) + MaxReadSize(4) + MaxWriteSize(4) + SystemTime(8) +
+	// ServerStartTime(8) + SecurityBufferOffset(2) + SecurityBufferLength(2) +
+	// Reserved(2)。
+	nb := make([]byte, 0, 64+len(challenge))
+	nb = append(nb, 64, 0)                 // StructureSize（规范值 64，字段实际 62 字节）
 	nb = append(nb, 0x01, 0x00)            // SecurityMode: SIGNING_ENABLED
 	nb = append(nb, 0x10, 0x02)            // DialectRevision: SMB 2.1（广泛兼容）
 	nb = append(nb, 0, 0)                  // Reserved
@@ -162,8 +196,7 @@ func buildSMB2NegotiateResponse(msgID uint64) []byte {
 	nb = append(nb, 0x00, 0x10, 0x00, 0x00) // MaxWriteSize
 	nb = append(nb, 0, 0, 0, 0, 0, 0, 0, 0) // SystemTime
 	nb = append(nb, 0, 0, 0, 0, 0, 0, 0, 0) // ServerStartTime
-	// SecurityBufferOffset = 126（64 头 + 62 体；SMB 2.1 Negotiate Response
-	// 实际字段 62 字节，StructureSize 字段声明 64 属协议历史遗留）。
+	// SecurityBufferOffset = 126（64 头 + 62 体）。
 	secOff := 64 + 62
 	var sbo [2]byte
 	binary.LittleEndian.PutUint16(sbo[:], uint16(secOff))
