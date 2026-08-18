@@ -1,4 +1,4 @@
-// AUDIT-005 A-01 集成测试：大库启动（25 万行超期）+ 并发写（模拟高流量）场景，
+// 集成测试：大库启动（25 万行超期）+ 并发写（模拟高流量）场景，
 // 验证启动期 retention 清理不阻塞写路径、事件零丢失、超期存量全部清理。
 package store
 
@@ -35,7 +35,7 @@ func waitRetentionDone(t *testing.T, dbPath string, timeout time.Duration) {
 	t.Fatal("retention 首轮清理未在超时内完成（last_retention_ts 未出现）")
 }
 
-// TestRunRetentionStartupConcurrentWrites（AUDIT-005 A-01 集成测试）：
+// TestRunRetentionStartupConcurrentWrites（集成测试）：
 // 大库启动（25 万行超期数据）+ 并发写（模拟高流量）场景，验证：
 //
 //	① 启动期清理不阻塞写路径——清理完成时已有事件落库（旧实现 select 前同步清理

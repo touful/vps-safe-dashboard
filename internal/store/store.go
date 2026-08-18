@@ -1,6 +1,6 @@
 // Package store 实现 M-06 存储模块（方案 3.6）。
 // 单写线程消费 event.Channels 各采集通道，批量事务写入 SQLite（WAL）。
-// 关闭语义（auditor M-02 / 方案 3.6"排空后关闭"）：ctx 取消后先等待全部生产者退出，
+// 关闭语义（方案 3.6"排空后关闭"）：ctx 取消后先等待全部生产者退出，
 // 再排空通道在途事件，最后提交末批——零丢失。
 package store
 
@@ -129,7 +129,7 @@ type Store struct {
 	gzipLevel  int
 	// archiveCriticalPct 归档跳过阈值（配置 disk.critical_percent，R-01 与 diskmon 共用）。
 	archiveCriticalPct float64
-	// retentionDays 事件数据保留天数（DEV-031 优化⑤；<=0 禁用清理）。
+	// retentionDays 事件数据保留天数（<=0 禁用清理）。
 	retentionDays int
 	// copyAfterDays 归档跨度（archive.copy_after_days，空洞语义 warn 检测用，B.5.1）。
 	copyAfterDays int
@@ -142,13 +142,13 @@ type Store struct {
 // VS-01（DEV-P1-001，AUD-VPS-001）：数据目录 MkdirAll 0700（原 0755）——同机其他本地
 // 用户/被攻破的低权限服务账号不可读安全数据（SSH 指纹/用户名/防火墙 raw）。
 // 目录权限为 Linux 语义：Windows 上 mode 参数被忽略（无权限位模型），功能不回归。
-// DEV-031 优化⑤：新增 retentionDays（<=0 禁用清理）与 copyAfterDays（归档空洞 warn 检测）。
+// 新增 retentionDays（<=0 禁用清理）与 copyAfterDays（归档空洞 warn 检测）。
 func NewStore(dbPath, archiveDir string, batchIntervalMS, batchSize, gzipLevel, retentionDays, copyAfterDays int, archiveCriticalPct float64, ch *event.Channels, producers *sync.WaitGroup) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return nil, fmt.Errorf("创建主库目录失败: %w", err)
 	}
 	// 归档目录必须存在：execArchive 的磁盘水位检查（statfs）依赖目录可达，
-	// 否则归档会因"目录不存在→水位检查失败→保守跳过"而永久失效（A-02 实测发现）。
+	// 否则归档会因"目录不存在→水位检查失败→保守跳过"而永久失效（实测发现）。
 	if err := os.MkdirAll(archiveDir, 0o700); err != nil {
 		return nil, fmt.Errorf("创建归档目录失败: %w", err)
 	}
@@ -191,7 +191,7 @@ func NewStore(dbPath, archiveDir string, batchIntervalMS, batchSize, gzipLevel, 
 }
 
 // openDB 打开（不存在则创建）SQLite 主库。
-// DSN 路径 URL 编码（A-11 同规则：路径含 '?'/'#' 等特殊字符须 PathEscape）。
+// DSN 路径 URL 编码（同规则：路径含 '?'/'#' 等特殊字符须 PathEscape）。
 func openDB(path string) (*sql.DB, error) {
 	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)", url.PathEscape(path))
 	db, err := sql.Open("sqlite", dsn)
@@ -236,7 +236,7 @@ func initMeta(db *sql.DB) error {
 }
 
 // Run 运行单写线程直至 ctx 取消并完成两阶段排空。
-// 退出语义（auditor M-02）：①ctx 取消 → 等待 producers 全部退出（不再有新 send）；
+// 退出语义：①ctx 取消 → 等待 producers 全部退出（不再有新 send）；
 // ②排空各通道在途事件；③提交末批 → 返回。
 func (s *Store) Run(ctx context.Context) error {
 	defer s.db.Close()
@@ -251,7 +251,7 @@ func (s *Store) Run(ctx context.Context) error {
 		if nInBatch == 0 {
 			return nil
 		}
-		// 单写线程：flush 仅在 Run goroutine 内调用，无并发（reviewer R-14）。
+		// 单写线程：flush 仅在 Run goroutine 内调用，无并发。
 		if err := s.writeBatch(pending[:nInBatch]); err != nil {
 			return err
 		}
@@ -269,8 +269,8 @@ func (s *Store) Run(ctx context.Context) error {
 	// 主循环：select 各通道 + 批量定时器 + 归档请求 + retention 定时清理。
 	ticker := time.NewTicker(s.batchEvery)
 	defer ticker.Stop()
-	// DEV-031 优化⑤：retention 清理（写线程内串行，MaxOpenConns(1) 约束）。
-	// AUDIT-005 A-01 整改：首轮清理不再于 select 前同步执行（旧实现清理期间不消费
+	// retention 清理（写线程内串行，MaxOpenConns(1) 约束）。
+	// 首轮清理不再于 select 前同步执行（旧实现清理期间不消费
 	// 通道，通道 4096 满后 conntrack hook 阻塞 → netlink 缓冲积压 → ENOBUFS 溢出丢
 	// 事件）——改为 retentionNow 独立 channel 在 select 循环内触发，批间 yield 消费
 	// 一轮通道维持写吞吐；此后每日 02:30（固定，运营官 D.4 裁定 4）触发。
@@ -286,10 +286,10 @@ func (s *Store) Run(ctx context.Context) error {
 		retentionC = rt.C
 	}
 
-	// retention 批间让出（AUDIT-005 A-01 整改）：清理批间消费一轮通道并达批阈值即提交，
+	// retention 批间让出：清理批间消费一轮通道并达批阈值即提交，
 	// 维持启动期写吞吐——避免大库清理期间通道积压 → conntrack hook 阻塞 → netlink
 	// 溢出丢事件。flush 失败为致命错误：记录到 yieldErr，retention 分支返回前检查并终止 Run。
-	// 注意（reviewer R-03）：drainInto 排空含 System 通道，清理期间 System 事件由
+	// 注意：drainInto 排空含 System 通道，清理期间 System 事件由
 	// "立即提交"临时降级为"批间 flush 延迟提交"（不丢失，仅延迟；崩溃窗口与普通事件同）。
 	var yieldErr error
 	yield := func() {
@@ -328,14 +328,14 @@ func (s *Store) Run(ctx context.Context) error {
 				return err
 			}
 			// 重置为下一个 02:30：time.After 新建 channel 替换（触发后旧 channel 已消费，
-			// 无 Reset 语义需求，避免 timer.Reset 的排空前提，reviewer R-07）。
+			// 无 Reset 语义需求，避免 timer.Reset 的排空前提）。
 			retentionC = time.After(time.Until(nextRetentionTime(time.Now())))
 		case req := <-s.archiveReq:
 			// 归档在写线程内同步执行（方案 3.9）；期间事件继续进入 pending 积压，不丢失。
-			// 留痕（开始/完成/失败含耗时）由 execArchive 统一完成（A-02）。
-			// 注意（reviewer N-01）：归档失败仅记录不退出——归档是容错可重试操作
+			// 留痕（开始/完成/失败含耗时）由 execArchive 统一完成。
+			// 注意：归档失败仅记录不退出——归档是容错可重试操作
 			// （水位跳过/幂等/自愈，方案 3.9），归档失败 ≠ 主库写失败；
-			// A-01 的 os.Exit(1) 退出语义仅适用于 Run 主写路径错误（flush/writeBatch 失败）。
+			// os.Exit(1) 退出语义仅适用于 Run 主写路径错误（flush/writeBatch 失败）。
 			_ = s.execArchive(req)
 		case v := <-s.ch.Resource:
 			enqueue(&pending, &nInBatch, "resource", v)
@@ -398,7 +398,7 @@ func (s *Store) RequestArchive(month string) error {
 }
 
 // QuerySuccessfulSSHIPs 查询近 windowDays 天内 publickey 密钥认证成功（result=1 且
-// auth_method='publickey'）的源 IP（去重，DEV-042；A-01 整改：仅密钥认证学习，
+// auth_method='publickey'）的源 IP（去重；仅密钥认证学习，
 // 密码爆破成功不进入白名单）。
 // 供 fw 包 SSH 成功登录自动白名单学习使用（实现 fw.SuccessfulSSHIPSource 接口）。
 // 只读查询：WAL 模式与写线程并发安全；查询走 idx_ssh_ts 索引，毫秒级。

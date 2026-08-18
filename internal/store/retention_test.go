@@ -1,4 +1,4 @@
-// retention 清理测试（DEV-031 优化⑤，B.5.5）。
+// retention 清理测试（B.5.5）。
 package store
 
 import (
