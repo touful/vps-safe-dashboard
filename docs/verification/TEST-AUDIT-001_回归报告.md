@@ -24,7 +24,7 @@
 
 **方法学**：仓库内 `git worktree add .baseline-wt 51af07d` 检出基线，分别编译 baseline-agent.exe（旧）与 sentry-agent.exe（新）；两实例均以**完整 agent 模式**（含采集循环与存储写线程）启动，监听 127.0.0.1:8098（旧）/8099（新），**共享同一 SQLite WAL 数据库文件** `.dev015-test/state.db`（WAL 模式支持多进程并发读写，SQLite 标准用法）。对比场景全部为**时间范围/条件查询**，读取种子库静态历史数据；两实例 health 的 `system_events_total` 均返回 254（种子库内历史值），佐证运行中写入不改变查询结果。请求序列为**先后顺序**（旧→新逐一请求），排除字段仅 `uptime_s`（动态运行时长）。
 
-**结果**：24/24 场景 **SHA256 字节级 SAME**（DIFF=0），证据：evidence/TEST-AUDIT-001/api_compare_sha256.txt。
+**结果**：24 场景对比全部 SAME，其中 22 项为确定有效数据对比，2 项（export from/to 与 range=bad）存疑、由 export 数据路径专项验证覆盖（详见下文"export 场景有效性说明"）。证据：evidence/TEST-AUDIT-001/api_compare_sha256.txt。
 
 | 类别 | 场景 |
 | :--- | :--- |

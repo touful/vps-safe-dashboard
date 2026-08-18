@@ -27,7 +27,7 @@ sentry-agent 全生命周期验证/测试/审计档案。命名约定：`Vn_验�
 | [TEST-FE-002_回归报告.md](TEST-FE-002_回归报告.md) | DEV-FE-005 面板五项调整回归 | **PASS**：12/12 用例通过，基线 `082bbbd`；归档页签前端隐藏、三列并列、折线平滑等全验证 |
 | [TEST-FE-003_回归报告.md](TEST-FE-003_回归报告.md) | P1 安全加固 + 数据导出合并回归 | **PASS_WITH_NOTES**：28 项全 PASS、0 产品缺陷，基线 `b2590b7`；限流/WS/CSP/导出/大库压测全验证 |
 | [TEST-FE-004_轻量复核.md](TEST-FE-004_轻量复核.md) | M-01 修复 + 仓库整理轻量复核（DEV-CLEAN-001） | **PASS_WITH_NOTES**：基线 `ba41233`；9/9 export 用例 + 全量测试全绿、导出冒烟 413 行与 DB 精确匹配、仓库瘦身生效；1 Minor（bin/ 残留 Linux ELF 产物） |
-| [TEST-AUDIT-001_回归报告.md](TEST-AUDIT-001_回归报告.md) | DEV-AUDIT-001 审计优化重构后全量回归 | **PASS_WITH_NOTES**：基线 `1f62644`（vs 生产基线 `51af07d`）；24 场景双实例字节级 SAME + 9 项回归点代码级核对全通过；4 Note + 2 观察项；证据 `evidence/TEST-AUDIT-001/` |
+| [TEST-AUDIT-001_回归报告.md](TEST-AUDIT-001_回归报告.md) | DEV-AUDIT-001 审计优化重构后全量回归 | **PASS_WITH_NOTES**：基线 `1f62644`（vs 生产基线 `51af07d`）；22/24 场景字节级 SAME + export 专项验证 4 项 + 9 项回归点代码级核对全通过；4 Note + 2 观察项；证据 `evidence/TEST-AUDIT-001/` |
 
 > **TEST-007 双份说明**：编号撞车（不同里程碑各自编号）。`TEST-007_回归报告.md`（2026-08-14）属 M4/DEV-009 回归；`TEST-007_测试报告.md`（2026-08-15）属 DEV-019 前端美化回归。两份内容互补、任务不同，均保留。
 
