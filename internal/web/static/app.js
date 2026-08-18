@@ -214,8 +214,10 @@
         axisPointer: { type: 'cross', lineStyle: { color: 'rgba(232,238,245,0.25)', type: 'dashed' },
           label: { backgroundColor: '#232C38', color: '#8A94A3', borderColor: '#2A3441', fontSize: 11 } },
         formatter: units ? makeTipFmt(units) : undefined },
-      // ECharts 过渡动画 420ms cubicOut（5s 轮询刷新干脆利落，一次性非循环）
-      animationDuration: 420, animationEasing: 'cubicOut',
+      // ECharts 过渡动画 420ms cubicOut（5s 轮询刷新干脆利落，一次性非循环）；
+      // DEV-047 C3：animationDurationUpdate 300ms 显式确认——setOption 更新走该时长
+      // （gauge 风险仪表指针切换缓动由此生效；ECharts 默认亦为 300，此处显式固化）
+      animationDuration: 420, animationEasing: 'cubicOut', animationDurationUpdate: 300,
       xAxis: Object.assign({ type: 'category', data: labels, boundaryGap: false }, axis()),
       yAxis: Object.assign({ type: 'value', max: yMax }, axis())
     };
@@ -284,10 +286,23 @@
   // DEV-045：FW 通道改用"拦截"口径（drop+reject 累计）——inbound 为入站观察
   // （扫描器探测，量大）不计入威胁动作，避免评分恒饱和；30d 视图累计必然饱和虚高、
   // 跨 range 不可比，属设计口径（UI 已加口径注）。
+  // DEV-047 D2：风险评分计算提取（renderRisk 与 KPI"风险评分"卡共用，DRY 防口径漂移）
+  function riskParts() {
+    var s = state.summary;
+    if (!s) { return null; }
+    var fwBlocked = 0;
+    (state.fwTimeline || []).forEach(function (b) { fwBlocked += (b.drop || 0) + (b.reject || 0); });
+    var sshFail = s.ssh_fail || 0, ban = state.banCount || 0, disk = s.disk_percent;
+    var fSsh = Math.min(sshFail / 200, 1), fFw = Math.min(fwBlocked / 1000, 1),
+      fBan = Math.min(ban / 20, 1), fDisk = Math.max(0, Math.min((disk - 50) / 40, 1));
+    var score = Math.round(fSsh * 30 + fFw * 30 + fBan * 20 + fDisk * 20);
+    return { score: score, fSsh: fSsh, fFw: fFw, fBan: fBan, fDisk: fDisk,
+      sshFail: sshFail, fwBlocked: fwBlocked, ban: ban, disk: disk };
+  }
   function renderRisk() {
     if (!vis('overview')) { return; } // 隐藏面板不渲染
-    var s = state.summary;
-    if (!s) { return; }
+    var p = riskParts();
+    if (!p) { return; } // summary 未到（保留旧图，行为与重构前一致）
     // 攻击数据源失败时评分卡显示失败态（与态势条一致），不保留旧值/0 误导
     if (state.attackDataFailed || !state.sshTimelineOk || state.summaryFailed) {
       var failOpt = {
@@ -312,23 +327,19 @@
       });
       return;
     }
-    var fwBlocked = 0;
-    (state.fwTimeline || []).forEach(function (b) { fwBlocked += (b.drop || 0) + (b.reject || 0); });
-    var sshFail = s.ssh_fail || 0, ban = state.banCount || 0, disk = s.disk_percent;
-    var fSsh = Math.min(sshFail / 200, 1), fFw = Math.min(fwBlocked / 1000, 1),
-      fBan = Math.min(ban / 20, 1), fDisk = Math.max(0, Math.min((disk - 50) / 40, 1));
-    var score = Math.round(fSsh * 30 + fFw * 30 + fBan * 20 + fDisk * 20);
+    var score = p.score;
     var bar = function (id, v, valTxt) {
       var b = document.getElementById(id);
       if (b) { b.style.width = Math.round(v * 100) + '%'; b.style.background = v >= 0.6 ? TI.danger : (v >= 0.3 ? TI.warn : TI.ok); }
       var vt = document.getElementById(id.replace('-bar', '-v'));
       if (vt) { vt.textContent = valTxt; }
     };
-    bar('risk-ssh-bar', fSsh, sshFail);
-    bar('risk-fw-bar', fFw, fwBlocked);
-    bar('risk-ban-bar', fBan, ban);
-    bar('risk-disk-bar', fDisk, disk >= 0 ? disk.toFixed(0) + '%' : '-');
+    bar('risk-ssh-bar', p.fSsh, p.sshFail);
+    bar('risk-fw-bar', p.fFw, p.fwBlocked);
+    bar('risk-ban-bar', p.fBan, p.ban);
+    bar('risk-disk-bar', p.fDisk, p.disk >= 0 ? p.disk.toFixed(0) + '%' : '-');
     var opt = {
+      animationDurationUpdate: 300, // DEV-047 C3：gauge 指针更新缓动显式确认（300ms 一次性）
       series: [{
         type: 'gauge', startAngle: 210, endAngle: -30, min: 0, max: 100,
         radius: '92%', center: ['50%', '58%'],
@@ -362,14 +373,22 @@
       sshD.push(sshMap[b.ts] || 0);
     });
     var opt = baseOption(labels, undefined, { '入站探测': '次', '拦截': '次', 'SSH 失败': '次' });
-    opt.grid = { left: 44, right: 48, top: 34, bottom: longRange ? 34 : 22 }; // DEV-FE-003：dataZoom 时底部让位
+    opt.grid = { left: 44, right: 56, top: 34, bottom: longRange ? 34 : 22 }; // DEV-FE-003：dataZoom 时底部让位；DEV-047 D3：right 56 容纳右轴刻度
     opt.legend = { top: 2, right: 6, textStyle: { color: '#8A94A3', fontSize: 11 }, itemWidth: 12, itemHeight: 8 };
     if (longRange) { opt.dataZoom = zoomData(true); } // DEV-FE-003 6.3：7d/30d 启用（1h/24h 保持紧凑）
+    // DEV-047 D3：双 Y 轴——入站探测（扫描器量级大）走左轴；拦截（drop+reject）与 SSH 失败走右轴；
+    // 右轴关闭 splitLine 避免双网格线；图例/tooltip 按 seriesName 自适应，无需改动
+    opt.yAxis = [
+      Object.assign({ type: 'value' }, axis()),
+      Object.assign({ type: 'value' }, axis(), { splitLine: { show: false } })
+    ];
     opt.series = [
       lineSeries('入站探测', inD, TI.danger, true),
       lineSeries('拦截', blkD, TI.accent, true),
       lineSeries('SSH 失败', sshD, TI.warn, true)
     ];
+    opt.series[1].yAxisIndex = 1;
+    opt.series[2].yAxisIndex = 1;
     chart('chart-attack-trend').setOption(opt, true);
     // 零攻击状态（全部通道为 0 时显示绿色文字行；失败时不显示——R-03/R-16：不得误报"无攻击记录"）
     var inSum = 0, blkSum = 0, sshSum = 0;
@@ -388,10 +407,17 @@
     setChartEmpty('chart-sources', !sources.length);
     setChartEmpty('chart-ssh', !ssh.length);
     // barMaxWidth：sources 图单柱场景用 48（多柱时 48 为上限不超标）
+    // DEV-047 E2：hover 增强——常态柱体 opacity 0.85，hover 提亮（echarts.color.lift 同色系亮色）
+    // + opacity 1 + 顶部数值标签浮现（一次性交互响应，非持续动画）
     var barSeries = function (data, color, name, maxWidth) {
       return {
         name: name, type: 'bar', data: data, barMaxWidth: maxWidth || 22,
-        itemStyle: { color: color, borderRadius: [3, 3, 0, 0] }
+        itemStyle: { color: color, borderRadius: [3, 3, 0, 0], opacity: 0.85 },
+        emphasis: {
+          itemStyle: { color: echarts.color.lift(color, 0.15), opacity: 1 },
+          label: { show: true, position: 'top', color: '#E8EEF5', fontSize: 12,
+            fontFamily: 'Consolas, monospace', formatter: function (p) { return p.value; } }
+        }
       };
     };
     var portsOpt = baseOption(ports.map(function (p) { return ':' + p.dst_port; }), undefined, { '命中': '次' });
@@ -446,7 +472,8 @@
 
 
   // ===== 模块 4：非表格渲染（KPI / 态势 / TOP / 事件流） =====
-  // count-up（300ms rAF；系统开启"减弱动效"时直接落值）
+  // count-up（DEV-047 C1：600ms rAF 一次性滚动；5s 轮询下动画不重叠；
+  // 系统开启"减弱动效"时直接落值；负数/千分位格式由调用侧既有格式逻辑保持）
   function countUp(el, to, dec) {
     if (!el) return;
     var cur = parseFloat(el.dataset.cur);
@@ -454,7 +481,7 @@
     if (cur === to || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
       el.textContent = dec ? to.toFixed(dec) : String(to); el.dataset.cur = to; return;
     }
-    var t0 = null, dur = 300;
+    var t0 = null, dur = 600;
     function step(ts) {
       if (!t0) { t0 = ts; }
       var p = Math.min((ts - t0) / dur, 1);
@@ -551,7 +578,7 @@
     if (state.summaryFailed) {
       // 失败分支：主值 -- + 失败色，spark/trend 清空为基线（不保留旧值误导）；active-conns 走 WS 实时通道不动
       setKpiSkeleton(false);
-      ['today-fw', 'today-sshfail', 'disk-pct'].forEach(function (id) {
+      ['today-fw', 'today-sshfail', 'disk-pct', 'ban-total', 'risk-score'].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) { el.className = 'v danger'; el.textContent = '--'; }
       });
@@ -579,6 +606,24 @@
     if (diskEl) {
       diskEl.className = 'v ' + (dp >= 80 ? 'danger' : (dp >= 60 ? 'warn' : 'ok'));
       if (dp >= 0) { diskEl.textContent = dp.toFixed(1) + '%'; }
+    }
+    // DEV-047 D2：新增 KPI——封禁数（ok 语义，与事件流 ban 点一致）+ 风险评分（与 gauge 同口径 riskParts）。
+    // 攻击数据源失败时与 renderRisk 失败态一致显示 --（不保留旧值误导）
+    var banEl = document.getElementById('ban-total');
+    var riskEl = document.getElementById('risk-score');
+    var riskFail = state.attackDataFailed || !state.sshTimelineOk || state.summaryFailed;
+    if (riskFail) {
+      if (banEl) { banEl.className = 'v danger'; banEl.textContent = '--'; }
+      if (riskEl) { riskEl.className = 'v danger'; riskEl.textContent = '--'; }
+    } else {
+      if (banEl) { banEl.className = 'v ok'; countUp(banEl, state.banCount || 0); }
+      if (riskEl) {
+        var rp = riskParts();
+        if (rp) {
+          riskEl.className = 'v ' + (rp.score >= 60 ? 'danger' : (rp.score >= 30 ? 'warn' : 'ok'));
+          countUp(riskEl, rp.score);
+        }
+      }
     }
     // SSH 卡 spark/trend（复用 ssh/timeline 序列）
     var sshArr = (state.attack.ssh || []).map(function (p) { return p.hits; });
@@ -1176,6 +1221,7 @@
       renderSituation();
       renderRisk();
       renderEventStream();
+      renderKPI(); // DEV-047 D2：封禁数 KPI 依赖 banCount，bans 回调同步刷新
     }, function () { noteFailure(); setTableState('ban-table', 'error-row', '加载失败，请稍后重试'); state.attackDataFailed = true; renderSituation(); renderRisk(); });
     // SSH 尝试明细（跟随 range + src_ip 联动过滤；result=0 失败）
     var sshQS = '/api/v1/ssh?limit=200&' + rangeQS();
@@ -1561,6 +1607,13 @@
   var chipEl = document.getElementById('filter-chip');
   if (chipEl) {
     chipEl.addEventListener('click', function () { applyFilter(null); });
+  }
+
+  // DEV-047 D1：采样标注——桌面（hover 可用）走 CSS tooltip（::after + data-full），
+  // 移除 title 避免浏览器原生 tooltip 与 CSS tooltip 双显；触屏（hover 不可用）保留 title 兜底
+  var snEl = document.getElementById('sample-note');
+  if (snEl && window.matchMedia && window.matchMedia('(hover: hover)').matches) {
+    snEl.removeAttribute('title');
   }
 
   // 事件流"展开全部/收起"（默认 3 条，点击展开 20 条）

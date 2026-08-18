@@ -42,9 +42,13 @@
   --bg-inset: #0C1118; /* 表格 zebra 交替行 / 折叠区底色 */
   --border-strong: rgba(76, 154, 255, 0.55); /* 激活/焦点态描边统一 */
   --danger-soft: rgba(248, 81, 73, 0.10); /* 危险行背景微染 */
-  /* 字体：系统栈（零外部资源红线）；数字一律等宽 */
+  /* 字体：系统栈（零外部资源红线）；数字一律等宽。
+   * DEV-047 A1：--font-display 标题字体——Bahnschrift（Win10+ 自带压缩无衬线，工业压缩感），
+   * 非 Win 平台回退 Segoe UI/雅黑（零外部资源，不引入 Google Fonts 等外部字体）。 */
   --font-ui: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
-  --font-num: Consolas, "Cascadia Mono", "SF Mono", ui-monospace, monospace;
+  --font-display: "Bahnschrift", "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  /* DEV-047 A2：等宽数字首选 Cascadia Code（Win11 自带；Win10 回退 Consolas，均系统自带） */
+  --font-num: "Cascadia Code", Consolas, "Cascadia Mono", "SF Mono", ui-monospace, monospace;
   /* 圆角锁定：6px 面板 / 4px 内件 / 2px 微件（单一尺度体系） */
   --radius: 6px;
   --radius-sm: 4px;
@@ -66,7 +70,12 @@ html, body { margin: 0; padding: 0; }
 
 body {
   font-family: var(--font-ui);
-  background: var(--bg-page);
+  /* DEV-047 B1：战术图纸 1px 网格（冰蓝 0.025 透明度，不干扰可读性；header/nav 实色背景覆盖，
+   * 仅 main 内容区透出纹理——"战术图纸感"设计意图） */
+  background-color: var(--bg-page);
+  background-image: linear-gradient(rgba(88, 166, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(88, 166, 255, 0.025) 1px, transparent 1px);
+  background-size: 24px 24px;
   color: var(--text);
   font-size: 13px; /* DEV-FE-003：D4 正文档（方案 4.2 全尺度化） */
   line-height: 1.55;
@@ -95,8 +104,21 @@ header {
 header h1 {
   font-size: 15px; margin: 0; font-weight: 600; letter-spacing: 0.3px;
   color: var(--text); display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-display); /* DEV-047 A1：标题字体（Bahnschrift 工业压缩感） */
+  position: relative; overflow: hidden; /* DEV-047 F1：logo 扫描线裁剪容器 */
 }
-.logo-ico { width: 18px; height: 18px; color: var(--accent); flex: none; }
+.logo-ico { width: 22px; height: 22px; color: var(--accent); flex: none; } /* DEV-047 F1：18px → 22px 提权 */
+/* DEV-047 F1：logo hover 200ms 扫描线（CSS 伪元素 1 次动画，非循环；reduced-motion 关闭）。
+ * 扫描条静止位于 h1 左侧裁剪区外（left:-40%），hover 时从左到右掠过一次后回到裁剪区外。 */
+@media (prefers-reduced-motion: no-preference) {
+  header h1::after {
+    content: ""; position: absolute; top: 0; bottom: 0; width: 30%; left: -40%;
+    background: linear-gradient(90deg, transparent, rgba(88, 166, 255, 0.28), transparent);
+    pointer-events: none;
+  }
+  header h1:hover::after { animation: logo-scan 200ms ease-out 1; }
+}
+@keyframes logo-scan { from { left: -40%; } to { left: 110%; } }
 
 /* 连接状态徽章：状态点 + 实色文字 + hairline（无发光） */
 #conn-status {
@@ -117,12 +139,26 @@ header h1 {
 #conn-status.error { color: var(--danger); border-color: rgba(248, 81, 73, 0.5); }
 #conn-status.error::before { background: var(--danger); }
 
-/* 采样标注条：低饱和警告文字 + 细边框 */
+/* 采样标注条：DEV-047 D1 收窄为"采样视图"小标签 + hover 浮现完整说明。
+ * 桌面（hover 可用）走 CSS tooltip（content: attr(data-full)）；触屏 hover 不可用时 title 属性兜底
+ * （app.js 初始化对 hover:hover 设备移除 title，避免双 tooltip 叠加）。 */
 #sample-note {
   font-size: 11.5px; color: var(--warn);
   background: var(--bg-card); border: 1px solid var(--border-soft);
   padding: 3px 10px; border-radius: var(--radius-sm);
   letter-spacing: 0.2px;
+  position: relative; cursor: help; white-space: nowrap;
+}
+@media (hover: hover) {
+  #sample-note:hover::after {
+    content: attr(data-full);
+    position: absolute; left: 0; top: calc(100% + 6px); z-index: 40;
+    width: 280px; padding: 8px 10px;
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--hl-inset), 0 6px 20px rgba(0, 0, 0, 0.4);
+    color: var(--text); font-size: 11.5px; line-height: 1.55; letter-spacing: 0.2px;
+    white-space: normal; font-weight: 400;
+  }
 }
 
 /* 时间范围选择器：按钮组，激活态冰蓝描边 */
@@ -363,7 +399,7 @@ details.fold summary::before { content: "▸"; color: var(--text-faint); transit
 details.fold[open] summary::before { transform: rotate(90deg); }
 details.fold summary:hover { color: var(--text); }
 details.fold summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
-.fold-title { flex: 1; }
+.fold-title { flex: 1; font-family: var(--font-display); } /* DEV-047 A1：折叠标题字体 */
 .fold-hint { font-size: 11px; color: var(--text-faint); font-weight: 400; text-transform: none; letter-spacing: 0.2px; }
 .fold-body { padding: 0 var(--space-3) var(--space-3); }
 .more-btn {
@@ -391,7 +427,7 @@ td.clickable:hover { color: var(--text); background: rgba(76, 154, 255, 0.06); }
 nav { padding: 0 var(--space-6); background: var(--bg-page); border-bottom: 1px solid var(--border); display: flex; gap: 2px; }
 nav button {
   background: none; border: none; color: var(--text-dim);
-  padding: 7px var(--space-4); cursor: pointer; font-size: 13px; font-family: var(--font-ui); /* DEV-FE-002：chrome 压缩 */
+  padding: 7px var(--space-4); cursor: pointer; font-size: 13px; font-family: var(--font-display); /* DEV-047 A1：导航字体（DEV-FE-002：chrome 压缩） */
   position: relative; display: inline-flex; align-items: center; gap: 6px;
   transition: color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
 }
@@ -436,7 +472,16 @@ main { padding: var(--space-4) var(--space-6) var(--space-8); }
   letter-spacing: 0.6px; text-transform: uppercase;
   padding-bottom: 8px; border-bottom: 1px solid var(--border-soft);
   display: flex; align-items: center; flex-wrap: wrap;
+  font-family: var(--font-display); /* DEV-047 A1：卡片标题字体 */
+  position: relative; padding-left: 10px; /* DEV-047 E1：为语义色条让位（与 border-bottom 无冲突：::before 绝对定位） */
 }
+/* DEV-047 E1：图表卡片标题左侧 2px 语义色条（参考 .kpi::before 实现；默认冰蓝 = --accent-strong，
+ * 危险相关图表标题加 data-accent="danger" 走 danger 色；其余保持冰蓝） */
+.card h3::before {
+  content: ""; position: absolute; left: 0; top: 3px; bottom: 3px; width: 2px;
+  border-radius: 1px; background: var(--accent-strong); opacity: 0.55;
+}
+.card h3[data-accent="danger"]::before { background: var(--danger); }
 .chart { width: 100%; height: 240px; }
 /* 攻击页图表空数据占位（DEV-019：与表格空态文案一致，ECharts 空画布之上覆盖） */
 .chart-empty { position: relative; }
@@ -528,7 +573,7 @@ tr.row-warn { color: var(--warn); }
 <header>
   <h1><svg class="logo-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 1.8l6 2.4v4.3c0 3.7-2.4 6.4-6 8-3.6-1.6-6-4.3-6-8V4.2z"/><path d="M7.6 10l1.7 1.7 3.1-3.4"/></svg>VPS安全态势</h1>
   <span id="conn-status">连接中…</span>
-  <span id="sample-note">⚠ 外部威胁事件为限速采样视图（默认 5 包/s，已排除内网/自身流量），完整记录见连接事件</span>
+  <span id="sample-note" title="外部威胁事件为限速采样视图（默认 5 包/s，已排除内网/自身流量），完整记录见连接事件" data-full="外部威胁事件为限速采样视图（默认 5 包/s，已排除内网/自身流量），完整记录见连接事件">⚠ 采样视图</span>
   <span id="freshness" class="freshness">更新于 --:--:--</span>
   <span id="filter-chip" title="点击清除过滤"></span>
   <span id="range-bar">
@@ -554,7 +599,7 @@ tr.row-warn { color: var(--warn); }
   <div id="panel-overview" class="panel active">
     <!-- L2 决策证据：风险评分 + 攻击三通道趋势同排（方案 3.2/5.1；DEV-045：inbound 入站探测主通道） -->
     <div class="grid" style="margin-bottom:12px;">
-      <div class="card"><h3 class="panel-title" tabindex="-1">风险评分（本机攻击行为 + 资源维度，无漏洞/CVSS/情报字段）
+      <div class="card"><h3 class="panel-title" tabindex="-1" data-accent="danger">风险评分（本机攻击行为 + 资源维度，无漏洞/CVSS/情报字段）
         <span class="risk-note">按所选时间范围累计，跨范围不可直接比较</span></h3>
         <div class="risk-wrap">
           <div id="chart-risk" role="img" aria-label="风险评分图：数据加载中" style="width:200px;height:150px;"></div>
@@ -566,7 +611,7 @@ tr.row-warn { color: var(--warn); }
           </div>
         </div>
       </div>
-      <div class="card" style="grid-column: span 2;"><h3>攻击趋势（SSH 失败 vs 入站探测 vs 拦截，点击图例隐藏通道）</h3>
+      <div class="card" style="grid-column: span 2;"><h3 data-accent="danger">攻击趋势（SSH 失败 vs 入站探测 vs 拦截，点击图例隐藏通道）</h3>
         <div class="chart-wrap">
           <div id="chart-attack-trend" class="chart" role="img" aria-label="攻击趋势图：数据加载中" style="height:220px;"></div>
           <div id="zero-attack-badge" class="zero-line" style="display:none;">✓ 所选范围无攻击记录</div>
@@ -589,6 +634,13 @@ tr.row-warn { color: var(--warn); }
         <div class="kpi"><span class="l">磁盘使用率</span><span class="v" id="disk-pct">-</span>
           <span class="trend flat" id="trend-disk"></span>
           <span class="spark" id="spark-disk"></span><span class="note">磁盘分区水位</span></div>
+      </div>
+      <!-- DEV-047 D2：KPI 扩为 6 个（2×3）——新增封禁数（state.banCount）+ 风险评分（与 gauge 同口径） -->
+      <div class="kpi-row">
+        <div class="kpi"><span class="l">封禁数</span><span class="v" id="ban-total">-</span>
+          <span class="note">fail2ban 封禁 IP 数</span></div>
+        <div class="kpi"><span class="l">风险评分</span><span class="v" id="risk-score">-</span>
+          <span class="note">0-100（本机攻击行为 + 资源维度）</span></div>
       </div>
     </div>
     <!-- L3 TOP 攻击源 + 被攻击端口（迷你榜，保留点击联动；方案 3.2） -->
@@ -628,9 +680,9 @@ tr.row-warn { color: var(--warn); }
   <div id="panel-attack" class="panel">
     <div id="rate-hint" class="rate-hint" style="display:none;">30 天视图聚合较重，攻击数据刷新频率自动降至 30 秒</div>
     <div class="grid">
-      <div class="card"><h3 class="panel-title" tabindex="-1">被攻击端口 TOP（外部威胁 DPT 口径，点击柱条过滤）</h3><div id="chart-ports" class="chart" role="img" aria-label="被攻击端口 TOP 图：数据加载中"></div></div>
-      <div class="card"><h3>攻击源 IP TOP（点击柱条过滤）</h3><div id="chart-sources" class="chart" role="img" aria-label="攻击源 IP TOP 图：数据加载中"></div></div>
-      <div class="card"><h3>SSH 失败时间线（每小时）</h3><div id="chart-ssh" class="chart" role="img" aria-label="SSH 失败时间线图：数据加载中"></div></div>
+      <div class="card"><h3 class="panel-title" tabindex="-1" data-accent="danger">被攻击端口 TOP（外部威胁 DPT 口径，点击柱条过滤）</h3><div id="chart-ports" class="chart" role="img" aria-label="被攻击端口 TOP 图：数据加载中"></div></div>
+      <div class="card"><h3 data-accent="danger">攻击源 IP TOP（点击柱条过滤）</h3><div id="chart-sources" class="chart" role="img" aria-label="攻击源 IP TOP 图：数据加载中"></div></div>
+      <div class="card"><h3 data-accent="danger">SSH 失败时间线（每小时）</h3><div id="chart-ssh" class="chart" role="img" aria-label="SSH 失败时间线图：数据加载中"></div></div>
       <div class="card" style="grid-column: 1 / -1;"><h3>fail2ban 封禁记录</h3>
         <div class="scroll"><table id="ban-table"><caption class="sr-only">fail2ban 封禁记录</caption><thead><tr><th>时间</th><th>IP</th><th>类型</th><th>Jail</th></tr></thead><tbody></tbody></table></div>
       </div>
@@ -677,7 +729,7 @@ tr.row-warn { color: var(--warn); }
         </div>
         <button id="export-btn" class="export-btn">导出 CSV</button>
         <div id="export-msg" class="export-msg" role="status" aria-live="polite"></div>
-        <div class="export-note">数据范围：外部威胁 drop（源 IP / 事件时间 / 目标端口，已排除内网/自身流量）+ SSH 失败尝试（源 IP / 事件时间 / 端口固定 22）+ fail2ban 封禁（IP / 时间 / 端口为空）。CSV 无表头，每行三列：攻击者 IP、攻击时间、攻击端口。</div>
+        <div class="export-note">数据范围：外部威胁事件（入站探测/拦截）（源 IP / 事件时间 / 目标端口，已排除内网/自身流量）+ SSH 失败尝试（源 IP / 事件时间 / 端口固定 22）+ fail2ban 封禁（IP / 时间 / 端口为空）。CSV 无表头，每行三列：攻击者 IP、攻击时间、攻击端口。</div>
       </div>
     </div>
   </div>
