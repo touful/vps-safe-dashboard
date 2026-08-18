@@ -13,7 +13,7 @@
 
 ## 架构概览
 
-Go 单进程（`sentry-agent`）：各采集通道以协程组织，统一写入 SQLite（WAL），对外提供 13 个只读 HTTP API（含 /api/v1/export/csv 数据导出）+ 1 个 WebSocket 实时通道；前端为内嵌静态文件（index.html + app.js + 本地 echarts.min.js，零 CDN、零外部资源）。
+Go 单进程（`sentry-agent`）：各采集通道以协程组织，统一写入 SQLite（WAL），对外提供 14 个只读 HTTP API（含 /api/v1/export/csv 数据导出）+ 1 个 WebSocket 实时通道；前端为内嵌静态文件（index.html + app.js + 本地 echarts.min.js，零 CDN、零外部资源）。
 
 ```
 采集通道（资源/连接/SSH/防火墙/fail2ban）
@@ -22,7 +22,7 @@ Go 单进程（`sentry-agent`）：各采集通道以协程组织，统一写入
 SQLite WAL（单写线程 + 批量事务）──► 归档（gzip，可配）
         │
         ▼
-HTTP API（13 只读端点）+ WS 实时推送 ──► 前端面板（原生 JS + ECharts）
+HTTP API（14 只读端点）+ WS 实时推送 ──► 前端面板（原生 JS + ECharts）
 ```
 
 外部组件仅限系统既有服务（journald/rsyslog、fail2ban、nftables/iptables），均位于宿主机；容器以只读挂载方式访问其数据。详细设计见 `docs/技术方案.md`。
@@ -32,7 +32,7 @@ HTTP API（13 只读端点）+ WS 实时推送 ──► 前端面板（原生 J
 ```
 ├── cmd/sentry-agent/      主程序入口（main.go + 测试）
 ├── internal/
-│   ├── api/               HTTP API + WebSocket（13 只读端点 + /ws）
+│   ├── api/               HTTP API + WebSocket（14 只读端点 + /ws）
 │   ├── archive/           归档模块（gzip 压缩、按月归档）
 │   ├── event/             事件队列（有界缓冲，采集→存储解耦）
 │   ├── web/static/        前端静态文件（index.html / app.js / echarts.min.js，go:embed 内嵌）
