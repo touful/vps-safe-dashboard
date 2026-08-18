@@ -1,0 +1,24 @@
+=== 畸形输入 v2（reviewer R-01 整改：独立源 IP 绕过限速，真实解析器路径）===
+46 用例：CLOSED=15（立即拒绝：postgres×3/mysql×4/smb×4/mongodb×2/rdp×1）+ 等待完整输入 30s 超时关闭=31 + CONN_FAIL=0
+零永久挂死验证：telnet IAC 截断 30.0s 关闭（connTimeout 设计）；redis *9999999999 与 mssql TDS 头异常 0.0s 立即拒绝（健壮）
+agent health=200（全程存活）
+结论：畸形鲁棒性通过（15 立即关闭 + 31 超时兜底，无崩溃无永久挂死）；观察项：31 用例等待 30s 关闭=单连接资源占用面（connTimeout 设计权衡）
+
+=== 并发 200 上限真实验证（205 独立源 IP 127.0.0.101~255+127.0.1.1~50）===
+TCP 建立=205 → accepted=200 + rejected(立即EOF)=5 —— 与 maxConns=200 完全吻合
+agent health=200
+
+=== D-B 遮蔽键粒度缺陷复现（浏览器 DOM）===
+表格 60 行 = 3 组：['08-19 00:38:09|ftp|空用户'=58 行] + memcached 2 行（独立 ts 各 1 行）
+点击 memcached 唯一行 → revealed=1（单行 toggle 对唯一 key 正常）
+点击 ftp 组行 → revealed=59（58 行 ftp 组一次点击全部揭示）——同 key 组批量揭示确认
+遮蔽 key=ts|proto|src_ip|username（app.js L1239）无序号/密码区分 → 同秒同协议同源同用户行共享 key
+等级：Major（任务书验收'点击单行 toggle 不影响其他行'失败；同用户多密码试错场景真实凭据组泄露）
+
+=== 测试执行序列（R-09 整改）===
+1. 编译 sentry-agent.exe（dfb64f4）→ 2. 启动（honeypot_test_config.json 18099+10 端口）→ 3. 集成脚本 10 协议 ALL_MATCH → 4. 畸形 v1（限速干扰，废弃）→ 5. 治理 v2（限速 10+2/30s 超时）→ 6. 畸形 v2（独立源 IP，46 用例）→ 7. 30s 关闭验证（telnet/redis/mssql）→ 8. 并发 205（200+5）→ 9. D-B 浏览器复现 → 10. 停服务
+DB：.dev015-test/honeypot_state.db 跨运行复用（未重置）——行数 132 为多次运行累积（集成 20 + 畸形 v1 若干 + 治理 13 + 畸形 v2 46 + 并发 205 + D-B 复现）
+
+=== 集成脚本 ALL_MATCH 说明（R-08 整改）===
+ALL_MATCH 为 1h 窗口存在性检查（any 匹配）；凭据落库经 API 查询验证（rows=20 含 10 协议凭据行）
+smb 断言仅匹配 NTLMv2 extra 未校验用户名——列 Note（集成脚本断言强度）

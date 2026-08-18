@@ -41,3 +41,6 @@ config.example.json account_id/license_key 空占位；deploy/config.json 已解
 
 == G-01 修复回归 ==
 无 mmdb + country=Unknown → rows=9（修复前 0）——TEST-GEO-001 D-1 修复运行时确认
+
+=== reviewer 整改补充（R-01/R-02/R-04）===
+畸形 v2：CLOSED=15+超时关闭=31（零永久挂死，30s 复核 telnet/redis/mssql）；并发 205：accepted=200+rejected=5；D-B：58 行同 key ftp 组点击揭示整组（DOM 计数）
