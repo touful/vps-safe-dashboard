@@ -56,21 +56,32 @@ def probe(proto, payloads, name):
             s.sendall(p)
         except Exception:
             pass
-        # 3) 等待服务端关闭（2s）
+        # 3) 等待服务端关闭：先 2s 快速判定 → 未关闭则延长至 35s 总等待（connTimeout=30s 兜底复核）
+        #    CLOSED=解析器立即拒绝；CLOSED_30S=等待完整输入后由 30s 超时兜底关闭（设计行为）；
+        #    HANG=超过 35s 仍未关闭（永久挂死，缺陷）
         closed = False
-        try:
-            while True:
+        t_wait = time.time()
+        deadline = t_wait + 35
+        while time.time() < deadline and not closed:
+            try:
                 d = s.recv(4096)
                 if not d:
                     closed = True
                     break
-        except socket.timeout:
-            closed = False
-        except Exception:
-            closed = True
+            except socket.timeout:
+                s.settimeout(max(0.5, deadline - time.time()))
+            except Exception:
+                closed = True
+                break
+        elapsed = time.time() - t_wait
         s.close()
-        status = "CLOSED" if closed else "HANG?"
-        results.append((proto, name, i, status, src, "banner=%d" % len(first)))
+        if closed and elapsed < 3:
+            status = "CLOSED"
+        elif closed:
+            status = "CLOSED_30S"
+        else:
+            status = "HANG?"
+        results.append((proto, name, i, status, src, "banner=%d" % len(first), "%.0fs" % elapsed))
 
 
 # 各协议畸形 payload（与 v1 相同用例集）
@@ -104,14 +115,15 @@ try:
 except Exception as e:
     h = "DOWN:" + str(e)[:30]
 
-print("=== 畸形输入 v2（独立源 IP 绕过限速，共 %d 用例）===" % len(results))
+print("=== 畸形输入 v2（独立源 IP 绕过限速，共 %d 用例；等待类用例 35s 兜底复核）===" % len(results))
 hangs = [r for r in results if r[3] == "HANG?"]
 fails = [r for r in results if r[3].startswith("CONN_FAIL")]
 for r in results:
-    print("[%s] %s %s #%d src=%s %s" % (r[3], r[0], r[1], r[2], r[4], r[5]))
+    print("[%s] %s %s #%d src=%s %s %s" % (r[3], r[0], r[1], r[2], r[4], r[5], r[6]))
 print("=== 汇总 ===")
-print("CLOSED=%d HANG=%d CONN_FAIL=%d 总=%d" % (
-    sum(1 for r in results if r[3] == "CLOSED"), len(hangs), len(fails), len(results)))
+print("CLOSED=%d CLOSED_30S=%d HANG=%d CONN_FAIL=%d 总=%d" % (
+    sum(1 for r in results if r[3] == "CLOSED"),
+    sum(1 for r in results if r[3] == "CLOSED_30S"), len(hangs), len(fails), len(results)))
 print("agent health=%s" % h)
-print("（注：每用例独立源 IP，限速不生效；CLOSED=解析器处理并关闭；HANG=挂死缺陷）")
+print("（注：每用例独立源 IP，限速不生效；CLOSED=解析器立即关闭；CLOSED_30S=30s 超时兜底关闭（connTimeout 设计）；HANG=超过 35s 未关闭（缺陷））")
 sys.exit(1 if hangs or h != 200 else 0)

@@ -16,7 +16,7 @@ def try_conn(idx):
         return "REJECT:" + str(e)[:30]
 
 
-print("=== 限速：127.0.0.2 连续 12 连 mysql（窗口 1 分钟）===")
+print("=== 限速：127.0.0.1 连续 12 连 mysql（窗口 1 分钟）===")
 r = [try_conn(i) for i in range(12)]
 for i, x in enumerate(r):
     print("  #%d %s" % (i + 1, x))

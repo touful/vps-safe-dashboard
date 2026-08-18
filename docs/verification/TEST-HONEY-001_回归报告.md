@@ -9,8 +9,8 @@
 
 回归 DEV-HONEY-001/002（M-B）：10 协议蜜罐、畸形输入鲁棒性、连接治理、honeypot/events API、前端蜜罐卡、全量回归、部署资产、凭据红线。附带验证 G-01 修复（TEST-GEO-001 D-1 country 过滤）。
 
-**测试执行序列**：①编译 sentry-agent.exe（dfb64f4）→ ②启动蜜罐实例（honeypot_test_config.json：web 18099 + 10 协议非标准端口；专用库 .dev015-test/honeypot_state.db，跨运行复用未重置）→ ③集成脚本 10 协议 → ④治理测试（限速/30s 超时）→ ⑤畸形 v2（独立源 IP）→ ⑥30s 关闭验证 → ⑦并发 205 → ⑧D-B 浏览器复现 → ⑨停服务。
-（畸形 v1 46 用例存在限速干扰已废弃重写，见 §2.3 说明）
+**测试执行序列**：①编译 sentry-agent.exe（dfb64f4）→ ②启动蜜罐实例（honeypot_test_config.json：web 18099 + 10 协议非标准端口；专用库 .dev015-test/honeypot_state.db，跨运行复用未重置）→ ③集成脚本 10 协议 → ④治理测试（限速/30s 超时）→ ⑤畸形 v2（46 用例 + 35s 全量复核）→ ⑥并发 205 → ⑦API 参数测试（range/proto/limit/非法参数）→ ⑧前端蜜罐卡 + D-B 浏览器复现 → ⑨G-01 复核 → ⑩停服务。
+（畸形 v1 46 用例存在限速干扰已废弃重写，见 §2.3 说明；行数口径：honeypot_state.db 跨阶段累积，132 行 = 集成 20 + 畸形 v2 46（含 ftp 批量约 58）+ 治理 13 + D-B 复现少量，并发 205 连接不发握手不产生凭据行）
 
 ## 2. 执行验证
 
@@ -47,14 +47,14 @@
 
 **方法（reviewer R-01 整改）**：畸形 v1 46 用例存在限速干扰（全来自 127.0.0.1，前 10 连接被接受后其余被限速立即拒绝，"46/46 CLOSED"无法证明解析器被触及）——**废弃**。重写 v2（`scripts/honeypot_malformed.py`）：**每用例绑定独立 loopback 源 IP（127.0.0.2~47）绕过限速**，连接后先收协议首包确认被接受，再发畸形包，2s 判定窗口；HANG 用例单独 30s 复核。
 
-**结果（46 用例，真实解析器路径）**：
-- **CLOSED=15（解析器立即拒绝）**：postgres startup 畸形×3、mysql 握手异常×4、smb 分片错乱×4、mongodb OP 头异常×2、rdp X.224×1
-- **等待完整输入 30s 超时关闭=31**：telnet IAC 截断×6、ftp 半包/超长×6、redis RESP×8、mongodb×1、mssql TDS×3、rdp×2、memcached×4、postgres×1
-- **零永久挂死**：30s 复核 telnet IAC 截断 30.0s 关闭（connTimeout 设计行为）；redis `*9999999999`（超长数组）与 mssql TDS 头长度异常 **0.0s 立即拒绝**（健壮）
-- agent health=200 全程存活，CONN_FAIL=0
+**结果（46 用例，真实解析器路径，全量 35s 复核）**：
+- **CLOSED=15（解析器立即拒绝）**：postgres startup 畸形×4、mysql 握手异常×4、smb 分片错乱×4、mongodb OP 头异常×2、rdp X.224×1（分解合计 4+4+4+2+1=15）
+- **CLOSED_30S=31（等待完整输入，30s 超时兜底关闭）**：telnet IAC 截断×6、ftp 半包/超长×6、redis RESP×8、mongodb×1、mssql TDS×3、rdp×2、memcached×4、postgres×1——**全部实测 28-30s 内关闭**（非抽样）；代表性复核：redis `*9999999999` 0.00s 收到 `-ERR unknown command` + 30.00s EOF；mssql TDS 头异常 0.00s prelogin 响应 36B + 30.00s EOF（均与代码路径一致）
+- **HANG=0（零永久挂死）、CONN_FAIL=0**；agent health=200 全程存活
 
-**结论**：畸形鲁棒性通过——10 协议解析器对畸形输入无崩溃、无永久挂死；15/46 明确违规立即拒绝；31/46 等待完整输入由 30s 超时兜底。
+**结论**：畸形鲁棒性通过——10 协议解析器对畸形输入无崩溃、无永久挂死；15/46 明确违规立即拒绝；31/46 等待完整输入由 30s 超时兜底关闭（connTimeout 机制，SetDeadline 覆盖全部 handler 读路径）。
 **观察项（Note-4）**：31 个用例等待 30s 才关闭 = 单连接最多占用 30s（connTimeout 设计权衡；攻击者可占 200 并发 × 30s 窗口，但被 30s 上限 + 200 并发 + 每源 IP 限速约束）。
+**方法说明**：畸形 v1 46 用例存在限速干扰（全来自 127.0.0.1）已废弃；v2 每用例绑定独立源 IP 绕过限速，先收协议首包确认被接受，等待类用例 35s 全量复核（脚本内建，`scripts/honeypot_malformed.py` 可完整重跑）。
 
 ### 2.4 连接治理（已验证，回归点 3）
 
@@ -71,7 +71,7 @@
 - 全量 7d limit=500 → 132 行（26 行有用户名含全部集成凭据 + 106 行无用户名）
 - 限流：路由注册挂 limitAPI（代码确认）；只读（仅 GET HandlerFunc）✓
 - 第 17 路由注册（api.go:147）✓
-- **行数来源说明**：honeypot_state.db 跨测试阶段复用未重置，132 行为多次运行累积（集成 20 + 畸形 v2 46 + 治理 13 + 并发 205 拒绝前已记录 + D-B 复现）；API 参数行为与行数绝对值解耦验证
+- **行数来源说明**：honeypot_state.db 跨测试阶段复用未重置，132 行为多次运行累积（集成 20 + 畸形 v2 46 含 ftp 批量约 58 + 治理 13 + D-B 复现少量；并发 205 连接不发握手不产生凭据行）；API 参数行为与行数绝对值解耦验证
 
 ### 2.6 前端蜜罐卡（已验证，回归点 5）
 
@@ -100,8 +100,8 @@
 
 | ID | 等级 | 位置 | 描述 | 复现 | 本次回归 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| D-A | **Major** | internal/honeypot/telnet.go（及各协议 handler） | **畸形输入被记录为凭据行**：随机字节包被 telnet 等解析为 username/password 存入 cred_events（API 可见乱码凭据，106 行无用户名 + 若干乱码行）。蜜罐"尽力捕获"语义下可接受，但污染凭据数据质量与统计小计；建议对无法解码的控制字节过滤/标记 | 畸形测试随机字节包 → API 查询可见乱码 user/pass 行 | 是（新功能数据质量） |
-| D-B | **Major** | internal/web/static/app.js:1239-1253 | **密码遮蔽键粒度缺陷**：遮蔽 key = ts\|proto\|src_ip\|username（不含序号/密码区分），同秒同协议同源同用户行共享 key → 点击一行揭示整组。**实测**：表格 60 行 = 58 行同 key ftp 组（08-19 00:38:09 同秒）+ 2 行唯一 key；点击 ftp 组一行 → 58 行全部揭示；点击唯一行 → 仅揭示 1 行（单行 toggle 对唯一 key 正常）。**违反任务书验收"点击单行 toggle 不影响其他行"**；同用户多密码试错场景一次点击泄露整组凭据。修复：key 追加 password 片段或行唯一序号（注意 __k 随渲染重建丢 reveal 状态，建议 password 片段方案） | 浏览器蜜罐卡 → 同秒快速连 12 次同协议（同用户）→ 点击一行密码 → 整组揭示 | 是（新功能交互缺陷，违反验收） |
+| D-A | **Major** | internal/honeypot/telnet.go（及各协议 handler） | **畸形输入被记录为凭据行 + 批量注入面**：①随机字节包被 telnet 等解析为 username/password 存入 cred_events（API 可见乱码凭据）；②**ftp/redis 解析器无单连接记录轮次上限**（对比 telnet loginRoundsMax=5）——畸形 v2 的 ftp `PASS\r\n`×100 用例 1 秒内产生约 58 条 cred_events 行，攻击者单连接可批量注入 100+ 垃圾凭据行（30s 窗口持续），放大污染面/前端遮蔽组爆炸/存储膨胀。建议：控制字节过滤/标记 + 单连接记录上限（对齐 loginRoundsMax 模式） | 畸形测试随机字节包/ftp PASS 洪泛 → API 查询可见乱码行与 58 行同秒组 | 是（新功能数据质量） |
+| D-B | **Major** | internal/web/static/app.js:1239-1253 | **密码遮蔽键粒度缺陷**：遮蔽 key = ts\|proto\|src_ip\|username（不含序号/密码区分），同秒同协议同源同用户行共享 key → 点击一行揭示整组。**实测**：表格 60 行 = 58 行同 key ftp 组（08-19 00:38:09 空用户，来自畸形 v2 ftp PASS 洪泛用例）+ 2 行唯一 key；点击 ftp 组一行 → 58 行全部揭示；点击唯一行 → 仅揭示 1 行（单行 toggle 对唯一 key 正常）。**违反任务书验收"点击单行 toggle 不影响其他行"**；同用户多密码试错场景一次点击泄露整组凭据。修复：key 追加 password 片段或行唯一序号（注意 __k 随渲染重建丢 reveal 状态，建议 password 片段方案） | 同秒快速连 N 次同协议（同用户）或畸形洪泛 → 点击一行密码 → 整组揭示 | 是（新功能交互缺陷，违反验收） |
 | D-C | Note | internal/web/static/app.js:1232-1234 | 表格默认渲染 TABLE_PAGE 行（实测最新 60 行）——较早凭据不在首屏；既有分页行为（其他表同），非蜜罐特有 | 132 行数据时表格仅显示最新 60 行 | 否（既有行为） |
 | Note-1 | Note | scripts 集成脚本 | ALL_MATCH 为 1h 窗口存在性检查（any），非本轮严格校验；smb 断言未校验用户名（仅 NTLMv2 extra） | 代码核对 | 测试资产 |
 | Note-4 | Note | internal/honeypot 各协议 | 31/46 畸形用例等待完整输入由 30s 超时兜底关闭（非立即拒绝）——单连接资源占用面（connTimeout 设计权衡，有上限约束） | 畸形 v2 30s 复核 | 设计权衡 |
