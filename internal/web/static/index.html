@@ -228,6 +228,13 @@ th .sort-arrow { color: var(--accent); font-size: 10px; margin-left: 3px; }
 }
 .table-filter:hover { border-color: var(--border); color: var(--text); }
 .table-filter:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+/* DEV-GEO-001：全球攻击地图工具栏（下拉 + 导出 + 降级提示，与卡片头部同宽） */
+.geo-toolbar {
+  display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+.geo-toolbar .export-btn { margin-left: auto; padding: 4px 16px; font-size: 12px; }
+#geo-mmdb-note { color: var(--warn); }
 /* ===== DEV-017 精修基线保留并升级 ===== */
 
 /* 字体层级：时间戳列 12px 等宽次级色（tabular-nums 对齐） */
@@ -333,11 +340,9 @@ td.ts-cell {
 .ev-bar { position: absolute; left: 0; top: 2px; bottom: 2px; width: 2px; border-radius: 1px; }
 .ev-bar.ssh { background: var(--warn); }
 .ev-bar.fw { background: var(--danger); }
-.ev-bar.ban { background: var(--ok); }
 .ev-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .ev-dot.ssh { background: var(--warn); }
 .ev-dot.fw { background: var(--danger); }
-.ev-dot.ban { background: var(--ok); }
 .ev-time { font-family: var(--font-num); font-size: 11px; color: var(--text-faint); flex: none; }
 .ev-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
 .ev-text b { color: var(--text); font-weight: 600; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
@@ -606,7 +611,6 @@ tr.row-warn { color: var(--warn); }
           <div class="risk-detail">
             <div class="risk-item"><span class="l">SSH 失败率</span><div class="bar-wrap"><div class="bar" id="risk-ssh-bar"></div></div><span class="v" id="risk-ssh-v">-</span></div>
             <div class="risk-item"><span class="l">外部威胁拦截</span><div class="bar-wrap"><div class="bar" id="risk-fw-bar"></div></div><span class="v" id="risk-fw-v">-</span></div>
-            <div class="risk-item"><span class="l">封禁数</span><div class="bar-wrap"><div class="bar" id="risk-ban-bar"></div></div><span class="v" id="risk-ban-v">-</span></div>
             <div class="risk-item"><span class="l">磁盘水位</span><div class="bar-wrap"><div class="bar" id="risk-disk-bar"></div></div><span class="v" id="risk-disk-v">-</span></div>
           </div>
         </div>
@@ -634,11 +638,7 @@ tr.row-warn { color: var(--warn); }
         <div class="kpi"><span class="l">磁盘使用率</span><span class="v" id="disk-pct">-</span>
           <span class="trend flat" id="trend-disk"></span>
           <span class="spark" id="spark-disk"></span><span class="note">磁盘分区水位</span></div>
-      </div>
-      <!-- DEV-047 D2：KPI 扩为 6 个（2×3）——新增封禁数（state.banCount）+ 风险评分（与 gauge 同口径） -->
-      <div class="kpi-row">
-        <div class="kpi"><span class="l">封禁数</span><span class="v" id="ban-total">-</span>
-          <span class="note">fail2ban 封禁 IP 数</span></div>
+        <!-- DEV-GEO-001：封禁数 KPI 已随"前端移除封禁展示"删除；风险评分卡并入本行（3 卡 2+3 布局） -->
         <div class="kpi"><span class="l">风险评分</span><span class="v" id="risk-score">-</span>
           <span class="note">0-100（本机攻击行为 + 资源维度）</span></div>
       </div>
@@ -662,7 +662,7 @@ tr.row-warn { color: var(--warn); }
     </details>
     <!-- L5 最近事件：默认折叠区 + 默认 3 条 + 展开全部（方案 3.2/3.3） -->
     <details class="fold" id="fold-events" open style="margin-top:12px;">
-      <summary><span class="fold-title">最近事件（拦截/丢弃 / SSH 失败 / 封禁）</span><span id="event-fold-summary" class="fold-hint"></span></summary>
+      <summary><span class="fold-title">最近事件（拦截/丢弃 / SSH 失败）</span><span id="event-fold-summary" class="fold-hint"></span></summary>
       <div class="fold-body">
         <div id="event-stream" class="event-stream"></div>
         <button id="event-expand-btn" class="more-btn" style="display:none;">展开全部</button>
@@ -683,8 +683,28 @@ tr.row-warn { color: var(--warn); }
       <div class="card"><h3 class="panel-title" tabindex="-1" data-accent="danger">被攻击端口 TOP（外部威胁 DPT 口径，点击柱条过滤）</h3><div id="chart-ports" class="chart" role="img" aria-label="被攻击端口 TOP 图：数据加载中"></div></div>
       <div class="card"><h3 data-accent="danger">攻击源 IP TOP（点击柱条过滤）</h3><div id="chart-sources" class="chart" role="img" aria-label="攻击源 IP TOP 图：数据加载中"></div></div>
       <div class="card"><h3 data-accent="danger">SSH 失败时间线（每小时）</h3><div id="chart-ssh" class="chart" role="img" aria-label="SSH 失败时间线图：数据加载中"></div></div>
-      <div class="card" style="grid-column: 1 / -1;"><h3>fail2ban 封禁记录</h3>
-        <div class="scroll"><table id="ban-table"><caption class="sr-only">fail2ban 封禁记录</caption><thead><tr><th>时间</th><th>IP</th><th>类型</th><th>Jail</th></tr></thead><tbody></tbody></table></div>
+      <!-- DEV-GEO-001：全球攻击地图（SSH 失败按来源国家聚合；点击国家联动下方列表与导出） -->
+      <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger">全球攻击地图（SSH 失败来源国家聚合）
+        <span class="risk-note">仅统计 SSH 失败次数（result=失败），按来源 IP 所属国家聚合</span></h3>
+        <div class="geo-toolbar">
+          <select id="geo-country-filter" class="table-filter" title="按国家/地区过滤（与地图点击联动）">
+            <option value="">全部国家/地区</option>
+          </select>
+          <select id="geo-min-filter" class="table-filter" title="按累计攻击次数过滤">
+            <option value="0">全部次数</option>
+            <option value="5">≥ 5 次</option>
+            <option value="10">≥ 10 次</option>
+            <option value="50">≥ 50 次</option>
+          </select>
+          <button id="geo-export-btn" class="export-btn">导出 CSV</button>
+          <span id="geo-mmdb-note" class="rate-hint" style="display:none;margin:0;"></span>
+        </div>
+        <div class="chart-wrap">
+          <div id="chart-world" class="chart" role="img" aria-label="全球攻击地图：数据加载中" style="height:340px;"></div>
+          <div id="zero-geo-badge" class="zero-line" style="display:none;">✓ 所选范围无 SSH 失败记录</div>
+        </div>
+        <ul id="geo-sources-list" class="mini-top"></ul>
+        <!-- 蜜罐凭据区（M-B 独立任务预留插入位） -->
       </div>
       <div class="card" style="grid-column: 1 / -1;"><h3>SSH 登录尝试（失败红色，点击时间列排序）
         <select id="ssh-result-filter" class="table-filter" title="按结果过滤">
@@ -729,7 +749,7 @@ tr.row-warn { color: var(--warn); }
         </div>
         <button id="export-btn" class="export-btn">导出 CSV</button>
         <div id="export-msg" class="export-msg" role="status" aria-live="polite"></div>
-        <div class="export-note">数据范围：外部威胁事件（入站探测/拦截）（源 IP / 事件时间 / 目标端口，已排除内网/自身流量）+ SSH 失败尝试（源 IP / 事件时间 / 端口固定 22）+ fail2ban 封禁（IP / 时间 / 端口为空）。CSV 无表头，每行三列：攻击者 IP、攻击时间、攻击端口。</div>
+        <div class="export-note">数据范围：外部威胁事件（入站探测/拦截）（源 IP / 事件时间 / 目标端口，已排除内网/自身流量）+ SSH 失败尝试（源 IP / 事件时间 / 端口固定 22）。CSV 无表头，每行三列：攻击者 IP、攻击时间、攻击端口。按来源国家导出请使用攻击页"全球攻击地图"卡内的导出按钮（IP,国家或地区,累计攻击次数）。</div>
       </div>
     </div>
   </div>

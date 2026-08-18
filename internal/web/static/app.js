@@ -26,6 +26,41 @@
   var MAX_TABLE_PAGE = 200;
   // DEV-FE-002 竞态缓解：connections 端点不支持 range 参数，用其原生 since 参数实现范围过滤
   var RANGE_SEC = { '1h': 3600, '24h': 86400, '7d': 604800, '30d': 2592000 };
+  // DEV-GEO-001：ISO 3166-1 alpha-2 → world.json 英文名映射（johan/world.geo.json 派生，
+  // 名称与 geojson properties.name 精确一致；未列出的 code 无地图形状，列表仍展示）。
+  // MaxMind 名称（zh-CN/en）仅用于列表/导出；地图上色依赖本映射。
+  var GEO_CODE_NAME = {
+    AF: 'Afghanistan', AL: 'Albania', DZ: 'Algeria', AO: 'Angola', AQ: 'Antarctica', AR: 'Argentina',
+    AM: 'Armenia', AU: 'Australia', AT: 'Austria', AZ: 'Azerbaijan', BD: 'Bangladesh', BY: 'Belarus',
+    BE: 'Belgium', BZ: 'Belize', BJ: 'Benin', BM: 'Bermuda', BT: 'Bhutan', BO: 'Bolivia',
+    BA: 'Bosnia and Herzegovina', BW: 'Botswana', BR: 'Brazil', BN: 'Brunei', BG: 'Bulgaria', BF: 'Burkina Faso',
+    BI: 'Burundi', KH: 'Cambodia', CM: 'Cameroon', CA: 'Canada', CF: 'Central African Republic', TD: 'Chad',
+    CL: 'Chile', CN: 'China', CO: 'Colombia', CR: 'Costa Rica', HR: 'Croatia', CU: 'Cuba',
+    CY: 'Cyprus', CZ: 'Czech Republic', CD: 'Democratic Republic of the Congo', DK: 'Denmark', DJ: 'Djibouti', DO: 'Dominican Republic',
+    TL: 'East Timor', EC: 'Ecuador', EG: 'Egypt', SV: 'El Salvador', GQ: 'Equatorial Guinea', ER: 'Eritrea',
+    EE: 'Estonia', ET: 'Ethiopia', FK: 'Falkland Islands', FJ: 'Fiji', FI: 'Finland', FR: 'France',
+    GF: 'French Guiana', TF: 'French Southern and Antarctic Lands', GA: 'Gabon', GM: 'Gambia', GE: 'Georgia', DE: 'Germany',
+    GH: 'Ghana', GR: 'Greece', GL: 'Greenland', GT: 'Guatemala', GN: 'Guinea', GW: 'Guinea Bissau',
+    GY: 'Guyana', HT: 'Haiti', HN: 'Honduras', HU: 'Hungary', IS: 'Iceland', IN: 'India',
+    ID: 'Indonesia', IR: 'Iran', IQ: 'Iraq', IE: 'Ireland', IL: 'Israel', IT: 'Italy',
+    CI: 'Ivory Coast', JM: 'Jamaica', JP: 'Japan', JO: 'Jordan', KZ: 'Kazakhstan', KE: 'Kenya',
+    XK: 'Kosovo', KW: 'Kuwait', KG: 'Kyrgyzstan', LA: 'Laos', LV: 'Latvia', LB: 'Lebanon',
+    LS: 'Lesotho', LR: 'Liberia', LY: 'Libya', LT: 'Lithuania', LU: 'Luxembourg', MK: 'Macedonia',
+    MG: 'Madagascar', MW: 'Malawi', MY: 'Malaysia', ML: 'Mali', MT: 'Malta', MR: 'Mauritania',
+    MX: 'Mexico', MD: 'Moldova', MN: 'Mongolia', ME: 'Montenegro', MA: 'Morocco', MZ: 'Mozambique',
+    MM: 'Myanmar', NA: 'Namibia', NP: 'Nepal', NL: 'Netherlands', NC: 'New Caledonia', NZ: 'New Zealand',
+    NI: 'Nicaragua', NE: 'Niger', NG: 'Nigeria', KP: 'North Korea', NO: 'Norway', OM: 'Oman',
+    PK: 'Pakistan', PA: 'Panama', PG: 'Papua New Guinea', PY: 'Paraguay', PE: 'Peru', PH: 'Philippines',
+    PL: 'Poland', PT: 'Portugal', PR: 'Puerto Rico', QA: 'Qatar', RS: 'Republic of Serbia', CG: 'Republic of the Congo',
+    RO: 'Romania', RU: 'Russia', RW: 'Rwanda', SA: 'Saudi Arabia', SN: 'Senegal', SL: 'Sierra Leone',
+    SK: 'Slovakia', SI: 'Slovenia', SB: 'Solomon Islands', SO: 'Somalia', ZA: 'South Africa', KR: 'South Korea',
+    SS: 'South Sudan', ES: 'Spain', LK: 'Sri Lanka', SD: 'Sudan', SR: 'Suriname', SZ: 'Swaziland',
+    SE: 'Sweden', CH: 'Switzerland', SY: 'Syria', TW: 'Taiwan', TJ: 'Tajikistan', TH: 'Thailand',
+    BS: 'The Bahamas', TG: 'Togo', TT: 'Trinidad and Tobago', TN: 'Tunisia', TR: 'Turkey', TM: 'Turkmenistan',
+    UG: 'Uganda', UA: 'Ukraine', AE: 'United Arab Emirates', GB: 'United Kingdom', TZ: 'United Republic of Tanzania', US: 'United States of America',
+    UY: 'Uruguay', UZ: 'Uzbekistan', VU: 'Vanuatu', VE: 'Venezuela', VN: 'Vietnam', PS: 'West Bank',
+    EH: 'Western Sahara', YE: 'Yemen', ZM: 'Zambia', ZW: 'Zimbabwe'
+  };
   var state = {
     ws: null, wsMode: false,
     range: '24h',
@@ -35,8 +70,11 @@
     sshResult: '',           // SSH 表结果过滤：'' 全部 / 0 失败 / 1 成功
     fwAction: '',            // 防火墙表动作过滤：'' 全部 / inbound / reject / drop / accept
     summary: null,           // summary 缓存（态势条/KPI/风险评分）
-    banCount: null,          // range 内 ban 计数（态势条/风险评分）
     fwTimeline: null,        // firewall/timeline 桶缓存（趋势图三通道/FW spark/风险评分/态势条）
+    // DEV-GEO-001：全球攻击地图状态（rows 全量缓存，country/min 前端本地过滤——交互零延迟、
+    // 不消耗 heavy 限流桶；导出请求携带过滤参数走后端同口径）
+    geo: { rows: null, country: '', min: 0, mmdbOk: false },
+    worldLoaded: false,      // world.json 已注册标志（一次性 fetch/registerMap）
     attackDataFailed: false, // 攻击数据源失败标志——每轮 pollAttack 开头重置，成功回调不覆盖
     sshTimelineOk: true,     // ssh/timeline 独立就绪标志（fwTimeline 成功不覆盖它）
     disk24: null,            // 磁盘 24h 序列（磁盘卡 spark/trend）
@@ -49,7 +87,6 @@
     resourceData: null,      // 资源图数据缓存（切回总览页补渲染用）
     topPorts: [],            // summary.top_ports 缓存（切回总览页补渲染用）
     eventExpanded: false,    // 事件流"展开全部"状态（默认 3 条）
-    banHighlightIp: null,    // 封禁表高亮 IP（N-2：封禁行点击仅跳转攻击页高亮，不设 filter）
     // P1：全局错误横幅连续失败计数（7.2 完整实现：任一 errCb 累计，summary 成功清零）
     failStreak: 0            // 连续失败事件累计计数——≥2 显示错误横幅，summary 成功清零
   };
@@ -279,10 +316,11 @@
     setAria('chart-net', '网络速率图：最近 1 小时，当前 Rx ' + (last >= 0 ? data.rx[last] : 0) + ' B/s，Tx ' + (last >= 0 ? data.tx[last] : 0) + ' B/s');
   }
 
-  // 风险评分（gauge + 四通道分解条）。
-  // 公式（前端实现）：总分 = min(ssh_fail/200,1)*30 + min(fw_blocked/1000,1)*30
-  //        + min(ban/20,1)*20 + clamp((disk-50)/40,0,1)*20，0-100。
-  // 权重 30/30/20/20；阈值按单机 1C1G 场景经验设定；无漏洞/CVSS/情报字段。
+  // 风险评分（gauge + 三通道分解条）。
+  // 公式（前端实现）：总分 = min(ssh_fail/200,1)*40 + min(fw_blocked/1000,1)*40
+  //        + clamp((disk-50)/40,0,1)*20，0-100。
+  // 权重 40/40/20（DEV-GEO-001：封禁通道移除后重新平衡——攻击行为两通道占主导，
+  // 磁盘资源维度保持原 20 权重）；阈值按单机 1C1G 场景经验设定；无漏洞/CVSS/情报字段。
   // DEV-045：FW 通道改用"拦截"口径（drop+reject 累计）——inbound 为入站观察
   // （扫描器探测，量大）不计入威胁动作，避免评分恒饱和；30d 视图累计必然饱和虚高、
   // 跨 range 不可比，属设计口径（UI 已加口径注）。
@@ -292,12 +330,12 @@
     if (!s) { return null; }
     var fwBlocked = 0;
     (state.fwTimeline || []).forEach(function (b) { fwBlocked += (b.drop || 0) + (b.reject || 0); });
-    var sshFail = s.ssh_fail || 0, ban = state.banCount || 0, disk = s.disk_percent;
+    var sshFail = s.ssh_fail || 0, disk = s.disk_percent;
     var fSsh = Math.min(sshFail / 200, 1), fFw = Math.min(fwBlocked / 1000, 1),
-      fBan = Math.min(ban / 20, 1), fDisk = Math.max(0, Math.min((disk - 50) / 40, 1));
-    var score = Math.round(fSsh * 30 + fFw * 30 + fBan * 20 + fDisk * 20);
-    return { score: score, fSsh: fSsh, fFw: fFw, fBan: fBan, fDisk: fDisk,
-      sshFail: sshFail, fwBlocked: fwBlocked, ban: ban, disk: disk };
+      fDisk = Math.max(0, Math.min((disk - 50) / 40, 1));
+    var score = Math.round(fSsh * 40 + fFw * 40 + fDisk * 20);
+    return { score: score, fSsh: fSsh, fFw: fFw, fDisk: fDisk,
+      sshFail: sshFail, fwBlocked: fwBlocked, disk: disk };
   }
   function renderRisk() {
     if (!vis('overview')) { return; } // 隐藏面板不渲染
@@ -320,7 +358,7 @@
       };
       chart('chart-risk').setOption(failOpt, true);
       setAria('chart-risk', '风险评分图：数据加载失败');
-      var names = ['risk-ssh-v', 'risk-fw-v', 'risk-ban-v', 'risk-disk-v'];
+      var names = ['risk-ssh-v', 'risk-fw-v', 'risk-disk-v'];
       names.forEach(function (id) {
         var el = document.getElementById(id);
         if (el) { el.textContent = '--'; }
@@ -336,7 +374,6 @@
     };
     bar('risk-ssh-bar', p.fSsh, p.sshFail);
     bar('risk-fw-bar', p.fFw, p.fwBlocked);
-    bar('risk-ban-bar', p.fBan, p.ban);
     bar('risk-disk-bar', p.fDisk, p.disk >= 0 ? p.disk.toFixed(0) + '%' : '-');
     var opt = {
       animationDurationUpdate: 300, // DEV-047 C3：gauge 指针更新缓动显式确认（300ms 一次性）
@@ -471,6 +508,192 @@
   }
 
 
+  // ===== 模块 3.5：全球攻击地图（DEV-GEO-001） =====
+  // world.json（本地 embed）一次性加载注册；GEO_CODE_NAME 映射 ISO code → geojson 英文名。
+  // 视觉纪律：冷石墨→冰蓝低饱和色阶（visualMap 色块，无发光/无气泡动画）。
+  function loadWorldMap(cb) {
+    if (state.worldLoaded) { cb(); return; }
+    fetch('/world.json').then(function (r) {
+      if (!r.ok) { throw new Error('HTTP ' + r.status); }
+      return r.json();
+    }).then(function (geo) {
+      try {
+        echarts.registerMap('world', geo);
+        state.worldLoaded = true;
+      } catch (e) { /* 注册失败：地图区留空，列表仍可用 */ }
+      cb();
+    }).catch(function () { cb(); });
+  }
+  var GEO_NAME_CODE = null;
+  function geoNameToCode(name) {
+    if (!GEO_NAME_CODE) {
+      GEO_NAME_CODE = {};
+      Object.keys(GEO_CODE_NAME).forEach(function (k) { GEO_NAME_CODE[GEO_CODE_NAME[k]] = k; });
+    }
+    return GEO_NAME_CODE[name] || '';
+  }
+  // 国家筛选/次数阈值统一入口（下拉/地图点击/清除共用；本地过滤零请求）
+  function setGeoCountry(code) {
+    state.geo.country = code || '';
+    var sel = document.getElementById('geo-country-filter');
+    if (sel) { sel.value = state.geo.country; }
+    renderGeo();
+    renderGeoSources();
+  }
+  // 国家下拉重建（数据驱动：当前 rows 出现过的国家；保留现有选择）
+  function rebuildCountryOptions(rows) {
+    var sel = document.getElementById('geo-country-filter');
+    if (!sel) return;
+    var cur = state.geo.country, codes = {};
+    var html = '<option value="">全部国家/地区</option>';
+    rows.forEach(function (r) {
+      if (r.country_code === 'Unknown' || codes[r.country_code]) { return; }
+      codes[r.country_code] = true;
+      html += '<option value="' + escapeHtml(r.country_code) + '">' + escapeHtml(r.country_name) + '</option>';
+    });
+    sel.innerHTML = html;
+    if (cur) { sel.value = cur; }
+  }
+  function renderGeo() {
+    if (!vis('attack')) { return; } // 隐藏面板不渲染
+    var rows = state.geo.rows;
+    var el = document.getElementById('chart-world');
+    if (!el) { return; }
+    var note = document.getElementById('geo-mmdb-note');
+    if (note) {
+      if (state.geo.rows && !state.geo.mmdbOk) {
+        note.style.display = 'inline';
+        note.textContent = '未配置 GeoIP 库（部署时运行 deploy/fetch_geolite2.sh），国家显示 Unknown';
+      } else { note.style.display = 'none'; }
+    }
+    if (!rows) { return; } // 加载中（保留旧图）
+    var badge = document.getElementById('zero-geo-badge');
+    if (badge) { badge.style.display = rows.length ? 'none' : 'block'; }
+    rebuildCountryOptions(rows);
+    loadWorldMap(function () {
+      if (!state.worldLoaded) { return; }
+      // 国家聚合：country_code → geojson 名；Unknown/无映射 code 不入地图（列表仍展示）
+      var byCountry = {};
+      var filtered = rows.filter(function (r) {
+        if (state.geo.country && r.country_code !== state.geo.country) { return false; }
+        if (state.geo.min > 0 && r.count < state.geo.min) { return false; }
+        return true;
+      });
+      filtered.forEach(function (r) {
+        if (r.country_code === 'Unknown') { return; }
+        var n = GEO_CODE_NAME[r.country_code];
+        if (!n) { return; }
+        byCountry[n] = (byCountry[n] || 0) + r.count;
+      });
+      var data = Object.keys(byCountry).map(function (n) { return { name: n, value: byCountry[n] }; });
+      var max = 1;
+      data.forEach(function (d) { if (d.value > max) { max = d.value; } });
+      var opt = {
+        tooltip: {
+          trigger: 'item', backgroundColor: '#232C38', borderColor: '#2A3441', borderWidth: 1,
+          borderRadius: 6, padding: [8, 12], textStyle: { color: '#E8EEF5', fontSize: 12 },
+          formatter: function (p) {
+            return p.name + '：<b style="font-family:Consolas,monospace;">' + p.value + '</b> 次 SSH 失败' +
+              (state.geo.country && p.name === GEO_CODE_NAME[state.geo.country] ? '（当前筛选）' : '');
+          }
+        },
+        visualMap: {
+          show: true, min: 0, max: max, left: 8, bottom: 8, calculable: false,
+          text: ['高', '低'], textStyle: { color: '#8A94A3', fontSize: 11 },
+          inRange: { color: ['#0E1319', '#1B232D', '#3B5F8A', '#58A6FF'] },
+          itemWidth: 10, itemHeight: 80
+        },
+        series: [{
+          name: 'SSH 失败', type: 'map', map: 'world', roam: false, data: data,
+          label: { show: false },
+          itemStyle: { borderColor: '#2A3441', borderWidth: 0.6, areaColor: '#0E1319' },
+          emphasis: { label: { show: true, color: '#E8EEF5', fontSize: 11 },
+            itemStyle: { areaColor: '#58A6FF' } },
+          select: { itemStyle: { areaColor: 'rgba(76,154,255,0.35)', borderColor: '#58A6FF', borderWidth: 1 } },
+          selectedMode: state.geo.country ? 'single' : false
+        }]
+      };
+      var wc = chart('chart-world');
+      // 点击国家 → 筛选该国家（再次点击取消）；联动下方列表与导出
+      if (!wc.__geoClickBound) {
+        wc.on('click', function (params) {
+          var code = geoNameToCode(params.name);
+          if (!code) { return; }
+          setGeoCountry(state.geo.country === code ? '' : code);
+        });
+        wc.__geoClickBound = true;
+      }
+      wc.setOption(opt, true);
+    });
+  }
+  // 地图卡内攻击源列表（SSH 失败口径 TOP10，联动国家/阈值筛选；点击复制 IP）
+  function renderGeoSources() {
+    if (!vis('attack')) { return; }
+    var ul = document.getElementById('geo-sources-list');
+    if (!ul) return;
+    var rows = state.geo.rows;
+    if (!rows) {
+      ul.innerHTML = '<li style="color:var(--text-dim);cursor:default;">加载中…</li>';
+      return;
+    }
+    var list = rows.filter(function (r) {
+      if (state.geo.country && r.country_code !== state.geo.country) { return false; }
+      if (state.geo.min > 0 && r.count < state.geo.min) { return false; }
+      return true;
+    });
+    if (!list.length) {
+      ul.innerHTML = '<li style="color:var(--text-dim);cursor:default;">' +
+        (rows.length ? '当前筛选无匹配来源 IP（清除筛选查看全部）' : '暂无 SSH 失败来源') + '</li>';
+      return;
+    }
+    var top = list.slice(0, 10);
+    var max = top[0].count || 1;
+    ul.innerHTML = '';
+    top.forEach(function (r, i) {
+      var li = document.createElement('li');
+      li.title = r.ip + '（' + r.country_name + '）累计 ' + r.count + ' 次';
+      li.innerHTML = '<span class="rank">#' + (i + 1) + '</span>' +
+        '<span class="src-ip">' + escapeHtml(r.ip) + '</span>' +
+        '<span class="port" style="width:auto;color:var(--text-dim);">' + escapeHtml(r.country_name === 'Unknown' ? '未知' : r.country_name) + '</span>' +
+        '<span class="bar-wrap"><span class="bar" style="width:' + Math.round(r.count / max * 100) + '%;background:var(--accent);"></span></span>' +
+        '<span class="hits">' + r.count + '</span>';
+      var ipStr = r.ip;
+      li.appendChild(makeCopyBtn(ipStr));
+      ul.appendChild(li);
+    });
+  }
+  // 复制按钮（与 TOP 攻击源迷你榜同款交互；独立工厂避免与 renderTopSourcesMini 耦合）
+  function makeCopyBtn(ipStr) {
+    var btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.textContent = '复制';
+    btn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      function done(ok) {
+        btn.textContent = ok ? '已复制' : '复制失败';
+        btn.classList.toggle('copied', ok);
+        setTimeout(function () { btn.textContent = '复制'; btn.classList.remove('copied'); }, 1500);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(ipStr).then(function () { done(true); }, function () { done(false); });
+      } else { done(false); }
+    });
+    return btn;
+  }
+  // 地图 CSV 导出（携带当前 range/country/min_count 筛选）
+  function geoExport() {
+    var q = 'range=' + state.range;
+    if (state.geo.country) { q += '&country=' + encodeURIComponent(state.geo.country); }
+    if (state.geo.min > 0) { q += '&min_count=' + state.geo.min; }
+    var a = document.createElement('a');
+    a.href = '/api/v1/export/attacks_csv?' + q;
+    a.download = 'sentry_attacks_geo_' + state.range + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+
   // ===== 模块 4：非表格渲染（KPI / 态势 / TOP / 事件流） =====
   // count-up（DEV-047 C1：600ms rAF 一次性滚动；5s 轮询下动画不重叠；
   // 系统开启"减弱动效"时直接落值；负数/千分位格式由调用侧既有格式逻辑保持）
@@ -532,7 +755,7 @@
     return { cls: 'flat', text: '→ 0%' };
   }
 
-  // 态势结论条（可折叠；数据：summary + bans + fwTimeline）。
+  // 态势结论条（可折叠；数据：summary + fwTimeline）。
   // DEV-045 口径：入站探测数 = fwTimeline inbound 累计（扫描器流量展示）；
   // 拦截数 = drop + reject 累计（实际威胁动作）。与攻击趋势图/TOP 端口一致。
   // 态势条不显示源数（top_sources 无 action 过滤 + LIMIT 10 封顶，避免虚假精确，D-23）。
@@ -540,12 +763,12 @@
     var bar = document.getElementById('situation-bar');
     var txt = document.getElementById('situation-text');
     if (!bar || !txt) { return; }
-    var s = state.summary, banCnt = state.banCount, fwT = state.fwTimeline;
+    var s = state.summary, fwT = state.fwTimeline;
     // 任一攻击数据源请求失败 → 显示错误态而非"计算中"/"正常"（含 sshTimelineOk 独立跟踪 + summaryFailed）
     if (state.attackDataFailed || !state.sshTimelineOk || state.summaryFailed) {
       txt.textContent = '态势数据加载失败，请稍后重试';
       bar.className = 'warn';
-    } else if (!s || banCnt === null || !fwT) {
+    } else if (!s || !fwT) {
       txt.textContent = '态势计算中…';
       bar.className = 'warn';
     } else {
@@ -557,7 +780,7 @@
         var topPort = (s.top_ports && s.top_ports[0]) ? ':' + Number(s.top_ports[0].dst_port) : '-';
         txt.innerHTML = '共 <span class="sit-num">' + Number(fwInbound) + '</span> 次入站探测（拦截 <span class="sit-num">' + Number(fwBlocked) +
           '</span> 次）、<span class="sit-num">' + Number(sshFail) +
-          '</span> 次 SSH 失败，TOP 被攻击端口 <span class="sit-num">' + topPort + '</span>，已封禁 <span class="sit-num">' + Number(banCnt) + '</span> 个 IP';
+          '</span> 次 SSH 失败，TOP 被攻击端口 <span class="sit-num">' + topPort + '</span>';
         bar.className = 'warn';
       } else {
         txt.textContent = '✓ 当前态势正常（所选范围无攻击事件）';
@@ -578,7 +801,7 @@
     if (state.summaryFailed) {
       // 失败分支：主值 -- + 失败色，spark/trend 清空为基线（不保留旧值误导）；active-conns 走 WS 实时通道不动
       setKpiSkeleton(false);
-      ['today-fw', 'today-sshfail', 'disk-pct', 'ban-total', 'risk-score'].forEach(function (id) {
+      ['today-fw', 'today-sshfail', 'disk-pct', 'risk-score'].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) { el.className = 'v danger'; el.textContent = '--'; }
       });
@@ -607,16 +830,12 @@
       diskEl.className = 'v ' + (dp >= 80 ? 'danger' : (dp >= 60 ? 'warn' : 'ok'));
       if (dp >= 0) { diskEl.textContent = dp.toFixed(1) + '%'; }
     }
-    // DEV-047 D2：新增 KPI——封禁数（ok 语义，与事件流 ban 点一致）+ 风险评分（与 gauge 同口径 riskParts）。
-    // 攻击数据源失败时与 renderRisk 失败态一致显示 --（不保留旧值误导）
-    var banEl = document.getElementById('ban-total');
+    // DEV-047 D2：风险评分 KPI（与 gauge 同口径 riskParts）。攻击数据源失败时显示 --（不保留旧值误导）
     var riskEl = document.getElementById('risk-score');
     var riskFail = state.attackDataFailed || !state.sshTimelineOk || state.summaryFailed;
     if (riskFail) {
-      if (banEl) { banEl.className = 'v danger'; banEl.textContent = '--'; }
       if (riskEl) { riskEl.className = 'v danger'; riskEl.textContent = '--'; }
     } else {
-      if (banEl) { banEl.className = 'v ok'; countUp(banEl, state.banCount || 0); }
       if (riskEl) {
         var rp = riskParts();
         if (rp) {
@@ -708,7 +927,7 @@
     });
   }
 
-  // 事件摘要流（三类混排，10 分钟窗口分组，最新 20 条；WS 新条目高亮淡入）。
+  // 事件摘要流（两类混排，10 分钟窗口分组，最新 20 条；WS 新条目高亮淡入）。
   // DEV-FE-002：默认折叠 3 条 + 展开全部；条目点击跳转攻击页对应表。
   // DEV-FE-003 PF-3：行级更新——按 key 复用行元素（box.__diff 缓存），无变化行零 DOM 写入
   var streamKeys = {};        // 上轮 key 集合（对比出新增条目）
@@ -728,20 +947,13 @@
     });
     (state.fwRows || []).forEach(function (r) {
       // DEV-045：事件流仅展示拦截类动作（reject/drop）——inbound 扫描探测量级占 98%+，
-      // 且趋势图/KPI/FW 表格已承载展示，避免刷屏挤出 SSH 失败/封禁等高信号事件
+      // 且趋势图/KPI/FW 表格已承载展示，避免刷屏挤出 SSH 失败等高信号事件
       if (r.action === 'reject' || r.action === 'drop') {
         var a = r.action, sIp = ip(r.src_ip);
         var label = a === 'reject' ? '拦截' : '丢弃';
         items.push({ ts: r.ts, type: 'fw', srcIp: r.src_ip,
           text: '外部威胁 ' + label + ' <b>' + sIp + '</b> → :<b>' + r.dst_port + '</b>',
           plain: '外部威胁 ' + label + ' ' + sIp + ' → :' + r.dst_port });
-      }
-    });
-    (state.banRows || []).forEach(function (r) {
-      if (r.type === 'ban') {
-        var bIp = ip(r.ip);
-        items.push({ ts: r.ts, type: 'ban', ip: r.ip,
-          text: '封禁 <b>' + bIp + '</b>（' + escapeHtml(r.jail) + '）', plain: '封禁 ' + bIp + '（' + r.jail + '）' });
       }
     });
     items.sort(function (a, b) { return b.ts - a.ts; });
@@ -796,11 +1008,10 @@
           el.className = 'ev-item';
           el.title = '点击跳转攻击页查看明细';
           el.innerHTML = '<span class="ev-bar"></span><span class="ev-dot"></span><span class="ev-time"></span><span class="ev-text"></span>';
-          // 点击：跳转攻击页对应表（SSH/fw 预置源 IP 过滤；封禁跳转高亮，N-2 口径）
+          // 点击：跳转攻击页对应表（SSH/fw 预置源 IP 过滤）
           el.addEventListener('click', function () {
             var it = el.__row;
-            if (it.type === 'ban') { gotoBanIp(it.ip); }
-            else { applyFilter({ type: 'src', value: it.srcIp }, '总览'); switchPanel('attack'); }
+            applyFilter({ type: 'src', value: it.srcIp }, '总览'); switchPanel('attack');
           });
           if (streamRendered && !streamKeys[row.key] && !suppressStreamNew) {
             el.classList.add('stream-new'); // 新条目高亮淡入 600ms
@@ -997,38 +1208,7 @@
       };
     });
   }
-  // 封禁记录（N-2：bans 端点无 src_ip 参数——行点击仅跳转攻击页高亮该 IP，不设置 filter）
-  function renderBans() {
-    if (!vis('attack')) { return; }
-    var tb = tbody('ban-table');
-    if (!tb) return;
-    var rows = state.banRows;
-    if (!rows) { setTableState('ban-table', 'loading-row', '加载中…'); return; }
-    if (!rows.length) { setTableState('ban-table', 'empty-row', '暂无封禁记录'); return; }
-    var s = state.sort['ban-table'];
-    rows = sortRows(rows, s && s.key, s && s.dir);
-    rows = rows.slice(0, tablePage['ban-table'] || TABLE_PAGE);
-    var seen = {};
-    rows.forEach(function (b) {
-      var base = b.ts + '|' + b.ip + '|' + b.type;
-      seen[base] = (seen[base] || 0) + 1;
-      b.__k = base + '#' + seen[base];
-    });
-    renderTableDiff(tb, rows, function (b) {
-      var hl = state.banHighlightIp !== null && state.banHighlightIp === b.ip;
-      return {
-        key: b.__k,
-        cls: (b.type === 'ban' ? 'row-danger ' : '') + 'row-clickable' + (hl ? ' row-highlight' : ''),
-        title: '跳转查看该 IP（封禁表不受过滤影响）',
-        click: function (row) { gotoBanIp(row.ip); },
-        cells: [
-          { text: fmtTimeFull(b.ts), cls: 'ts-cell' },
-          { text: ip(b.ip), cls: 'num' },
-          { text: b.type }, { text: b.jail }
-        ]
-      };
-    });
-  }
+  // 封禁记录表已随 DEV-GEO-001 移除（renderBans/gotoBanIp 删除；后端 /api/v1/bans 保留不动）
   function renderSnap() {
     if (!vis('conn')) { return; }
     var tb = tbody('snap-table');
@@ -1211,18 +1391,20 @@
       renderRisk();
       renderSituation(); // 态势条 drop 口径依赖 fwTimeline，须在其就绪后重算
     }, function () { state.fwTimeline = null; state.attackDataFailed = true; noteFailure(); renderAttackTrend(); renderSituation(); renderRisk(); });
-    // bans limit 500（limit=100 时 range 内 ban 记录 >100 会截断，banCount 低估、风险评分封禁通道虚低）
-    fetchJSON('/api/v1/bans?limit=500&' + rangeQS(), function (d) {
-      state.banRows = d.rows || [];
-      var banCnt = 0;
-      (state.banRows).forEach(function (b) { if (b.type === 'ban') { banCnt++; } });
-      state.banCount = banCnt;
-      renderBans();
-      renderSituation();
-      renderRisk();
-      renderEventStream();
-      renderKPI(); // DEV-047 D2：封禁数 KPI 依赖 banCount，bans 回调同步刷新
-    }, function () { noteFailure(); setTableState('ban-table', 'error-row', '加载失败，请稍后重试'); state.attackDataFailed = true; renderSituation(); renderRisk(); });
+    // 全球攻击地图数据（DEV-GEO-001；SSH 失败按来源 IP 聚合，country/min 前端本地过滤。
+    // 30d 视图随 pollAttack 降频自动降频；失败时地图置空态、列表置失败行）
+    fetchJSON('/api/v1/attacks/geo?limit=1000&' + rangeQS(), function (d) {
+      state.geo.rows = d.rows || [];
+      state.geo.mmdbOk = !!d.mmdb_ok;
+      renderGeo();
+      renderGeoSources();
+    }, function () {
+      state.geo.rows = null;
+      noteFailure();
+      setChartEmpty('chart-world', false);
+      var gl = document.getElementById('geo-sources-list');
+      if (gl) { gl.innerHTML = '<li style="color:var(--danger);cursor:default;">地图数据加载失败</li>'; }
+    });
     // SSH 尝试明细（跟随 range + src_ip 联动过滤；result=0 失败）
     var sshQS = '/api/v1/ssh?limit=200&' + rangeQS();
     if (state.filter && state.filter.type === 'src') { sshQS += '&src_ip=' + state.filter.value; }
@@ -1305,9 +1487,9 @@
     var hint = document.getElementById('rate-hint');
     if (hint) { hint.style.display = (r === '30d') ? 'block' : 'none'; }
     resetTablePages();
-    // 重置明细缓存（避免旧范围数据闪回；summary/banCount 一并重置，
-    // 否则新范围 summary 会与旧范围 banCount 混合渲染态势条/风险评分）
-    state.sshRows = state.fwRows = state.banRows = state.connRows = null;
+    // 重置明细缓存（避免旧范围数据闪回；summary 一并重置，
+    // 否则新范围 summary 会与旧范围数据混合渲染态势条/风险评分）
+    state.sshRows = state.fwRows = state.connRows = null;
     state.attack = { ports: null, sources: null, ssh: null };
     // 范围切换后清空攻击三图——30d 慢响应期间旧 range 图不得残留误导
     ['chart-ports', 'chart-sources', 'chart-ssh'].forEach(function (id) {
@@ -1315,11 +1497,10 @@
     });
     state.fwTimeline = null;
     state.summary = null;
-    state.banCount = null;
+    state.geo.rows = null;   // 地图数据随范围重置（country/min 过滤保持，交互状态不丢）
     state.topPorts = [];
     state.resourceData = null;
     state.eventExpanded = false; // 范围切换后事件流恢复默认 3 条
-    state.banHighlightIp = null;
     // 范围切换重置失败标志（避免旧范围失败残留到新范围首个成功响应）
     state.attackDataFailed = false;
     state.sshTimelineOk = true;
@@ -1331,22 +1512,7 @@
     pollAll();
   }
 
-  // 封禁跳转攻击页：扩充分页至目标行所在批次（>60 行时目标行可能不在首屏），渲染后滚动定位高亮行；
-  // 不设置 filter（N-2：bans 端点无 src_ip 参数）。行级 diff 下高亮由 renderBans 的 cls 重算维持。
-  function gotoBanIp(ipVal) {
-    state.banHighlightIp = ipVal;
-    var idx = -1;
-    (state.banRows || []).forEach(function (b, i) { if (b.ip === ipVal) { idx = i; } });
-    if (idx >= 0) {
-      var need = Math.min((Math.floor(idx / TABLE_PAGE) + 1) * TABLE_PAGE, MAX_TABLE_PAGE);
-      if (need > (tablePage['ban-table'] || TABLE_PAGE)) { tablePage['ban-table'] = need; }
-    }
-    switchPanel('attack');
-    setTimeout(function () {
-      var hl = document.querySelector('#ban-table .row-highlight');
-      if (hl) { hl.scrollIntoView({ block: 'center', behavior: 'auto' }); }
-    }, 60);
-  }
+  // 封禁跳转攻击页逻辑已随封禁展示移除（DEV-GEO-001）
 
   // WS system 帧独立浮条（DEV-FE-003 IN-4：右下角 5s 自动消失，不再覆盖连接徽章文字；
   // 连续帧到达重置计时器）
@@ -1546,7 +1712,8 @@
       renderIf();
       renderSSH();
       renderFW();
-      renderBans();
+      renderGeo();
+      renderGeoSources();
     } else if (name === 'export') {
       // DEV-EXPORT-001：导出页为纯交互页——不注册任何轮询/拉取（可见性门控：无数据拉取），
       // 切页激活时不触发任何 render；数据由用户点击"导出 CSV"时按需 fetch。
@@ -1581,6 +1748,23 @@
   var exportBtnEl = document.getElementById('export-btn');
   if (exportBtnEl) { exportBtnEl.addEventListener('click', doExport); }
   initCustomRange();
+
+  // DEV-GEO-001：全球攻击地图交互绑定（国家下拉 / 次数阈值 / 导出；地图点击在 renderGeo 内绑定）
+  var geoCountrySel = document.getElementById('geo-country-filter');
+  if (geoCountrySel) {
+    geoCountrySel.addEventListener('change', function () { setGeoCountry(geoCountrySel.value); });
+  }
+  var geoMinSel = document.getElementById('geo-min-filter');
+  if (geoMinSel) {
+    geoMinSel.addEventListener('change', function () {
+      state.geo.min = parseInt(geoMinSel.value, 10) || 0;
+      renderGeo();
+      renderGeoSources();
+    });
+  }
+  var geoExportBtn = document.getElementById('geo-export-btn');
+  if (geoExportBtn) { geoExportBtn.addEventListener('click', geoExport); }
+  loadWorldMap(function () { if (state.activePanel === 'attack') { renderGeo(); } }); // 后台预载（幂等）
 
   // A-04（AUDIT-005）：数据保留提示——从 health 读取 retention_days（跟随配置，
   // 默认 7 天；<=0 表示禁用清理=永久保留）。失败保持静态默认文案。
@@ -1643,14 +1827,12 @@
   // DOM 规模控制：滚动到底加载下一批（每表首屏 TABLE_PAGE 行；行级 diff 下追加批次走复用路径）
   bindScrollLoad('ssh-table', renderSSH);
   bindScrollLoad('fw-table', renderFW);
-  bindScrollLoad('ban-table', renderBans);
   bindScrollLoad('conn-table', renderConns);
   bindScrollLoad('snap-table', renderSnap);
 
   // 列头排序绑定（keys 与表头列一一对应；null 列不可排）
   bindSort('snap-table', [null, null, 'src_port', 'dst_port', 'pid'], renderSnap);
   bindSort('conn-table', [null, null, null, null, null, 'packets'], renderConns);
-  bindSort('ban-table', ['ts', null, null, null], renderBans);
   bindSort('ssh-table', ['ts', null, null, null, null, null, null], renderSSH);
   bindSort('fw-table', ['ts', null, null, null, null, null, null], renderFW);
 
