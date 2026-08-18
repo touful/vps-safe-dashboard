@@ -40,6 +40,7 @@ sentry-agent 全生命周期验证/测试/审计档案。命名约定：`Vn_验�
 | [AUD-FE-003_五项调整审计.md](AUD-FE-003_五项调整审计.md) | DEV-FE-005 面板五项调整审计 | **PASS_WITH_NOTES**：五项调整实施正确、archive 清理彻底、契约一致；1 Minor（A-01 文案残留）+ 4 Note |
 | [AUD-VPS-001_VPS攻击面审计.md](AUD-VPS-001_VPS攻击面审计.md) | VPS 部署攻击面审计（威胁建模） | **PASS_WITH_NOTES**：推荐部署低-中风险/公网直曝高风险；0 Blocker/Major，8 Minor + 10 Note；Top5 攻击路径 + P0/P1/P2 加固建议 |
 | [AUD-FE-004_P1加固与导出审计.md](AUD-FE-004_P1加固与导出审计.md) | P1 安全加固 + 数据导出终审 | **PASS_WITH_NOTES**：9 项要点全过；1 Minor（M-01 导出中断路径，联动条件未触发）+ 10 Note；无新依赖无越权 |
+| [AUD-PUSH-001_发布安全审计.md](AUD-PUSH-001_发布安全审计.md) | 发布推送安全审计（公开仓库推送前敏感信息核查） | 审计结论 + 整改清单（DEV-RELEASE-001）；相关方案见 docs/发布推送方案.md |
 
 ## evidence/ 目录说明
 
@@ -59,4 +60,6 @@ sentry-agent 全生命周期验证/测试/审计档案。命名约定：`Vn_验�
 > 一次性验证脚本已从 `scripts/` 清理（git 历史可恢复）；本目录保留的是不可再生的执行证据（原始输出与文本断言记录），请勿删除。
 
 > **大文件处理政策（DEV-CLEAN-001）**：超过 10MB 的执行证据以 gzip 压缩形式归档（如 `evidence/testfe001/trace_attack30s.json.gz`），原始文件不保留在仓库（63.5MB 压缩为 4.1MB，可解压还原）。历史报告/脚本中引用的原始 `.json` 路径已失效，复现分析时先解压 `.gz` 还原文件名（Linux/WSL：`gzip -dk trace_attack30s.json.gz`；Windows：`tar -xzf trace_attack30s.json.gz` 或 7-Zip 解压）。
+>
+> **trace gz 不入库说明（DEV-RELEASE-001 / AUD-PUSH-001 S-01）**：`evidence/testfe001/trace_attack30s.json.gz` 含机器指纹（浏览器/系统特征），**有意不入库**（.gitignore 精确规则），仅存于本地工作区；公开仓库不推送该文件。其余 evidence 文件为不可再生执行证据，入库保护。
 

@@ -83,10 +83,6 @@ pyghidra_mcp_projects/
 # ===== Agent 运行基础设施（内部目录，不入库）=====
 .opencode/
 
-# ===== 内部过程文档（DEV-RELEASE-001：运维细节不公开）=====
-docs/发布推送方案.md
-docs/verification/AUD-PUSH-001_发布安全审计.md
-
 # ===== 运行时数据（采集工具本地存储）=====
 *.db
 *.db-wal
