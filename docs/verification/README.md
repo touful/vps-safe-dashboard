@@ -41,7 +41,7 @@ sentry-agent 全生命周期验证/测试/审计档案。命名约定：`Vn_验�
 | [AUD-FE-003_五项调整审计.md](AUD-FE-003_五项调整审计.md) | DEV-FE-005 面板五项调整审计 | **PASS_WITH_NOTES**：五项调整实施正确、archive 清理彻底、契约一致；1 Minor（A-01 文案残留）+ 4 Note |
 | [AUD-VPS-001_VPS攻击面审计.md](AUD-VPS-001_VPS攻击面审计.md) | VPS 部署攻击面审计（威胁建模） | **PASS_WITH_NOTES**：推荐部署低-中风险/公网直曝高风险；0 Blocker/Major，8 Minor + 10 Note；Top5 攻击路径 + P0/P1/P2 加固建议 |
 | [AUD-FE-004_P1加固与导出审计.md](AUD-FE-004_P1加固与导出审计.md) | P1 安全加固 + 数据导出终审 | **PASS_WITH_NOTES**：9 项要点全过；1 Minor（M-01 导出中断路径，联动条件未触发）+ 10 Note；无新依赖无越权 |
-| [AUD-PUSH-001_发布安全审计.md](AUD-PUSH-001_发布安全审计.md) | 发布推送安全审计（公开仓库推送前敏感信息核查） | 审计结论 + 整改清单（DEV-RELEASE-001）；相关方案见 docs/发布推送方案.md |
+| ~~AUD-PUSH-001_发布安全审计.md~~（原件已删除） | 发布推送安全审计（公开仓库推送前敏感信息核查） | 审计结论与处理状态已提炼至 **[docs/发布检查清单.md](../发布检查清单.md)**（DEV-PUSH-FIX-002，已脱敏可入库；敏感历史已重写清除） |
 
 ## evidence/ 目录说明
 
