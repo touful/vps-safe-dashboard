@@ -168,6 +168,8 @@ func main() {
 				return
 			}
 			defer srv.Close()
+			// 以下 setter 注入须全部在 Serve 之前完成（api.Server 时序约束，
+			// 运行期不热更新，见 api.Server.SetLimits 等注释）。
 			srv.SetDBPath(cfg.DB.Path)
 			// A-04（AUDIT-005）：注入数据保留天数（health 返回，前端 range 提示）。
 			srv.SetRetentionDays(cfg.DB.RetentionDays)

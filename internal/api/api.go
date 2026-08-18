@@ -78,6 +78,8 @@ func NewServer(dbPath, archiveDir, wsOrigin string, allowNoOrigin bool, snapshot
 }
 
 // SetLimits 注入 VS-03/VS-04 限制参数（config 加载后调用一次；运行期不热更新）。
+// 注意：须在 Serve 之前调用——内部直接替换 apiLimiter/heavyLimiter 指针，
+// Serve 启动后并发读与指针替换构成数据竞争（DEV-AUDIT-001 P1-8 时序约束说明）。
 func (s *Server) SetLimits(rateRPS, rateBurst, heavyRPS, wsMaxConns int) {
 	if rateRPS >= 1 && rateBurst >= 1 {
 		s.apiLimiter = newTokenBucket(float64(rateRPS), float64(rateBurst))
@@ -96,6 +98,7 @@ func (s *Server) SetLimits(rateRPS, rateBurst, heavyRPS, wsMaxConns int) {
 
 // SetSystemChannel 注入 system_event 通道（限流拒绝留痕；main 注入 ch.System，
 // 测试未注入时 nil 安全——ReportSys 对 nil 通道静默丢弃）。
+// 注意：须在 Serve 之前调用（运行期不热更新）。
 func (s *Server) SetSystemChannel(sys chan<- event.SystemEvent) {
 	s.sysCh = sys
 }
@@ -200,6 +203,7 @@ func (s *Server) Close() error { return s.db.Close() }
 
 // SetOverrunCounter 注入共享溢出计数（M-01：conn 模块直接累加，API 只读展示，
 // 避免通道双消费者竞争；替换旧 AddOverrun 增量注入方式）。
+// 注意：须在 Serve 之前调用（运行期不热更新）。
 func (s *Server) SetOverrunCounter(c *atomic.Uint64) {
 	if c != nil {
 		s.overrunCounter = c
@@ -299,9 +303,11 @@ func (s *Server) hHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // SetDBPath 设置主库路径（health 的 db_size_mb 使用）。
+// 注意：须在 Serve 之前调用（运行期不热更新）。
 func (s *Server) SetDBPath(p string) { s.dbPath = p }
 
 // SetRetentionDays 注入数据保留天数（AUDIT-005 A-04：health 返回，前端 range 提示）。
+// 注意：须在 Serve 之前调用（运行期不热更新）。
 func (s *Server) SetRetentionDays(days int) { s.retentionDays = days }
 
 // hSummary 总览聚合（方案 3.7/4.4）。
