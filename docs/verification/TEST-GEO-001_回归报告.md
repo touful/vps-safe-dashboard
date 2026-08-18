@@ -31,7 +31,7 @@
 | 聚合正确性（交叉核对） | ssh?result=0&range=24h 明细 171 行按 IP 汇总（整数转点分）与 geo 9 行 count 逐行一致；聚合总数 171 = 明细总数 171 ✓ |
 | range=bad（非法回退） | 回显 range=24h、9 行（与 rangeSeconds 口径一致） |
 | country=CN 过滤 | rows=0（种子无 CN 源，过滤语义正确） |
-| min_count=20 | rows=6（全部 count≥20：24/23/22/21/20/20） |
+| min_count=20 | rows=6（全部 count≥20：24/23/22/20/20/20） |
 | 无 mmdb 降级（18081） | mmdb_ok=false、9 行全部 country=Unknown（不崩溃降级正确） |
 | 无 mmdb country=Unknown | **rows=0【缺陷 D-1】**（见 §3） |
 | 无 mmdb country=RU（组合） | rows=0 mmdb_ok=false（降级+国家过滤交互正确，预期） |

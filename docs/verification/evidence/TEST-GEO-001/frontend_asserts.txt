@@ -8,12 +8,12 @@
 == 2. 攻击页地图（权威验证：ECharts 实例数据）==
 容器 #chart-world（class=chart，height 340px）canvas 渲染（ECharts 默认 renderer，1 canvas）；echarts.getInstanceByDom 确认 type='map'
 series[0].data = [Russia:59, Germany:92]——RU=24+20+15=59 ✓、DE=23+22+20+14+13=92 ✓（与 geo API 9 行 count 手工核对一致）
-world.json 180 features（256950 字节≈256KB）；无 HKG feature；GEO_CODE_NAME 无 HK 键 → HK 不入地图（app.js L585-587 跳过），列表仍展示（#4 91.240.118.77 香港 21 次）——地图正确行为
+world.json 180 features（256950 字节≈256KB）；无 HKG feature；GEO_CODE_NAME 无 HK 键 → HK 不入地图（app.js L585-587 跳过），列表仍展示（#4 91.240.118.77 香港 20 次）——地图正确行为
 aria-label 残留'全球攻击地图：数据加载中'（加载完成后未更新，Note D-3）
 
 == 3. 筛选联动 ==
 国家下拉选'俄罗斯联邦'→ 列表仅剩 3 行 RU（45.155.205.2/45.155.205.3/45.155.205.1）
-次数阈值选'≥ 10'→ 9 行全部 ≥10（24/23/22/21/20/20/15/14/13）
+次数阈值选'≥ 10'→ 9 行全部 ≥10（24/23/22/20/20/20/15/14/13）
 地图点击联动：wc.on('click')→setGeoCountry→列表/导出（app.js L619-624 代码确认，与下拉共用 setGeoCountry 入口）
 geoExport(L686-696)：href=/api/v1/export/attacks_csv?range=X&country=Y&min_count=Z（携带当前筛选，代码确认）
 

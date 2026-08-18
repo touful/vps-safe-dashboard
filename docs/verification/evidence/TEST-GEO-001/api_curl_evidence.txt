@@ -21,6 +21,7 @@
 {"mmdb_ok":false,"range":"24h","rows":[]}
 
 === attacks_csv（含头）===
+# 注：本段为第一次轮快照（21:46:32 请求，HK=21）；与 api_snapshot_consistent.txt 统一快照（HK=20）差异 1 行系滑动窗口边界（两次请求间隔约 12 分钟，窗口左端前进移入/移出边界行），非口径差异（geo 与 CSV 共用 queryGeoRows 同路径）
 
 HTTP/1.1 200 OK
 Content-Disposition: attachment; filename="sentry_attacks_geo_20260818_214632.csv"
