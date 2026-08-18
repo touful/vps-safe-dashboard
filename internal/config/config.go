@@ -23,6 +23,7 @@ type Config struct {
 	Web       WebCfg       `json:"web"`
 	Disk      DiskCfg      `json:"disk"`
 	Log       LogCfg       `json:"log"`
+	GeoIP     GeoIPCfg     `json:"geoip"`
 }
 
 // CollectCfg 资源采集（M-01）。
@@ -160,6 +161,24 @@ type LogCfg struct {
 	Level string `json:"level"`
 }
 
+// GeoIPCfg GeoIP 离线库（DEV-GEO-001）：查询 + 每日更新。
+// 凭据安全：account_id/license_key 仅部署时填入 deploy/config.json（gitignore 保护），
+// 代码与 config.example.json 均不得写入真实值。
+type GeoIPCfg struct {
+	// DBPath mmdb 路径（默认 /var/lib/sentry-agent/GeoLite2-Country.mmdb）。
+	DBPath string `json:"db_path"`
+	// AccountID MaxMind 账号 ID（空 = 禁用自动更新，仅离线查询）。
+	AccountID string `json:"account_id"`
+	// LicenseKey MaxMind License Key（与 account_id 成对）。
+	LicenseKey string `json:"license_key"`
+	// UpdateEnabled 是否启用每日自动更新（默认 true；凭据为空时自动跳过）。
+	UpdateEnabled bool `json:"update_enabled"`
+	// UpdateHour 每日更新时刻（UTC 时，默认 2）。
+	UpdateHour int `json:"update_hour"`
+	// UpdateMinute 每日更新时刻（UTC 分，默认 30）。
+	UpdateMinute int `json:"update_minute"`
+}
+
 // Defaults 返回全部配置项默认值（与方案 6.6 一致）。
 func Defaults() *Config {
 	return &Config{
@@ -186,6 +205,7 @@ func Defaults() *Config {
 		Web:     WebCfg{Listen: "127.0.0.1:8080", WSOriginAllow: "http://127.0.0.1:8080", WSMaxConns: 100, RateLimitRPS: 10, RateLimitBurst: 20, HeavyLimitRPS: 1},
 		Disk:    DiskCfg{WarnPercent: 80, CriticalPercent: 90, EmergencyPercent: 95},
 		Log:     LogCfg{Level: "info"},
+		GeoIP:   GeoIPCfg{DBPath: "/var/lib/sentry-agent/GeoLite2-Country.mmdb", UpdateEnabled: true, UpdateHour: 2, UpdateMinute: 30},
 	}
 }
 
@@ -240,6 +260,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := c.validateLog(); err != nil {
+		return err
+	}
+	if err := c.validateGeoIP(); err != nil {
 		return err
 	}
 	return nil
@@ -407,6 +430,20 @@ func (c *Config) validateDisk() error {
 func (c *Config) validateLog() error {
 	if c.Log.Level != "info" && c.Log.Level != "debug" && c.Log.Level != "warn" && c.Log.Level != "error" {
 		return fmt.Errorf("log.level=%q 非法，仅支持 info|debug|warn|error", c.Log.Level)
+	}
+	return nil
+}
+
+// validateGeoIP 校验 geoip 段（更新时刻范围；凭据成对性仅提示不强制——单边缺失时更新自动跳过）。
+func (c *Config) validateGeoIP() error {
+	if c.GeoIP.DBPath == "" {
+		return fmt.Errorf("geoip.db_path 不能为空")
+	}
+	if c.GeoIP.UpdateHour < 0 || c.GeoIP.UpdateHour > 23 {
+		return fmt.Errorf("geoip.update_hour=%d 超出范围 0-23（UTC）", c.GeoIP.UpdateHour)
+	}
+	if c.GeoIP.UpdateMinute < 0 || c.GeoIP.UpdateMinute > 59 {
+		return fmt.Errorf("geoip.update_minute=%d 超出范围 0-59", c.GeoIP.UpdateMinute)
 	}
 	return nil
 }
