@@ -10,21 +10,15 @@ import (
 	"sentry-agent/internal/event"
 )
 
-// startTestServer 启动蜜罐（每个协议预分配本机随机端口）并返回实际地址。
-// protos 为要启用的协议名列表（框架按协议名取 handler，与端口解耦）。
+// startTestServer 启动蜜罐（全部协议 ":0" 自动分配端口，经 Addrs 回读实际地址）。
+// 该方案避免"预分配-释放-重监听"窗口在并行测试间的端口竞争。
 func startTestServer(t *testing.T, protos []string, credCh chan<- event.CredEvent, sys chan<- event.SystemEvent) (*Server, map[string]string) {
 	t.Helper()
-	real := make(map[string]string, len(protos))
+	listen := make(map[string]string, len(protos))
 	for _, p := range protos {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatalf("预分配端口失败: %v", err)
-		}
-		addr := ln.Addr().String()
-		_ = ln.Close() // 释放后由 Server 重新监听（竞态窗口极小，测试可接受）
-		real[p] = addr
+		listen[p] = "127.0.0.1:0"
 	}
-	srv := NewServer(real, credCh, sys)
+	srv := NewServer(listen, credCh, sys)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -32,22 +26,16 @@ func startTestServer(t *testing.T, protos []string, credCh chan<- event.CredEven
 		close(done)
 	}()
 	t.Cleanup(func() { cancel(); <-done })
-	// 等待全部监听就绪（避免客户端连接过早被拒）。
+	// 等待全部监听就绪（Addrs 回读实际端口）。
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		ready := true
-		for _, addr := range real {
-			if !listenOK(addr) {
-				ready = false
-				break
-			}
-		}
-		if ready {
-			return srv, real
+		addrs := srv.Addrs()
+		if len(addrs) == len(protos) {
+			return srv, addrs
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("蜜罐监听未就绪: %v", real)
+	t.Fatalf("蜜罐监听未就绪: %v", srv.Addrs())
 	return nil, nil
 }
 
@@ -235,30 +223,29 @@ func TestServerListenFail(t *testing.T) {
 	defer blocker.Close()
 	blocked := blocker.Addr().String()
 
-	ln2, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	free := ln2.Addr().String()
-	_ = ln2.Close()
-
 	sys := make(chan event.SystemEvent, 16)
-	srv := NewServer(map[string]string{"telnet": blocked, "ftp": free}, nil, sys)
+	srv := NewServer(map[string]string{"telnet": blocked, "ftp": "127.0.0.1:0"}, nil, sys)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		_ = srv.Run(ctx)
 		close(done)
 	}()
+	// 等待 ftp 监听就绪（telnet 失败仅留痕）。
 	deadline := time.Now().Add(2 * time.Second)
+	ftpAddr := ""
 	for time.Now().Before(deadline) {
-		if listenOK(free) {
+		if a := srv.Addrs()["ftp"]; a != "" {
+			ftpAddr = a
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if !listenOK(free) {
+	if ftpAddr == "" {
 		t.Fatal("ftp 应正常监听（telnet 失败不阻塞）")
+	}
+	if !listenOK(ftpAddr) {
+		t.Fatal("ftp 实际端口应可连接")
 	}
 	cancel()
 	<-done

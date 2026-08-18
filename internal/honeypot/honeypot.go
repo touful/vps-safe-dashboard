@@ -73,6 +73,9 @@ type Server struct {
 	listen map[string]string // 启用协议 → 监听地址（配置注入，运行期只读）
 	credCh chan<- event.CredEvent
 	sys    chan<- event.SystemEvent
+	// addrs 协议 → 实际监听地址（Run 填充；支持 ":0" 自动分配端口，
+	// 测试与动态端口场景经 Addrs 回读）。
+	addrs map[string]string
 
 	// 治理
 	sem chan struct{}   // 全局并发上限信号量（容量 maxConns）
@@ -80,12 +83,13 @@ type Server struct {
 	rep *event.RateLimiter // system_events 连接留痕限频（1/分钟）
 
 	// 统计
-	mu          sync.Mutex
-	stats       Stats
+	mu    sync.Mutex
+	stats Stats
 }
 
 // NewServer 创建蜜罐服务。
-// listen 为 协议→监听地址 映射（已由 config.Validate 校验；空串协议跳过）。
+// listen 为 协议→监听地址 映射（已由 config.Validate 校验；空串协议跳过；
+// 地址 ":0" 表示自动分配端口，实际端口经 Addrs 回读）。
 // credCh 为凭据事件通道（event.Channels.Cred，落库）；sys 为 system_events 通道
 // （连接/IP/协议留痕，限频）。两者均可为 nil（nil channel 静默丢弃，测试便利）。
 func NewServer(listen map[string]string, credCh chan<- event.CredEvent, sys chan<- event.SystemEvent) *Server {
@@ -93,6 +97,7 @@ func NewServer(listen map[string]string, credCh chan<- event.CredEvent, sys chan
 		listen: listen,
 		credCh: credCh,
 		sys:    sys,
+		addrs:  make(map[string]string, len(listen)),
 		sem:    make(chan struct{}, maxConns),
 		rl:     newIPRateLimiter(ipConnLimit, ipWindow),
 		rep:    event.NewRateLimiter(time.Minute),
@@ -118,6 +123,7 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		mu.Lock()
 		lns = append(lns, ln)
+		s.addrs[proto] = ln.Addr().String()
 		mu.Unlock()
 		event.ReportSys(s.sys, "honeypot", "info", "蜜罐 "+proto+" 监听 "+ln.Addr().String())
 		wg.Add(1)
@@ -241,6 +247,18 @@ func (s *Server) Stats() Stats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.stats
+}
+
+// Addrs 返回 协议→实际监听地址 映射（Run 启动后回读；":0" 自动分配端口场景使用）。
+// 未就绪的协议不在映射中（调用方轮询等待）。
+func (s *Server) Addrs() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]string, len(s.addrs))
+	for k, v := range s.addrs {
+		out[k] = v
+	}
+	return out
 }
 
 // remoteIPv4 提取远端 IPv4 地址（非 IPv4 返回 0——IPv6 连接记 0，字段限制）。
