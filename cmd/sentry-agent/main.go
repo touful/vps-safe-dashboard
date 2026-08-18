@@ -25,6 +25,7 @@ import (
 	"sentry-agent/internal/event"
 	"sentry-agent/internal/f2b"
 	"sentry-agent/internal/fw"
+	"sentry-agent/internal/geoip"
 	"sentry-agent/internal/out"
 	"sentry-agent/internal/ssh"
 	"sentry-agent/internal/store"
@@ -179,6 +180,27 @@ func main() {
 			srv.SetLimits(cfg.Web.RateLimitRPS, cfg.Web.RateLimitBurst, cfg.Web.HeavyLimitRPS, cfg.Web.WSMaxConns)
 			// VS-04：限流拒绝留痕（system_event warn，运维可观测限流误伤）。
 			srv.SetSystemChannel(ch.System)
+			// DEV-GEO-001：GeoIP 离线库（全球攻击地图）。库缺失/损坏不阻塞启动——
+			// 地图降级为 Unknown 国家，updater 拉取成功后可热生效（Reader 内部原子替换）。
+			geoReader := geoip.NewReader(cfg.GeoIP.DBPath)
+			if err := geoReader.Load(); err != nil {
+				event.ReportSys(ch.System, "geoip", "warn",
+					"GeoIP 库不可用（攻击地图国家降级为 Unknown）: "+err.Error())
+			}
+			srv.SetGeo(geoReader)
+			defer geoReader.Close() // 释放 mmap 句柄（Windows 下未释放会阻止后续替换/清理）
+			// DEV-GEO-001：每日更新器（02:30 UTC；基础库缺失且凭据齐全时启动即拉取）。
+			// 失败仅留痕重试，不崩溃。注意：与 geoReader 共享实例（替换经其原子换入）。
+			startService(func() {
+				geoip.NewUpdater(geoip.UpdateCfg{
+					DBPath:     cfg.GeoIP.DBPath,
+					AccountID:  cfg.GeoIP.AccountID,
+					LicenseKey: cfg.GeoIP.LicenseKey,
+					Enabled:    cfg.GeoIP.UpdateEnabled,
+					Hour:       cfg.GeoIP.UpdateHour,
+					Minute:     cfg.GeoIP.UpdateMinute,
+				}, geoReader, ch.System).Run(ctx)
+			})
 			// M-01：共享溢出计数（conn 模块直接累加，无通道竞争；health 只读展示）。
 			srv.SetOverrunCounter(&overrunTotal)
 			// WS 推送循环（1s/5s/30s 帧）。

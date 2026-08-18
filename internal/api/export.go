@@ -12,10 +12,12 @@ import (
 )
 
 // hExportCSV 数据导出（DEV-EXPORT-001）：CSV 三列（攻击者 IP、攻击时间、攻击端口），无表头。
-// 数据来源三类全合并（UNION ALL 按时间升序）：
+// 数据来源两类全合并（UNION ALL 按时间升序）：
 //   - 防火墙 drop：IP=源 IP、时间=事件时间、端口=目标端口 dst_port
 //   - SSH 失败尝试：IP=源 IP、时间=事件时间、端口固定 22（result=0 为失败，与 hSummary 口径一致）
-//   - fail2ban 封禁：IP=IP、时间=时间、端口为空
+//
+// DEV-GEO-001：fail2ban 封禁数据随"前端移除封禁展示"一并移出导出（后端 f2b 采集与
+// /api/v1/bans 端点保留不动）；攻击来源国家 CSV 走新端点 /api/v1/export/attacks_csv。
 //
 // 参数二选一：range（1h/24h/7d/30d，复用 rangeSeconds 语义）或 from+to（Unix 秒，含端点，
 // 自定义跨度上限 90 天防超长查询）；同时给或都缺 → 400。
@@ -68,7 +70,7 @@ func (s *Server) hExportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
-	// 三源 UNION ALL：子查询统一列（ip INTEGER / ts INTEGER / port INTEGER 或 NULL），
+	// 两源 UNION ALL：子查询统一列（ip INTEGER / ts INTEGER / port INTEGER 或 NULL），
 	// 外层按时间升序（再按 ip 稳定排序）。SQLite 动态类型允许 NULL 与 INTEGER 混列。
 	query := `SELECT ip, ts, port FROM (
 		SELECT src_ip AS ip, ts, dst_port AS port FROM firewall_events
@@ -76,11 +78,8 @@ func (s *Server) hExportCSV(w http.ResponseWriter, r *http.Request) {
 		UNION ALL
 		SELECT src_ip AS ip, ts, 22 AS port FROM ssh_attempts
 			WHERE result = 0 AND ts >= ? AND ts <= ?
-		UNION ALL
-		SELECT ip AS ip, ts, NULL AS port FROM ban_events
-			WHERE ts >= ? AND ts <= ?
 	) ORDER BY ts, ip`
-	rows, err := s.db.QueryContext(ctx, query, from, to, from, to, from, to)
+	rows, err := s.db.QueryContext(ctx, query, from, to, from, to)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败: "+err.Error())
 		return
@@ -101,7 +100,7 @@ func (s *Server) hExportCSV(w http.ResponseWriter, r *http.Request) {
 		if port.Valid {
 			portStr = strconv.FormatInt(port.Int64, 10)
 		}
-		// 行字段：IP 转点分十进制（复用现有转换）、本地时区时间、端口（空则输出空字段 ip,ts,）。
+		// 行字段：IP 转点分十进制（复用现有转换）、本地时区时间、端口。
 		// 写路径错误（缓冲满/客户端断开）停止迭代并留痕。
 		// 客户端已断开，后续 rows.Err()/Flush 检查无意义，直接返回（避免再走正常路径）。
 		if err := cw.Write([]string{

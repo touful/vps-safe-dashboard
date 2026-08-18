@@ -43,6 +43,10 @@ type Server struct {
 	connFallbackRep *event.RateLimiter
 	// retentionDays 数据保留天数（health 返回，前端 range 提示）。
 	retentionDays int
+	// geo GeoIP 国家查询（DEV-GEO-001；nil = 未配置，地图降级 Unknown）。
+	// 与 mmdb 文件生命周期解耦：*geoip.Reader 由 main 创建（updater 原子替换内部句柄），
+	// API 仅持接口引用。
+	geo GeoLookuper
 }
 
 // NewServer 创建 API 服务。
@@ -129,6 +133,10 @@ func (s *Server) routes() {
 	mux.HandleFunc("/api/v1/attacks/top_sources", s.limitAPI(s.hTopSources))
 	mux.HandleFunc("/api/v1/ssh/timeline", s.limitHeavy(s.hSSHTimeline))
 	mux.HandleFunc("/api/v1/firewall/timeline", s.limitHeavy(s.hFirewallTimeline))
+	// DEV-GEO-001：全球攻击地图（SSH 失败按国家聚合；30d 视图 1000 IP 组 + 逐 IP mmdb
+	// 查询 CPU/IO 密集，纳入 heavy 限流——与 export/csv 同档）。
+	mux.HandleFunc("/api/v1/attacks/geo", s.limitHeavy(s.hGeoAttacks))
+	mux.HandleFunc("/api/v1/export/attacks_csv", s.limitHeavy(s.hExportAttacksCSV))
 	// DEV-EXPORT-001：数据导出（30d 全量可能数万行 + 流式写），纳入 heavy 限流（1 rps / burst 6）。
 	mux.HandleFunc("/api/v1/export/csv", s.limitHeavy(s.hExportCSV))
 	mux.HandleFunc("/api/v1/bans", s.limitAPI(s.hBans))
@@ -323,6 +331,11 @@ func (s *Server) SetDBPath(p string) { s.dbPath = p }
 // SetRetentionDays 注入数据保留天数（health 返回，前端 range 提示）。
 // 注意：须在 Serve 之前调用（运行期不热更新）。
 func (s *Server) SetRetentionDays(days int) { s.retentionDays = days }
+
+// SetGeo 注入 GeoIP 国家查询（DEV-GEO-001；nil 或未加载 reader 时 mmdb_ok=false，
+// 地图数据 country 恒 Unknown，前端显示降级提示）。
+// 注意：须在 Serve 之前调用（运行期不热更新）。
+func (s *Server) SetGeo(g GeoLookuper) { s.geo = g }
 
 // hSummary 总览聚合（方案 3.7/4.4）。
 func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {

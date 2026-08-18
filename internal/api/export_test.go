@@ -79,23 +79,14 @@ func TestExportCSVBoundary(t *testing.T) {
 	}
 }
 
-// TestExportCSVFormat（DEV-EXPORT-001）：无表头、三列、三源合并、SSH 端口 22、封禁端口空、
+// TestExportCSVFormat（DEV-EXPORT-001；DEV-GEO-001 移除 fail2ban 分支后更新）：
+// 无表头、三列、两源合并（fw drop + SSH 失败，SSH 端口 22）、
 // 时间格式与升序、IP 点分十进制。集合断言对同 ts 排序不敏感（SQLite 无稳定排序保证）。
 func TestExportCSVFormat(t *testing.T) {
-	srv, dbPath := newTestServer(t)
+	srv, _ := newTestServer(t)
+	// 窗口覆盖全部 7 行：4 fw drop（ts now-3..now）+ 3 ssh fail（ts now-2..now）。
 	now := time.Now().Unix()
-	db, err := sql.Open("sqlite", "file:"+dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	// 补插 1 条封禁（newTestServer 自带数据无 ban）。
-	if _, err := db.Exec(`INSERT INTO ban_events (ts, ip, type, jail) VALUES (?,?,?,?)`,
-		now+100, 0xCB007108, "ban", "sshd"); err != nil {
-		t.Fatal(err)
-	}
-	// 窗口覆盖全部 8 行：4 fw drop（ts now-3..now）+ 3 ssh fail（ts now-2..now）+ 1 ban（ts now+100）。
-	rec := doExport(t, srv, fmt.Sprintf("/api/v1/export/csv?from=%d&to=%d", now-10, now+200))
+	rec := doExport(t, srv, fmt.Sprintf("/api/v1/export/csv?from=%d&to=%d", now-10, now+10))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("状态码 = %d, 期望 200", rec.Code)
 	}
@@ -113,16 +104,16 @@ func TestExportCSVFormat(t *testing.T) {
 		t.Fatal("非空窗口导出为空")
 	}
 	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
-	if len(lines) != 8 {
-		t.Fatalf("行数 = %d, 期望 8（4 fw drop + 3 ssh fail + 1 ban）", len(lines))
+	if len(lines) != 7 {
+		t.Fatalf("行数 = %d, 期望 7（4 fw drop + 3 ssh fail）", len(lines))
 	}
 	// 无表头：首行即数据行（3 列，中间列为时间）。
 	first := strings.Split(lines[0], ",")
 	if len(first) != 3 || !strings.Contains(first[1], "-") {
 		t.Errorf("首行 = %q, 应为数据行（无表头）", lines[0])
 	}
-	// 逐行断言：3 列、时间格式、时间非递减、端口分布、封禁行端口空。
-	portCnt := map[string]int{} // 端口计数（"" 为空字段）
+	// 逐行断言：3 列、时间格式、时间非递减、端口分布。
+	portCnt := map[string]int{} // 端口计数
 	ipCnt := map[string]int{}
 	var prevTS int64
 	for i, ln := range lines {
@@ -153,16 +144,12 @@ func TestExportCSVFormat(t *testing.T) {
 			t.Errorf("端口 %s 行数 = %d, 期望 1", p, portCnt[p])
 		}
 	}
-	if portCnt[""] != 1 {
-		t.Errorf("空端口行数 = %d, 期望 1（封禁行 ip,ts,）", portCnt[""])
+	if portCnt[""] != 0 {
+		t.Errorf("空端口行数 = %d, 期望 0（DEV-GEO-001 已移除 fail2ban 分支）", portCnt[""])
 	}
-	// IP 分布：fw/ssh 源 203.0.113.5（7 行）+ 封禁 IP 203.0.113.8（1 行）。
-	if ipCnt["203.0.113.5"] != 7 || ipCnt["203.0.113.8"] != 1 {
-		t.Errorf("IP 分布 = %v, 期望 203.0.113.5×7 + 203.0.113.8×1", ipCnt)
-	}
-	// 封禁行 ts 最大（now+100），应排最后且端口为空。
-	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "203.0.113.8,") || !strings.HasSuffix(last, ",") {
-		t.Errorf("末行 = %q, 应为封禁行（端口空字段）", last)
+	// IP 分布：fw/ssh 源均为 203.0.113.5（7 行）。
+	if ipCnt["203.0.113.5"] != 7 {
+		t.Errorf("IP 分布 = %v, 期望 203.0.113.5×7", ipCnt)
 	}
 }
 
@@ -180,7 +167,7 @@ func TestExportCSVRange(t *testing.T) {
 		t.Fatalf("状态码 = %d, 期望 200", rec.Code)
 	}
 	if n := len(strings.Split(strings.TrimRight(rec.Body.String(), "\n"), "\n")); n != 7 {
-		t.Errorf("range=1h 行数 = %d, 期望 7（4 fw drop + 3 ssh fail，无 ban）", n)
+		t.Errorf("range=1h 行数 = %d, 期望 7（4 fw drop + 3 ssh fail）", n)
 	}
 }
 
