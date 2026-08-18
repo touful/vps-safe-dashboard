@@ -25,17 +25,17 @@ func tuple(src, dst string, proto uint8, sport, dport uint16) *conntrack.IPTuple
 	}
 }
 
-func u32(v uint32) *uint32      { return &v }
-func u16(v uint16) *uint16      { return &v }
-func u8(v uint8) *uint8         { return &v }
-func u64(v uint64) *uint64      { return &v }
+func u32(v uint32) *uint32 { return &v }
+func u16(v uint16) *uint16 { return &v }
+func u8(v uint8) *uint8    { return &v }
+func u64(v uint64) *uint64 { return &v }
 
 func TestConnEventFromConIPv4TCPNew(t *testing.T) {
 	c := conntrack.Con{
-		Info:   &conntrack.InfoSource{NetlinkGroup: conntrack.NetlinkCtNew},
-		Origin: tuple("203.0.113.5", "10.0.0.2", event.ProtoTCP, 50022, 22),
+		Info:          &conntrack.InfoSource{NetlinkGroup: conntrack.NetlinkCtNew},
+		Origin:        tuple("203.0.113.5", "10.0.0.2", event.ProtoTCP, 50022, 22),
 		CounterOrigin: &conntrack.Counter{Packets: u64(3), Bytes: u64(120)},
-		Mark: u32(0x1),
+		Mark:          u32(0x1),
 	}
 	ev, ok := connEventFromCon(c)
 	if !ok {
@@ -121,7 +121,7 @@ func TestConnEventFromConNilPointers(t *testing.T) {
 	s, d := net.ParseIP("203.0.113.5"), net.ParseIP("10.0.0.2")
 	proto := uint8(event.ProtoTCP)
 	c := conntrack.Con{
-		Info: &conntrack.InfoSource{NetlinkGroup: conntrack.NetlinkCtNew},
+		Info:   &conntrack.InfoSource{NetlinkGroup: conntrack.NetlinkCtNew},
 		Origin: &conntrack.IPTuple{Src: &s, Dst: &d, Proto: &conntrack.ProtoTuple{Number: &proto}},
 	}
 	ev, ok := connEventFromCon(c)
@@ -142,7 +142,7 @@ func TestDiffSnapshots(t *testing.T) {
 	prev := map[string]event.SnapConn{snapKey(a): a}
 	cur := map[string]event.SnapConn{
 		snapKey(a): sc(event.ProtoTCP, 0x0A000002, 22, 0x0A000001, 50542, "TIME_WAIT"), // 状态变化
-		snapKey(b): b, // 新增
+		snapKey(b): b,                                                                  // 新增
 	}
 	evs := diffSnapshots(prev, cur, 1700000000)
 	got := map[int]int{}

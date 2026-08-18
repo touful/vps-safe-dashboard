@@ -1,0 +1,15 @@
+# 行尾统一为 LF（DEV-AUDIT-001：修复 CRLF 工作区掩盖 gofmt 检查的问题；
+# 仓库索引始终存储 LF，eol=lf 使 checkout 输出 LF，Windows/Linux 行为一致）
+*.go text eol=lf
+
+# 文本文件统一 text 属性（autocrlf 归一化基线，防混合行尾）
+*.md text
+*.json text
+*.yml text
+*.yaml text
+*.sh text
+*.py text
+*.js text
+*.css text
+*.html text
+*.txt text

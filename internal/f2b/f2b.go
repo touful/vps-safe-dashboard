@@ -129,8 +129,8 @@ func queryBannedBips(ctx context.Context, db *sql.DB) ([]uint32, error) {
 	}
 	if !containsStr(cols, "ip") {
 		return nil, &BannedQueryError{Kind: "schema",
-			Msg:  fmt.Sprintf("fail2ban bips 表结构不兼容（缺 ip 列，实际列: %v）——请现场核查 schema 并反馈 fail2ban 版本号", cols),
-			Err:  nil}
+			Msg: fmt.Sprintf("fail2ban bips 表结构不兼容（缺 ip 列，实际列: %v）——请现场核查 schema 并反馈 fail2ban 版本号", cols),
+			Err: nil}
 	}
 	if !containsStr(cols, "timeofban") || !containsStr(cols, "bantime") {
 		// 无 bantime 无法活跃判定：回退 bans 路径（bans 行=当前封禁集合，双表双写语义）。
@@ -169,8 +169,8 @@ func queryBannedBans(ctx context.Context, db *sql.DB) ([]uint32, error) {
 	}
 	if !containsStr(cols, "ip") {
 		return nil, &BannedQueryError{Kind: "schema",
-			Msg:  fmt.Sprintf("fail2ban bans 表结构不兼容（缺 ip 列，实际列: %v）——请现场核查 schema 并反馈 fail2ban 版本号", cols),
-			Err:  nil}
+			Msg: fmt.Sprintf("fail2ban bans 表结构不兼容（缺 ip 列，实际列: %v）——请现场核查 schema 并反馈 fail2ban 版本号", cols),
+			Err: nil}
 	}
 	rows, err := db.QueryContext(ctx, `SELECT DISTINCT ip FROM bans`)
 	if err != nil {
@@ -229,8 +229,8 @@ func classifyQueryErr(err error, msg string) error {
 	var ce sqliteCodeError
 	if errors.As(err, &ce) && ce.Code() == readonlyRecoveryCode {
 		return &BannedQueryError{Kind: "hotjournal",
-			Msg:  "fail2ban 库处于 hot journal 待恢复状态（崩溃/断电残留），本次返回空名单，60s 后自动重试；宿主可用读写方式打开一次触发恢复（重启 fail2ban 亦会恢复）",
-			Err:  err}
+			Msg: "fail2ban 库处于 hot journal 待恢复状态（崩溃/断电残留），本次返回空名单，60s 后自动重试；宿主可用读写方式打开一次触发恢复（重启 fail2ban 亦会恢复）",
+			Err: err}
 	}
 	return &BannedQueryError{Kind: "unreadable", Msg: msg + ": " + err.Error(), Err: err}
 }

@@ -116,7 +116,7 @@ func (s *Server) hWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		s.hub.remove(c) // 升级失败回滚占位（remove 关闭 c.send，广播互斥保证无写后关）
-		return           // 升级失败（非 WS 请求等），响应已由库写入
+		return          // 升级失败（非 WS 请求等），响应已由库写入
 	}
 	c.conn = conn
 	// 帧大小上限（VS-03）：4KB，客户端异常/恶意大帧直接被库断开（超出返回错误，读循环退出）。

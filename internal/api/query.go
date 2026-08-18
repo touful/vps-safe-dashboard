@@ -30,12 +30,12 @@ func (s *Server) hResources(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	type pt struct {
-		TS      int64   `json:"ts"`
-		CPU     float64 `json:"cpu"`
-		Mem     float64 `json:"mem"`
-		Disk    float64 `json:"disk"`
-		NetRx   int64   `json:"net_rx_bps"`
-		NetTx   int64   `json:"net_tx_bps"`
+		TS    int64   `json:"ts"`
+		CPU   float64 `json:"cpu"`
+		Mem   float64 `json:"mem"`
+		Disk  float64 `json:"disk"`
+		NetRx int64   `json:"net_rx_bps"`
+		NetTx int64   `json:"net_tx_bps"`
 	}
 	var out []pt
 	for rows.Next() {
@@ -281,10 +281,10 @@ func (s *Server) hArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type arcFile struct {
-		File    string  `json:"file"`
-		Month   string  `json:"month"`
-		SizeMB  float64 `json:"size_mb"`
-		Gzip    bool    `json:"gzip"`
+		File   string  `json:"file"`
+		Month  string  `json:"month"`
+		SizeMB float64 `json:"size_mb"`
+		Gzip   bool    `json:"gzip"`
 	}
 	var out []arcFile
 	for _, e := range entries {

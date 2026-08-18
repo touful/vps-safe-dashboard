@@ -330,13 +330,13 @@ func TestShouldSkipArchive(t *testing.T) {
 		crit  float64
 		want  bool
 	}{
-		{50, true, 90, false},    // 正常水位，不跳过
-		{89.9, true, 90, false},  // 临界下，不跳过
-		{90.0, true, 90, true},   // critical（默认 90），跳过
-		{85.0, true, 85, true},   // 自定义阈值 85 时 85% 即跳过（R-01 参数化验证）
-		{84.9, true, 85, false},  // 自定义阈值 85 时 84.9% 不跳过
-		{95.0, true, 90, true},   // emergency，跳过
-		{0, false, 90, true},     // statfs 失败，保守跳过
+		{50, true, 90, false},   // 正常水位，不跳过
+		{89.9, true, 90, false}, // 临界下，不跳过
+		{90.0, true, 90, true},  // critical（默认 90），跳过
+		{85.0, true, 85, true},  // 自定义阈值 85 时 85% 即跳过（R-01 参数化验证）
+		{84.9, true, 85, false}, // 自定义阈值 85 时 84.9% 不跳过
+		{95.0, true, 90, true},  // emergency，跳过
+		{0, false, 90, true},    // statfs 失败，保守跳过
 	}
 	for _, c := range cases {
 		if got := ShouldSkipArchive(c.usage, c.ok, c.crit); got != c.want {

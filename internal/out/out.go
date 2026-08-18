@@ -48,18 +48,18 @@ type line struct {
 
 // statsLine 统计行（每 60s 输出，供压测观测事件率）。
 type statsLine struct {
-	TS            int64 `json:"ts"`
+	TS            int64  `json:"ts"`
 	Channel       string `json:"channel"`
-	IntervalS     int64 `json:"interval_s"`
-	Resource      int64 `json:"resource"`
-	Conn          int64 `json:"conn"`
-	SSH           int64 `json:"ssh"`
-	FW            int64 `json:"fw"`
-	F2B           int64 `json:"f2b"`
-	System        int64 `json:"system"`
-	Overrun       int64 `json:"overrun"`
-	SnapshotTS    int64 `json:"snapshot_ts"`
-	SnapshotConns int   `json:"snapshot_conns"`
+	IntervalS     int64  `json:"interval_s"`
+	Resource      int64  `json:"resource"`
+	Conn          int64  `json:"conn"`
+	SSH           int64  `json:"ssh"`
+	FW            int64  `json:"fw"`
+	F2B           int64  `json:"f2b"`
+	System        int64  `json:"system"`
+	Overrun       int64  `json:"overrun"`
+	SnapshotTS    int64  `json:"snapshot_ts"`
+	SnapshotConns int    `json:"snapshot_conns"`
 }
 
 // counters 各通道累计计数。

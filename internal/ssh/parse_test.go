@@ -20,50 +20,50 @@ func TestParseSSHLineAllPatterns(t *testing.T) {
 		wantFP   string
 	}{
 		{
-			name: "Failed password",
-			line: "Failed password for root from 203.0.113.5 port 50022 ssh2",
+			name:   "Failed password",
+			line:   "Failed password for root from 203.0.113.5 port 50022 ssh2",
 			wantOK: true, wantUser: "root", wantIP: 0xCB007105, wantRes: event.ResultFail, wantMeth: "password",
 		},
 		{
-			name: "Failed password invalid user",
-			line: "Failed password for invalid user admin from 203.0.113.9 port 50123 ssh2",
+			name:   "Failed password invalid user",
+			line:   "Failed password for invalid user admin from 203.0.113.9 port 50123 ssh2",
 			wantOK: true, wantUser: "admin", wantIP: 0xCB007109, wantRes: event.ResultFail, wantMeth: "password",
 		},
 		{
-			name: "Accepted password",
-			line: "Accepted password for alice from 198.51.100.7 port 45210 ssh2",
+			name:   "Accepted password",
+			line:   "Accepted password for alice from 198.51.100.7 port 45210 ssh2",
 			wantOK: true, wantUser: "alice", wantIP: 0xC6336407, wantRes: event.ResultOK, wantMeth: "password",
 		},
 		{
-			name: "Accepted publickey with fingerprint",
-			line: "Accepted publickey for deploy from 198.51.100.8 port 45211 ssh2: RSA SHA256:abcdef<WSL_ROOT_PASSWORD>7890",
+			name:   "Accepted publickey with fingerprint",
+			line:   "Accepted publickey for deploy from 198.51.100.8 port 45211 ssh2: RSA SHA256:abcdef<WSL_ROOT_PASSWORD>7890",
 			wantOK: true, wantUser: "deploy", wantIP: 0xC6336408, wantRes: event.ResultOK,
 			wantMeth: "publickey", wantFP: "SHA256:abcdef<WSL_ROOT_PASSWORD>7890",
 		},
 		{
-			name: "Failed publickey",
-			line: "Failed publickey for user2 from 203.0.113.10 port 50033 ssh2: ECDSA SHA256:xyz987",
+			name:   "Failed publickey",
+			line:   "Failed publickey for user2 from 203.0.113.10 port 50033 ssh2: ECDSA SHA256:xyz987",
 			wantOK: true, wantUser: "user2", wantIP: 0xCB00710A, wantRes: event.ResultFail,
 			wantMeth: "publickey", wantFP: "SHA256:xyz987",
 		},
 		{
-			name: "Invalid user",
-			line: "Invalid user guest from 203.0.113.11 port 50044",
+			name:   "Invalid user",
+			line:   "Invalid user guest from 203.0.113.11 port 50044",
 			wantOK: true, wantUser: "guest", wantIP: 0xCB00710B, wantRes: event.ResultFail,
 		},
 		{
-			name: "Connection closed by authenticating user",
-			line: "Connection closed by authenticating user root 203.0.113.12 port 50055 [preauth]",
+			name:   "Connection closed by authenticating user",
+			line:   "Connection closed by authenticating user root 203.0.113.12 port 50055 [preauth]",
 			wantOK: true, wantUser: "root", wantIP: 0xCB00710C, wantRes: event.ResultUnknown,
 		},
 		{
-			name: "Maximum auth attempts exceeded with user",
-			line: "error: maximum authentication attempts exceeded for root from 203.0.113.13 port 50066 ssh2",
+			name:   "Maximum auth attempts exceeded with user",
+			line:   "error: maximum authentication attempts exceeded for root from 203.0.113.13 port 50066 ssh2",
 			wantOK: true, wantUser: "root", wantIP: 0xCB00710D, wantRes: event.ResultFail,
 		},
 		{
-			name: "Maximum auth attempts exceeded without user",
-			line: "error: maximum authentication attempts exceeded from 203.0.113.14 port 50077 ssh2",
+			name:   "Maximum auth attempts exceeded without user",
+			line:   "error: maximum authentication attempts exceeded from 203.0.113.14 port 50077 ssh2",
 			wantOK: true, wantUser: "", wantIP: 0xCB00710E, wantRes: event.ResultFail,
 		},
 		{
@@ -72,13 +72,13 @@ func TestParseSSHLineAllPatterns(t *testing.T) {
 			wantOK: true, wantUser: "root", wantIP: 0xCB00710F, wantRes: event.ResultFail, wantMeth: "password",
 		},
 		{
-			name: "Unrelated line",
-			line: "Server listening on 0.0.0.0 port 22.",
+			name:   "Unrelated line",
+			line:   "Server listening on 0.0.0.0 port 22.",
 			wantOK: false,
 		},
 		{
-			name: "Empty line",
-			line: "",
+			name:   "Empty line",
+			line:   "",
 			wantOK: false,
 		},
 	}

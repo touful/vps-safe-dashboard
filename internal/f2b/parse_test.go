@@ -5,7 +5,8 @@ import (
 	"time"
 )
 
-func TestParseF2BLine(t *testing.T) {	cases := []struct {
+func TestParseF2BLine(t *testing.T) {
+	cases := []struct {
 		name   string
 		line   string
 		wantOK bool
@@ -14,28 +15,28 @@ func TestParseF2BLine(t *testing.T) {	cases := []struct {
 		wantJ  string
 	}{
 		{
-			name: "Ban",
-			line: "2023-01-01 00:00:00,123 fail2ban.actions [2912]: NOTICE  [sshd] Ban 203.0.113.5",
+			name:   "Ban",
+			line:   "2023-01-01 00:00:00,123 fail2ban.actions [2912]: NOTICE  [sshd] Ban 203.0.113.5",
 			wantOK: true, wantIP: 0xCB007105, wantT: "ban", wantJ: "sshd",
 		},
 		{
-			name: "Unban",
-			line: "2023-01-01 00:00:01,456 fail2ban.actions [2912]: NOTICE  [sshd] Unban 203.0.113.5",
+			name:   "Unban",
+			line:   "2023-01-01 00:00:01,456 fail2ban.actions [2912]: NOTICE  [sshd] Unban 203.0.113.5",
 			wantOK: true, wantIP: 0xCB007105, wantT: "unban", wantJ: "sshd",
 		},
 		{
-			name: "Found",
-			line: "2023-01-01 00:00:02,789 fail2ban.filter  [2912]: INFO    [sshd] Found 198.51.100.7",
+			name:   "Found",
+			line:   "2023-01-01 00:00:02,789 fail2ban.filter  [2912]: INFO    [sshd] Found 198.51.100.7",
 			wantOK: true, wantIP: 0xC6336407, wantT: "found", wantJ: "sshd",
 		},
 		{
-			name: "Ban with failures suffix",
-			line: "2023-01-01 00:00:03,000 fail2ban.actions [2912]: NOTICE  [sshd] Ban 198.51.100.8 (5 failures)",
+			name:   "Ban with failures suffix",
+			line:   "2023-01-01 00:00:03,000 fail2ban.actions [2912]: NOTICE  [sshd] Ban 198.51.100.8 (5 failures)",
 			wantOK: true, wantIP: 0xC6336408, wantT: "ban", wantJ: "sshd",
 		},
 		{
-			name: "Other jail",
-			line: "2023-01-01 00:00:04,000 fail2ban.actions [2912]: NOTICE  [postfix-smtp] Ban 203.0.113.9",
+			name:   "Other jail",
+			line:   "2023-01-01 00:00:04,000 fail2ban.actions [2912]: NOTICE  [postfix-smtp] Ban 203.0.113.9",
 			wantOK: true, wantIP: 0xCB007109, wantT: "ban", wantJ: "postfix-smtp",
 		},
 		{

@@ -26,7 +26,7 @@ var insertStmts = map[string]string{
 	"fw": `INSERT INTO firewall_events
 		(ts, chain, action, proto, src_ip, src_port, dst_ip, dst_port, raw)
 		VALUES (?,?,?,?,?,?,?,?,?)`,
-	"f2b": `INSERT INTO ban_events (ts, ip, type, jail) VALUES (?,?,?,?)`,
+	"f2b":    `INSERT INTO ban_events (ts, ip, type, jail) VALUES (?,?,?,?)`,
 	"system": `INSERT INTO system_events (ts, source, level, message) VALUES (?,?,?,?)`,
 	// overrun（R-10 溢出）落 system_events 留痕（source=conntrack, level=warn）。
 	"overrun": `INSERT INTO system_events (ts, source, level, message) VALUES (?,?,?,?)`,

@@ -71,7 +71,7 @@ type ConnEvent struct {
 
 // OverrunInfo netlink 溢出信息（R-10 留痕，方案 3.2.1）。
 type OverrunInfo struct {
-	TS      int64 // Unix 秒
+	TS      int64  // Unix 秒
 	Dropped uint64 // 本次检查周期内的溢出丢弃数
 }
 

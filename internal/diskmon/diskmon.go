@@ -3,6 +3,7 @@
 //   - >= emergency（95%）：error 级告警（最高优先级，R-09）
 //   - >= critical（90%）：warn 级告警（归档跳过阈值，与 archive.ShouldSkipArchive 衔接）
 //   - >= warn（80%）：info/warn 级提示
+//
 // 分级告警写 system_events，限频防风暴；水位回落至阈值以下时写恢复事件。
 package diskmon
 

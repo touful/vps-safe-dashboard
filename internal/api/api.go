@@ -23,20 +23,20 @@ import (
 
 // Server M-07 HTTP 服务。
 type Server struct {
-	db          *sql.DB      // 独立只读连接（auditor 坑点：不与写线程共享）
-	dbPath      string       // 主库路径（health db_size 用，SetDBPath 注入）
-	archiveDir  string
-	wsOrigin    string
-	allowNoOrigin bool       // M-02：非回环监听时拒绝无 Origin 请求
-	snapshotFn  func() *event.ConnSnapshot // ss 快照最新值（active_conns/连接列表口径）
-	startTime   time.Time
+	db             *sql.DB // 独立只读连接（auditor 坑点：不与写线程共享）
+	dbPath         string  // 主库路径（health db_size 用，SetDBPath 注入）
+	archiveDir     string
+	wsOrigin       string
+	allowNoOrigin  bool                       // M-02：非回环监听时拒绝无 Origin 请求
+	snapshotFn     func() *event.ConnSnapshot // ss 快照最新值（active_conns/连接列表口径）
+	startTime      time.Time
 	overrunCounter *atomic.Uint64 // conntrack 溢出累计（M-01：conn 模块共享 atomic，main 注入）
-	hub         *wsHub
-	mux         *http.ServeMux
+	hub            *wsHub
+	mux            *http.ServeMux
 	// VS-03/VS-04（DEV-P1-001）：WS 连接数上限 + API 速率限制（令牌桶，无新依赖）。
 	wsMaxConns   int
-	apiLimiter   *tokenBucket // 全局 API 限流（默认 10 rps / burst 20）
-	heavyLimiter *tokenBucket // 重聚合端点限流（默认 1 rps / burst 6）
+	apiLimiter   *tokenBucket             // 全局 API 限流（默认 10 rps / burst 20）
+	heavyLimiter *tokenBucket             // 重聚合端点限流（默认 1 rps / burst 6）
 	sysCh        chan<- event.SystemEvent // system_event 通道（限流拒绝留痕，main 注入）
 	limitWarn    *event.RateLimiter       // 限流拒绝留痕限频（1/分钟）
 	// connFallbackRep activeConns 回退 ss 口径留痕限频（AUDIT-005 A-03：1/小时）。
@@ -178,7 +178,7 @@ func (s *Server) Serve(ctx context.Context, addr string) error {
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           s.mux,
-		ReadHeaderTimeout: 5 * time.Second, // Slowloris：慢速头连接 5s 内未发完整头即断开
+		ReadHeaderTimeout: 5 * time.Second,  // Slowloris：慢速头连接 5s 内未发完整头即断开
 		IdleTimeout:       60 * time.Second, // 空闲 keep-alive 连接回收（WS hijack 后不适用）
 		MaxHeaderBytes:    64 << 10,         // 默认 1MB → 64KB（超大 header 内存面收敛）
 	}

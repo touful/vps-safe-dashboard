@@ -62,9 +62,9 @@ INSERT INTO meta(key, value) VALUES('schema_version', '1');
 		}
 	}
 	connData := []struct {
-		ev  int
-		src uint32
-		dst uint32
+		ev      int
+		src     uint32
+		dst     uint32
 		dstPort int
 	}{
 		{1, 0xCB007105, 0x0A000002, 22},

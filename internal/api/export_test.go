@@ -29,13 +29,13 @@ func doExport(t *testing.T, srv *Server, path string) *httptest.ResponseRecorder
 func TestExportCSVParams(t *testing.T) {
 	srv, _ := newTestServer(t)
 	cases := []string{
-		"/api/v1/export/csv",                     // 都缺
+		"/api/v1/export/csv",                       // 都缺
 		"/api/v1/export/csv?range=24h&from=1&to=2", // 同时给
-		"/api/v1/export/csv?from=200&to=100",     // from > to
-		"/api/v1/export/csv?from=0&to=100000000", // 跨度 > 90 天（1157 天）
-		"/api/v1/export/csv?from=abc&to=100",     // from 非数字
-		"/api/v1/export/csv?from=1&to=xyz",       // to 非数字
-		"/api/v1/export/csv?from=1",              // 仅 from 缺 to
+		"/api/v1/export/csv?from=200&to=100",       // from > to
+		"/api/v1/export/csv?from=0&to=100000000",   // 跨度 > 90 天（1157 天）
+		"/api/v1/export/csv?from=abc&to=100",       // from 非数字
+		"/api/v1/export/csv?from=1&to=xyz",         // to 非数字
+		"/api/v1/export/csv?from=1",                // 仅 from 缺 to
 		// int64 溢出回绕：to-from 溢出为负可绕过跨度上限，span<0 兜底必须 400。
 		"/api/v1/export/csv?from=-9223372036854775808&to=9223372036854775807",
 		"/api/v1/export/csv?from=-5000000000000000000&to=5000000000000000000",

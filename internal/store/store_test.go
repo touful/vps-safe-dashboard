@@ -219,11 +219,11 @@ func TestQuerySuccessfulSSHIPs(t *testing.T) {
 	now := time.Now().Unix()
 	// 写入混合数据：成功/失败、publickey/password、窗口内/窗口外、重复 IP。
 	items := []eventItem{
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893F4, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},    // 182.136.147.244 publickey 成功（窗口内）
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 7200, SrcIP: 0xB68893F4, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},    // 同 IP 重复成功（去重）
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893A1, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},    // 182.136.147.161 publickey 成功（窗口内）
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007105, Username: "root", AuthMethod: "password", Result: event.ResultFail}},   // 203.0.113.5 失败（不学习）
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007109, Username: "root", AuthMethod: "password", Result: event.ResultOK}},    // 203.0.113.9 密码成功（A-01：不学习）
+		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893F4, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},     // 182.136.147.244 publickey 成功（窗口内）
+		{kind: "ssh", v: event.SSHAttempt{TS: now - 7200, SrcIP: 0xB68893F4, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},     // 同 IP 重复成功（去重）
+		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893A1, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},     // 182.136.147.161 publickey 成功（窗口内）
+		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007105, Username: "root", AuthMethod: "password", Result: event.ResultFail}},    // 203.0.113.5 失败（不学习）
+		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007109, Username: "root", AuthMethod: "password", Result: event.ResultOK}},      // 203.0.113.9 密码成功（A-01：不学习）
 		{kind: "ssh", v: event.SSHAttempt{TS: now - 31*86400, SrcIP: 0xCB007106, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}}, // 203.0.113.6 成功但超窗口
 	}
 	if err := st.writeBatch(items); err != nil {

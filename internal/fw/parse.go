@@ -13,11 +13,11 @@ var reFWKV = regexp.MustCompile(`\b(SRC|DST|PROTO|SPT|DPT)=([^\s]+)`)
 
 // protoByName 协议名 → 协议号映射。
 var protoByName = map[string]uint8{
-	"TCP":   event.ProtoTCP,
-	"UDP":   event.ProtoUDP,
-	"ICMP":  event.ProtoICMP,
-	"SCTP":  132,
-	"GRE":   47,
+	"TCP":    event.ProtoTCP,
+	"UDP":    event.ProtoUDP,
+	"ICMP":   event.ProtoICMP,
+	"SCTP":   132,
+	"GRE":    47,
 	"ICMPV6": 58,
 }
 
