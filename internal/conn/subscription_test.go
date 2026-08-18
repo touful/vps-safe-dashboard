@@ -48,7 +48,7 @@ func TestParseNetlinkOwnNoRows(t *testing.T) {
 	}
 }
 
-// TestVerifyGroups 订阅组位核对（DEV-036 核心验证逻辑）：
+// TestVerifyGroups 订阅组位核对（核心验证逻辑）：
 // 组位齐全 → nil；缺失/无记录 → errSubscriptionInvalid。
 func TestVerifyGroups(t *testing.T) {
 	t.Run("组位齐全", func(t *testing.T) {
@@ -63,7 +63,7 @@ func TestVerifyGroups(t *testing.T) {
 		}
 	})
 	t.Run("Groups=0 订阅未生效", func(t *testing.T) {
-		// CONN-01 现场形态：唯一套接字 Groups=00000000。
+		// 现场故障形态：唯一套接字 Groups=00000000。
 		err := verifyGroups([]netlinkOwnInfo{{groups: 0x0}})
 		if !errors.Is(err, errSubscriptionInvalid) {
 			t.Fatalf("Groups=0 应判定订阅无效（errSubscriptionInvalid），实际: %v", err)
@@ -84,7 +84,7 @@ func TestVerifyGroups(t *testing.T) {
 	})
 }
 
-// TestStaleVerdict 新鲜度停滞判定（DEV-036）：
+// TestStaleVerdict 新鲜度停滞判定：
 // 事件推进 → 不停滞；停滞 + 表连接数变化 → 表活跃（warn 级）；停滞 + 表无变化 → 仅停滞（info 级）。
 func TestStaleVerdict(t *testing.T) {
 	cases := []struct {

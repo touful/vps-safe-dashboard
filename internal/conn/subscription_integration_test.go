@@ -1,6 +1,6 @@
 //go:build linux
 
-// 容器集成测试（DEV-036 CONN-01 修复验证）：
+// 容器集成测试（订阅有效性修复验证）：
 // Windows 本机无法测 netlink，需在 Linux 容器内执行（见交付文档）：
 //
 //	无 NET_ADMIN：docker run --rm -v <repo>:/src -w /src golang:1.26.6-alpine \

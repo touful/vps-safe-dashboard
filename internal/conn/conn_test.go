@@ -163,7 +163,7 @@ func TestDiffSnapshots(t *testing.T) {
 	}
 }
 
-// TestConnStartTracker 启动失败计数状态机（DEV-031 B.4.3）：
+// TestConnStartTracker 启动失败计数状态机（B.4.3）：
 // 连续 3 次启动类失败 → giveUp；运行类错误清零计数；混合序列。
 func TestConnStartTracker(t *testing.T) {
 	var tr connStartTracker
@@ -217,7 +217,7 @@ func mockOnce(fn func() error) func(context.Context, config.ConntrackCfg, int, c
 	}
 }
 
-// TestRunConntrackLoopGiveUp（DEV-031 B.4.5）：Open 失败 ×3 → 第 3 次后放弃主通道，
+// TestRunConntrackLoopGiveUp（B.4.5）：Open 失败 ×3 → 第 3 次后放弃主通道，
 // 返回错误由 main 切换 B5 降级；告警文案含降级语义。
 func TestRunConntrackLoopGiveUp(t *testing.T) {
 	ctx := context.Background()

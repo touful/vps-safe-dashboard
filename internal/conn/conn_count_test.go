@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestReadConntrackCount（DEV-033 新增测试，DEV-032 核查结论 8）：count 文件读取路径——
+// TestReadConntrackCount（现场核查结论 8）：count 文件读取路径——
 // 正常数字、带空白、非数字内容、文件缺失均不崩溃（缺失返回 -1 供调用方回退 ss 口径）。
 func TestReadConntrackCount(t *testing.T) {
 	dir := t.TempDir()

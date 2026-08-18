@@ -20,7 +20,7 @@ udp    ESTAB   0      0       10.0.0.2:53          10.0.0.1:54321      users:(("
 		t.Fatalf("连接数 = %d, 期望 3", len(conns))
 	}
 	// tcp ESTAB：入站连接场景（本机 10.0.0.2:22 被 10.0.0.1:50542 连接）
-	// 方向语义（auditor M-01）：Local（本机侧）→ Dst，Peer（远端）→ Src。
+	// 方向语义：Local（本机侧）→ Dst，Peer（远端）→ Src。
 	if conns[0].Proto != event.ProtoTCP || conns[0].State != "ESTAB" {
 		t.Errorf("conns[0] proto/state 错误: %d/%s", conns[0].Proto, conns[0].State)
 	}
@@ -49,7 +49,7 @@ udp    ESTAB   0      0       10.0.0.2:53          10.0.0.1:54321      users:(("
 	}
 }
 
-// TestParseSSOutputDirection：攻击场景方向语义断言（auditor M-01 强制项）。
+// TestParseSSOutputDirection：攻击场景方向语义断言（强制项）。
 // 外部源 203.0.113.5 连接本机 10.0.0.2:22：Src 必须为攻击者、Dst 必须为本机被攻击端口。
 func TestParseSSOutputDirection(t *testing.T) {
 	content := "tcp   ESTAB  0  0  10.0.0.2:22  203.0.113.5:50022  users:((\"sshd\",pid=1234,fd=3))\n"

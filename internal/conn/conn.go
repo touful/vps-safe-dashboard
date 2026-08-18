@@ -23,23 +23,23 @@ const netlinkNetfilterProto = 12
 
 // ctGroupsMask 内核 conntrack 组位掩码（/proc/net/netlink Groups 列）：
 // 组 1/2/3（NFNLGRP_CONNTRACK_NEW/UPDATE/DESTROY）对应位 0/1/2。
-// go-conntrack 的 JoinGroup 成功后内核置位，DEV-036 订阅验证以此为判据。
+// go-conntrack 的 JoinGroup 成功后内核置位，订阅有效性验证以此为判据。
 const ctGroupsMask = 0x7
 
 // netlinkBufferMax netlink 缓冲扩容上限（R-10：可扩至 8MB）。
 const netlinkBufferMax = 8 * 1024 * 1024
 
-// freshnessCheckInterval 事件流新鲜度检查间隔（DEV-036：连接采集自检）。
+// freshnessCheckInterval 事件流新鲜度检查间隔（连接采集自检）。
 const freshnessCheckInterval = 10 * time.Minute
 
 // conntrackCountPath nf_conntrack 当前连接数（sysctl 接口，模块加载即存在）。
-// DEV-033（DEV-032 现场核查结论 7/8）：nf_conntrack 模块依赖链自动加载（无需 modprobe），
+// 现场核查结论 7/8：nf_conntrack 模块依赖链自动加载（无需 modprobe），
 // /proc/net/nf_conntrack 不存在是内核编译配置（CONFIG_NF_CONNTRACK_PROCFS not set）非故障；
 // 连接数改读本 count 文件（现场验证 count=31，sysctl 可读）。
 const conntrackCountPath = "/proc/sys/net/netfilter/nf_conntrack_count"
 
 // readConntrackCount 读取 conntrack 当前连接数（count 文件）；不可读/解析失败返回 -1
-// （调用方回退 ss 口径，DEV-033 结论 8）。
+// （调用方回退 ss 口径，现场核查结论 8）。
 func readConntrackCount(path string) int64 {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -52,7 +52,7 @@ func readConntrackCount(path string) int64 {
 	return n
 }
 
-// maxConntrackStartFails 启动失败降级阈值（DEV-031 B.4.3：连续 3 次启动失败放弃主通道）。
+// maxConntrackStartFails 启动失败降级阈值（B.4.3：连续 3 次启动失败放弃主通道）。
 const maxConntrackStartFails = 3
 
 // connStartError 启动类错误标记（Open/Register 失败）——区别于运行类错误（netlink
@@ -62,7 +62,7 @@ type connStartError struct{ err error }
 func (e *connStartError) Error() string { return e.err.Error() }
 func (e *connStartError) Unwrap() error { return e.err }
 
-// connStartTracker 启动失败计数状态机（DEV-031 B.4.3，可单测）。
+// connStartTracker 启动失败计数状态机（B.4.3，可单测）。
 // 连续 maxConntrackStartFails 次启动类失败 → giveUp=true（放弃主通道）；
 // 一次运行类错误（说明主通道曾成功启动）清零计数。
 type connStartTracker struct {
@@ -89,7 +89,7 @@ func (t *connStartTracker) record(isStartErr bool) (giveUp bool, fails int) {
 // receive 循环（监听死亡）；本实现检测到监听终止后自动重启（退避 2s→30s），
 // 并在每次重启时尝试扩大缓冲（上限 8MB），避免事件流静默中断。
 func RunConntrackListener(ctx context.Context, cfg config.ConntrackCfg, sink chan<- event.ConnEvent, overrun chan<- event.OverrunInfo, sys chan<- event.SystemEvent, counter *atomic.Uint64) error {
-	// DEV-033（DEV-032 现场核查结论 7）：nf_conntrack 模块依赖链自动加载（无需 modprobe、
+	// 现场核查结论 7：nf_conntrack 模块依赖链自动加载（无需 modprobe、
 	// 无需 /etc/modules-load.d）；/proc/net/nf_conntrack 不存在是内核编译配置
 	// （CONFIG_NF_CONNTRACK_PROCFS not set），与模块可用性无关——因此不做 procfs 存在性
 	// 前置检查（旧实现会在此误判"模块不可用"而降级，丢失真实事件流）；可用性由下方
@@ -106,7 +106,7 @@ func RunConntrackListener(ctx context.Context, cfg config.ConntrackCfg, sink cha
 	}
 
 	bufSize := cfg.BufferSizeKB * 1024
-	// DEV-031 B.4.3（reviewer R-04 整改）：启动失败连续计数，达阈值放弃主通道——
+	// B.4.3（评审整改）：启动失败连续计数，达阈值放弃主通道——
 	// 修复"前置检查通过但 Open/Register 失败（如 NET_ADMIN 缺失）→ 无限重启空转、
 	// B5 降级永不触发"的现状缺陷（conn.go 原 55-74）。once 注入便于单测 mock。
 	return runConntrackLoop(ctx, cfg, bufSize, sink, overrun, sys, counter, runConntrackOnce)
@@ -117,7 +117,7 @@ func RunConntrackListener(ctx context.Context, cfg config.ConntrackCfg, sink cha
 // （调用方切换 B5 降级）；运行类错误 → 无限重启+扩容（R-10 恢复路径）。
 func runConntrackLoop(ctx context.Context, cfg config.ConntrackCfg, bufSize int, sink chan<- event.ConnEvent, overrun chan<- event.OverrunInfo, sys chan<- event.SystemEvent, counter *atomic.Uint64, once func(context.Context, config.ConntrackCfg, int, chan<- event.ConnEvent, chan<- event.OverrunInfo, chan<- event.SystemEvent, *atomic.Uint64) error) error {
 	backoff := 2 * time.Second
-	// A-05（auditor Note）：重启告警限频（5 分钟）——持续溢出场景下重启频繁，
+	// 重启告警限频（5 分钟）——持续溢出场景下重启频繁，
 	// 未限频将产生告警风暴淹没 system_events。
 	restartRep := event.NewRateLimiter(5 * time.Minute)
 	var tracker connStartTracker
@@ -139,7 +139,7 @@ func runConntrackLoop(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 			restartRep.Report(sys, "conntrack", "warn",
 				fmt.Sprintf("conntrack 监听异常终止，%.0fs 后自动重启（R-10 恢复路径）: %v", backoff.Seconds(), err))
 			// 运行类错误伴随缓冲扩容（上限 8MB，R-10 动态扩容语义；启动类失败与
-			// 缓冲溢出无关，不扩容——reviewer R-08）。
+			// 缓冲溢出无关，不扩容）。
 			bufSize *= 2
 			if bufSize > netlinkBufferMax {
 				bufSize = netlinkBufferMax
@@ -163,13 +163,13 @@ func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 		DisableNSLockThread:     true, // 本进程始终处于目标 netns，关闭 OS 线程锁以降低开销
 	})
 	if err != nil {
-		// 启动类错误（DEV-031 B.4.3）：外层连续计数，达阈值放弃主通道降级。
+		// 启动类错误（B.4.3）：外层连续计数，达阈值放弃主通道降级。
 		return &connStartError{fmt.Errorf("打开 conntrack netlink 失败: %w", err)}
 	}
-	// DEV-036（CONN-01 根因）：不得在此处 defer nfct.Close()——go-conntrack v0.7.0 的
+	// 根因（现场故障形态）：不得在此处 defer nfct.Close()——go-conntrack v0.7.0 的
 	// Register 失败路径存在库 bug：register() 在 manageGroups 出错时提前返回，未启动
 	// 清理 goroutine，shutdown 通道永不关闭；随后 Close() 永久阻塞在 <-nfct.shutdown，
-	// 导致 runConntrackOnce 永不返回——启动错误被吞、无留痕无降级（现场 CONN-01 形态）。
+	// 导致 runConntrackOnce 永不返回——启动错误被吞、无留痕无降级（现场故障形态）。
 	// 因此 Close 仅在 Register 成功后注册（成功路径清理 goroutine 已启动，Close 正常）。
 	// Register 失败时泄漏该 fd：连续 maxConntrackStartFails 轮后降级停止尝试，
 	// 泄漏上限 3 个 fd，可接受（换取降级链路可用性）。
@@ -199,7 +199,7 @@ func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 		}
 	}()
 
-	// 事件到达计数（DEV-036 新鲜度自检基准；hook 每次被调用即递增）。
+	// 事件到达计数（新鲜度自检基准；hook 每次被调用即递增）。
 	var evts atomic.Uint64
 	hook := func(c conntrack.Con) int {
 		evts.Add(1)
@@ -216,15 +216,15 @@ func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 	}
 	groups := conntrack.NetlinkCtNew | conntrack.NetlinkCtUpdate | conntrack.NetlinkCtDestroy
 	if err := nfct.Register(ctx, conntrack.Conntrack, groups, hook); err != nil {
-		// 启动类错误（DEV-031 B.4.3）：同上——Register 失败多为权限/NET_ADMIN 缺失。
-		// 注意：不 defer Close（见上方 DEV-036 注释），失败路径直接返回避免库 bug 死锁。
+		// 启动类错误（B.4.3）：同上——Register 失败多为权限/NET_ADMIN 缺失。
+		// 注意：不 defer Close（见上方根因注释），失败路径直接返回避免库 bug 死锁。
 		return &connStartError{fmt.Errorf("注册 conntrack 事件订阅失败: %w", err)}
 	}
 	// Register 成功后才注册 Close（成功路径库清理 goroutine 已启动，Close 正常返回）。
 	defer nfct.Close()
 
-	// DEV-036（CONN-01 修复）：订阅有效性验证——Register 返回 nil 只代表 setsockopt
-	// 调用成功，不保证组订阅真正生效（现场 CONN-01：Groups=00000000 无报错无留痕，
+	// 订阅有效性验证（现场故障修复）：Register 返回 nil 只代表 setsockopt
+	// 调用成功，不保证组订阅真正生效（现场故障形态：Groups=00000000 无报错无留痕，
 	// connections 表冻结）。读取 /proc/net/netlink 核对本进程 NETLINK_NETFILTER 套接字
 	// Groups 位：缺失组位 → 判定订阅无效，按启动类错误处理（外层连续计数 → B5 降级留痕）；
 	// 读取失败（无法验证）→ warn 留痕但不降级（无证据证明无效，避免误降级）。
@@ -235,13 +235,13 @@ func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 		event.ReportSys(sys, "conntrack", "warn", "无法验证 netlink 组订阅（继续运行）: "+err.Error())
 	}
 
-	// 主通道健康状态留痕（DEV-036：防静默——启动成功必须可见，与失败告警对称）。
+	// 主通道健康状态留痕（防静默——启动成功必须可见，与失败告警对称）。
 	event.ReportSys(sys, "conntrack", "info", "conntrack 主通道启动成功（netlink 订阅 NEW/UPDATE/DESTROY 组，订阅验证通过）")
 
 	// R-10 溢出监控：每 OverrunWarnIntervalS 检查本进程 netfilter 套接字的 Drops 累计差值。
 	ticker := time.NewTicker(time.Duration(cfg.OverrunWarnIntervalS) * time.Second)
 	defer ticker.Stop()
-	// DEV-036 新鲜度自检：每 freshnessCheckInterval 检查事件流是否停滞（订阅静默失效兜底）。
+	// 新鲜度自检：每 freshnessCheckInterval 检查事件流是否停滞（订阅静默失效兜底）。
 	freshTicker := time.NewTicker(freshnessCheckInterval)
 	defer freshTicker.Stop()
 	staleRep := event.NewRateLimiter(60 * time.Minute)
@@ -267,7 +267,7 @@ func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 	}
 }
 
-// checkFreshness 新鲜度自检（DEV-036）：事件计数未推进时结合 conntrack 表连接数
+// checkFreshness 新鲜度自检：事件计数未推进时结合 conntrack 表连接数
 // 变化判级——表在动但事件无 → 订阅失效高置信（warn）；表无变化 → 低流量或失效（info）。
 // 状态（evts 计数、lastEvts/lastCnt）由调用方持有，本函数无状态（DEV-AUDIT-001 P1-4 提取）。
 func checkFreshness(sys chan<- event.SystemEvent, evts *atomic.Uint64, lastEvts *uint64, lastCnt *int64, staleRep, staleWarnRep *event.RateLimiter) {
@@ -309,7 +309,7 @@ func checkOverrun(ctx context.Context, sys chan<- event.SystemEvent, nfct *connt
 	}
 	// 溢出留痕（永留存，符合"只记录"精神：记录丢了什么也是记录）。
 	event.ReportSys(sys, "conntrack", "warn", fmt.Sprintf("netlink 缓冲溢出，丢弃 %d 条事件（R-10 留痕）", diff))
-	// M-01（auditor Minor）：共享 atomic 计数（main 注入，API health 直接读取），
+	// 共享 atomic 计数（main 注入，API health 直接读取），
 	// overrun 通道保持 store 单消费者（防止双消费者竞争导致计数/留痕减半）。
 	if counter != nil {
 		counter.Add(diff)
@@ -461,7 +461,7 @@ func parseNetlinkOwn(data string, inodes map[uint64]bool, proto int) []netlinkOw
 // errSubscriptionInvalid 订阅验证确定无效（Groups 位缺失）——按启动类错误处理（降级）。
 var errSubscriptionInvalid = errors.New("netlink 组订阅验证失败")
 
-// verifySubscription 验证本进程 NETLINK_NETFILTER 组订阅已生效（DEV-036）：
+// verifySubscription 验证本进程 NETLINK_NETFILTER 组订阅已生效：
 // 读取 /proc/net/netlink，检查本进程套接字 Groups 位是否含全部期望组位（NEW/UPDATE/DESTROY）。
 // 返回 errSubscriptionInvalid 表示订阅确定无效（调用方应降级）；其他错误表示无法验证
 // （读取失败，调用方仅留痕不降级）。
@@ -511,7 +511,7 @@ func ownSocketInodes() (map[uint64]bool, error) {
 	return inodes, nil
 }
 
-// staleVerdict 事件流停滞判定（DEV-036 新鲜度自检，纯函数可单测）：
+// staleVerdict 事件流停滞判定（新鲜度自检，纯函数可单测）：
 // prevEvts/curEvts 为相邻周期的事件计数；prevCnt/curCnt 为相邻周期的 conntrack 表连接数
 // （-1 表示不可读）。返回 stalled=事件计数未推进；tableActive=表连接数变化（表有活动）。
 func staleVerdict(prevEvts, curEvts uint64, prevCnt, curCnt int64) (stalled, tableActive bool) {

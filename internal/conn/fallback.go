@@ -19,7 +19,7 @@ func RunFallbackConnListener(ctx context.Context, interval time.Duration, sink c
 	return runFallbackConnListener(ctx, interval, sink, sys, true)
 }
 
-// RunFallbackConnListenerQuiet 主动降级变体（DEV-031 B.4.3 项 3：conntrack.mode=fallback
+// RunFallbackConnListenerQuiet 主动降级变体（B.4.3 项 3：conntrack.mode=fallback
 // 显式声明环境不支持时使用）：不报"conntrack 通道不可用"启动 warn（消除预期降级告警噪音），
 // 改为 info 说明当前通道模式。
 func RunFallbackConnListenerQuiet(ctx context.Context, interval time.Duration, sink chan<- event.ConnEvent, sys chan<- event.SystemEvent) error {

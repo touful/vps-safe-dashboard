@@ -44,7 +44,7 @@ func snapshotOnce(latest *atomic.Value, sys chan<- event.SystemEvent) error {
 		event.ReportSys(sys, "conntrack", "warn", "解析 ss 输出失败: "+err.Error())
 		return err
 	}
-	// DEV-033（DEV-032 现场核查结论 8）：活跃连接数改读 count 文件（/proc/net/nf_conntrack
+	// 现场核查结论 8：活跃连接数改读 count 文件（/proc/net/nf_conntrack
 	// 因 CONFIG_NF_CONNTRACK_PROCFS not set 不存在，sysctl count 文件可读）；
 	// 读取失败 Cnt=-1（fallback 等无模块环境预期），API 回退 ss 口径，不告警。
 	latest.Store(&event.ConnSnapshot{TS: time.Now().Unix(), Conn: conns, Cnt: readConntrackCount(conntrackCountPath)})
@@ -57,7 +57,7 @@ func snapshotOnce(latest *atomic.Value, sys chan<- event.SystemEvent) error {
 //	tcp   ESTAB 0      0      10.0.0.2:22    10.0.0.1:50542  users:(("sshd",pid=1234,fd=3))
 //	udp   ESTAB 0      0      10.0.0.2:53    10.0.0.1:54321  users:(("dnsmasq",pid=999,fd=5))
 //
-// 方向语义（auditor M-01 修复）：ss 的 Local 列为本机侧、Peer 列为远端。
+// 方向语义：ss 的 Local 列为本机侧、Peer 列为远端。
 // 本模块统一按"本机侧=目的（Dst）、远端=源（Src）"赋值——与 conntrack 事件方向语义对齐，
 // 使攻击场景（外部源 → 本机被攻击端口）中攻击者恒为 Src、被攻击端口恒为 Dst。
 // 已知限制：ss 输出无连接方向标记，出站连接（本机主动发起）方向会反置；
