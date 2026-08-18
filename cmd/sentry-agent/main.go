@@ -71,6 +71,10 @@ func main() {
 	// 有界 channel（方案 2.3.3：容量 4096，背压传导）。
 	ch := out.NewChannels(4096)
 
+	// DEV-042：fw 采集 producer 创建 FwFilter 后投递到该通道（cap 1），
+	// SSH 成功登录学习器等待其就绪后开始更新动态白名单。
+	fwFilterReady := make(chan *fw.FwFilter, 1)
+
 	// 生产者 WaitGroup：采集协程（供 Store/out 两阶段排空协议使用，auditor M-02）。
 	var producers sync.WaitGroup
 	var all sync.WaitGroup
@@ -133,6 +137,16 @@ func main() {
 				return nil
 			})
 		})
+
+		// DEV-042：SSH 成功登录自动白名单学习（仅落库模式；依赖主库 ssh_attempts）。
+		// 启动时加载近 window_days 天成功登录 IP 到白名单 + 每 interval 轮询增量更新；
+		// 等待 fw producer 投递 filter 后开始（fwFilterReady）。
+		if cfg.FW.SSHLearnEnabled {
+			startService(func() {
+				_ = fw.RunSSHLearner(ctx, st, cfg.FW.SSHLearnWindowDays,
+					time.Duration(cfg.FW.SSHLearnIntervalMin)*time.Minute, fwFilterReady, ch.System)
+			})
+		}
 
 		// M-07 API + WebSocket（仅落库模式：查询依赖主库；独立只读连接，auditor 坑点）。
 		startService(func() {
@@ -229,6 +243,10 @@ func main() {
 			CIDRs:             cidrs,
 			ExcludeIPs:        excludeIPs,
 		}
+		// DEV-042：初始化动态白名单槽位并投递 filter 给学习器——学习器经
+		// SetDynamicExcludeIPs 更新共享槽位，RunFwParser 持有的副本判定可见。
+		filter.SetDynamicExcludeIPs(nil)
+		fwFilterReady <- &filter
 		if err := fw.RunFwParser(ctx, cfg.FW.Source, cfg.FW.Prefix, filter, ch.FW, ch.System); err != nil {
 			event.ReportSys(ch.System, "fw", "error", "防火墙解析通道退出: "+err.Error())
 		}

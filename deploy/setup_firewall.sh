@@ -117,9 +117,43 @@ if [ "$BACKEND" = "nft" ]; then
     fi
   }
 
-  if nft list ruleset 2>/dev/null | grep -q 'SENTRY_FW'; then
+  # ===== DEV-042：raw PREROUTING 入站 LOG（记录所有入站流量） =====
+  # 背景：DOCKER/f2b-sshd 链 LOG 只记录 drop/reject，而 drop/reject counter 全 0，
+  # 导致 firewall_events 几乎无数据（"外部威胁"不可见）。本段在 raw PREROUTING
+  # （conntrack/DNAT 之前，记录所有入站流量）插入 1 条限速 LOG，配合采集层过滤
+  # （exclude_internal/exclude_ips/SSH 成功登录动态白名单）避免爆表。
+  # 前缀 SENTRY_FW:PREROUTING:inbound（区别于 drop/reject 语义；解析器按
+  # SENTRY_FW:<chain>:<action> 提取 chain=PREROUTING action=inbound）。
+  # 设计决策：保留 DOCKER/f2b-sshd 链 LOG（拦截记录语义）——raw 为入站观察（所有流量），
+  # 两者语义不同；且 DOCKER/f2b-sshd drop counter 全 0（无实际拦截），不产生重复记录。
+  # 幂等：独立检查（先于全局 SENTRY_FW 检查——升级场景旧版已有 DOCKER/f2b-sshd LOG
+  # 时仍补插 raw LOG）。
+  insert_raw_prerouting_log() {
+    echo "--- raw PREROUTING 入站 LOG（DEV-042） ---"
+    if nft list chain ip raw PREROUTING 2>/dev/null | grep -q 'SENTRY_FW:PREROUTING:inbound'; then
+      echo "[提示] raw PREROUTING 已含入站 LOG（幂等：跳过插入）"
+    else
+      # 确保 raw 表与 PREROUTING 链存在（已存在则忽略报错；不改变既有 policy）
+      nft add table ip raw 2>/dev/null || true
+      nft add chain ip raw PREROUTING '{ type filter hook prerouting priority -300 ; policy accept ; }' 2>/dev/null || true
+      # insert 到链首：LOG 无条件记录所有入站包（含后续被 drop 的），不改变包流向
+      if nft insert rule ip raw PREROUTING log prefix \"SENTRY_FW:PREROUTING:inbound \" flags all limit rate 5/second burst $BURST packets 2>/dev/null; then
+        echo "已插入: raw PREROUTING 入站 LOG（前缀 SENTRY_FW:PREROUTING:inbound）"
+      else
+        echo "[警告] 插入失败: raw PREROUTING 入站 LOG（人工核对 nft list chain ip raw PREROUTING）"
+      fi
+    fi
+  }
+
+  # DEV-042：raw PREROUTING 入站 LOG（独立幂等检查，先于全局 SENTRY_FW 检查——
+  # 升级场景旧版已有 DOCKER/f2b-sshd LOG 时仍补插 raw LOG）
+  insert_raw_prerouting_log
+
+  # DEV-042：幂等检查排除 raw PREROUTING 入站 LOG——raw LOG 已独立插入，
+  # 不应触发 DOCKER/f2b-sshd LOG 的跳过（否则首次运行 raw LOG 插入后 DOCKER LOG 被跳过）。
+  if nft list ruleset 2>/dev/null | grep -v 'SENTRY_FW:PREROUTING:inbound' | grep -q 'SENTRY_FW'; then
     echo "[提示] 规则集已含 SENTRY_FW LOG 规则（幂等：跳过插入）"
-    nft list ruleset | grep -c 'SENTRY_FW' | xargs echo "现有 SENTRY_FW 规则数:"
+    nft list ruleset | grep -v 'SENTRY_FW:PREROUTING:inbound' | grep -c 'SENTRY_FW' | xargs echo "现有 SENTRY_FW 规则数（不含 raw 入站 LOG）:"
     # DEV-040（reviewer R-01 整改）：LOG 已存在时仍检查/补插防护规则
     insert_protect_rules
     exit 0

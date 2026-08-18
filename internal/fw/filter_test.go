@@ -264,3 +264,56 @@ func TestFwFilterShouldDropExcludeIPs(t *testing.T) {
 		t.Error("空 ExcludeIPs 不应排除操作方 IP")
 	}
 }
+
+// TestFwFilterDynamicExcludeIPs 动态白名单（DEV-042 SSH 成功登录学习）：
+// SetDynamicExcludeIPs 更新后 ShouldDrop 合并静态+动态判定；值复制共享同一槽位。
+func TestFwFilterDynamicExcludeIPs(t *testing.T) {
+	ns := mustCIDRs(t)
+	staticIPs, _ := ParseExcludeIPs([]string{"182.136.147.161"})
+	filter := FwFilter{ExcludeInternal: true, FilterDstInternal: false, CIDRs: ns, ExcludeIPs: staticIPs}
+	filter.SetDynamicExcludeIPs(nil) // 初始化槽位（模拟 main.go 接线）
+
+	// 值复制（模拟 RunFwParser 持有副本）——副本共享同一动态槽位。
+	// 注意：SetDynamicExcludeIPs 须在复制前调用（main.go 保证）。
+	copyFilter := filter
+
+	// 初始：动态为空，仅静态排除生效。
+	evStatic := event.FirewallEvent{SrcIP: u32IP(t, "182.136.147.161"), DstIP: u32IP(t, "172.17.39.111")}
+	evLearned := event.FirewallEvent{SrcIP: u32IP(t, "182.136.147.244"), DstIP: u32IP(t, "172.17.39.111")}
+	evOther := event.FirewallEvent{SrcIP: u32IP(t, "203.0.113.5"), DstIP: u32IP(t, "172.17.39.111")}
+	if !copyFilter.ShouldDrop(evStatic) {
+		t.Error("静态 exclude_ips 应排除")
+	}
+	if copyFilter.ShouldDrop(evLearned) {
+		t.Error("动态白名单未更新前，学习 IP 不应被排除")
+	}
+
+	// 学习器更新动态白名单（经原 filter 指针）。
+	dynIPs, _ := ParseExcludeIPs([]string{"182.136.147.244"})
+	filter.SetDynamicExcludeIPs(dynIPs)
+
+	// 副本判定可见（共享槽位）。
+	if !copyFilter.ShouldDrop(evLearned) {
+		t.Error("动态白名单更新后，学习 IP 应被排除（副本共享槽位）")
+	}
+	if !copyFilter.ShouldDrop(evStatic) {
+		t.Error("静态 exclude_ips 仍应排除（合并判定）")
+	}
+	if copyFilter.ShouldDrop(evOther) {
+		t.Error("非白名单 IP 不应被排除")
+	}
+	// IPv6 行（SrcIP=0）保守保留。
+	if copyFilter.ShouldDrop(event.FirewallEvent{SrcIP: 0, DstIP: 0}) {
+		t.Error("IPv6 行（SrcIP=0）应保留")
+	}
+}
+
+// TestFwFilterDynamicExcludeIPsNil 未初始化动态槽位（nil）时 ShouldDrop 不 panic、不排除。
+func TestFwFilterDynamicExcludeIPsNil(t *testing.T) {
+	ns := mustCIDRs(t)
+	filter := FwFilter{ExcludeInternal: true, FilterDstInternal: false, CIDRs: ns}
+	ev := event.FirewallEvent{SrcIP: u32IP(t, "182.136.147.244"), DstIP: u32IP(t, "172.17.39.111")}
+	if filter.ShouldDrop(ev) {
+		t.Error("未启用动态白名单（nil）不应排除")
+	}
+}

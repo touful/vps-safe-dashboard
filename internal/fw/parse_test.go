@@ -109,3 +109,23 @@ func TestProtoMap(t *testing.T) {
 		t.Error("TCP 映射错误")
 	}
 }
+
+// TestParseFWLinePreroutingInbound（DEV-042）：raw PREROUTING 入站 LOG 前缀解析——
+// SENTRY_FW:PREROUTING:inbound → Chain=PREROUTING Action=inbound（区别于 drop/reject 语义）。
+func TestParseFWLinePreroutingInbound(t *testing.T) {
+	line := "SENTRY_FW:PREROUTING:inbound IN=eth0 OUT= MAC=01:02:03:04:05:06:07:08:09:0a:0b:0c:08:00 " +
+		"SRC=182.136.147.244 DST=172.17.39.111 LEN=40 PROTO=TCP SPT=50022 DPT=22 SYN URGP=0"
+	ev, ok := ParseFWLine(line, "SENTRY_FW:")
+	if !ok {
+		t.Fatal("应匹配")
+	}
+	if ev.Chain != "PREROUTING" || ev.Action != "inbound" {
+		t.Errorf("Chain=%q Action=%q, 期望 PREROUTING/inbound", ev.Chain, ev.Action)
+	}
+	if ev.SrcIP != 0xB68893F4 || ev.DstIP != 0xAC11276F {
+		t.Errorf("SrcIP=%x DstIP=%x, 期望 b68893f4/ac11276f", ev.SrcIP, ev.DstIP)
+	}
+	if ev.DstPort != 22 {
+		t.Errorf("DstPort = %d, 期望 22", ev.DstPort)
+	}
+}

@@ -417,6 +417,34 @@ func (s *Store) RequestArchive(month string) error {
 	}
 }
 
+// QuerySuccessfulSSHIPs 查询近 windowDays 天内成功登录（result=1）的源 IP（去重，DEV-042）。
+// 供 fw 包 SSH 成功登录自动白名单学习使用（实现 fw.SuccessfulSSHIPSource 接口）。
+// 只读查询：WAL 模式与写线程并发安全；查询走 idx_ssh_ts 索引，毫秒级。
+// 注意：与写线程共享连接池（MaxOpenConns(1)），查询期间写线程短暂等待（busy_timeout 兜底），
+// 学习器轮询间隔 10 分钟，冲突概率极低。
+func (s *Store) QuerySuccessfulSSHIPs(ctx context.Context, windowDays int) ([]uint32, error) {
+	cutoff := time.Now().Unix() - int64(windowDays)*86400
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT src_ip FROM ssh_attempts WHERE result = ? AND ts >= ?`,
+		event.ResultOK, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("查询成功登录 IP 失败: %w", err)
+	}
+	defer rows.Close()
+	var out []uint32
+	for rows.Next() {
+		var ip int64
+		if err := rows.Scan(&ip); err != nil {
+			return nil, fmt.Errorf("读取成功登录 IP 失败: %w", err)
+		}
+		out = append(out, uint32(ip))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历成功登录 IP 失败: %w", err)
+	}
+	return out, nil
+}
+
 // Close 关闭主库（Run 结束后调用；幂等）。
 func (s *Store) Close() error {
 	if s.db == nil {

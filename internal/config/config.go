@@ -81,6 +81,16 @@ type FWCfg struct {
 	// 默认空；命中 SRC 的事件在采集层丢弃——解决操作方正常访问流量被 LOG 无条件记录
 	// 而成为"TOP 攻击源"的问题）。仅接受 IPv4 点分十进制。
 	ExcludeIPs []string `json:"exclude_ips"`
+	// SSHLearnEnabled 是否启用 SSH 成功登录自动白名单学习（DEV-042，默认 true）：
+	// 从 ssh_attempts 表提取近 SSHLearnWindowDays 天成功登录（result=1）的源 IP，
+	// 自动加入 fw 白名单（排除列表），操作方 IP 变化时自动更新，不再被记录为"外部威胁"。
+	// 仅学习成功登录（可信来源），不学习失败登录。
+	SSHLearnEnabled bool `json:"ssh_learn_enabled"`
+	// SSHLearnWindowDays 学习窗口天数（近 N 天成功登录 IP 加入白名单，默认 30；
+	// 窗口自然过期——重启/轮询时从 DB 重建，无需单独持久化）。
+	SSHLearnWindowDays int `json:"ssh_learn_window_days"`
+	// SSHLearnIntervalMin 轮询间隔（分钟，默认 10；启动时立即学习一次）。
+	SSHLearnIntervalMin int `json:"ssh_learn_interval_min"`
 }
 
 // F2BCfg fail2ban 集成（M-05）。
@@ -163,7 +173,7 @@ func Defaults() *Config {
 			Mode:                 "auto",
 		},
 		SSH: SSHCfg{Source: "journald", VerboseFingerprint: true},
-		FW:  FWCfg{Source: "journald-kernel", Prefix: "SENTRY_FW:", RateLimitPktS: 5, ExcludeInternal: true},
+		FW:  FWCfg{Source: "journald-kernel", Prefix: "SENTRY_FW:", RateLimitPktS: 5, ExcludeInternal: true, SSHLearnEnabled: true, SSHLearnWindowDays: 30, SSHLearnIntervalMin: 10},
 		F2B: F2BCfg{Enabled: true, LogPath: "/var/log/fail2ban.log", DBPath: "/var/lib/fail2ban/fail2ban.sqlite3"},
 		DB: DBCfg{
 			Path:            "/var/lib/sentry-agent/state.db",
@@ -246,6 +256,13 @@ func (c *Config) Validate() error {
 		if parsed == nil || parsed.To4() == nil {
 			return fmt.Errorf("fw.exclude_ips[%d]=%q 非法 IPv4 地址（当前仅支持 IPv4 点分十进制）", i, ip)
 		}
+	}
+	// DEV-042：ssh_learn_window_days / ssh_learn_interval_min 下限校验（>=1）。
+	if c.FW.SSHLearnWindowDays < 1 {
+		return fmt.Errorf("fw.ssh_learn_window_days=%d 小于下限 1", c.FW.SSHLearnWindowDays)
+	}
+	if c.FW.SSHLearnIntervalMin < 1 {
+		return fmt.Errorf("fw.ssh_learn_interval_min=%d 小于下限 1", c.FW.SSHLearnIntervalMin)
 	}
 	if c.F2B.LogPath == "" || c.F2B.DBPath == "" {
 		return fmt.Errorf("f2b.log_path / f2b.db_path 不能为空")

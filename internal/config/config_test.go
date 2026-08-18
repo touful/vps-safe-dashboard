@@ -26,6 +26,16 @@ func TestDefaults(t *testing.T) {
 	if cfg.FW.FilterDstInternal {
 		t.Error("fw.filter_dst_internal 默认应为 false（扩展模式不启用）")
 	}
+	// DEV-042 新增默认项。
+	if !cfg.FW.SSHLearnEnabled {
+		t.Error("fw.ssh_learn_enabled 默认应为 true（SSH 成功登录自动白名单学习）")
+	}
+	if cfg.FW.SSHLearnWindowDays != 30 {
+		t.Errorf("fw.ssh_learn_window_days 默认应为 30，实际 %d", cfg.FW.SSHLearnWindowDays)
+	}
+	if cfg.FW.SSHLearnIntervalMin != 10 {
+		t.Errorf("fw.ssh_learn_interval_min 默认应为 10，实际 %d", cfg.FW.SSHLearnIntervalMin)
+	}
 	if cfg.DB.RetentionDays != 7 {
 		t.Errorf("db.retention_days 默认应为 7，实际 %d", cfg.DB.RetentionDays)
 	}
@@ -57,6 +67,8 @@ func TestValidate(t *testing.T) {
 		{"exclude_ips 非 IP", func(c *Config) { c.FW.ExcludeIPs = []string{"abc"} }},               // DEV-039
 		{"exclude_ips IPv6", func(c *Config) { c.FW.ExcludeIPs = []string{"2001:db8::1"} }},        // DEV-039：当前仅支持 IPv4
 		{"exclude_ips 混入非法项", func(c *Config) { c.FW.ExcludeIPs = []string{"182.136.147.161", "bad"} }}, // DEV-039
+		{"ssh_learn_window_days 小于 1", func(c *Config) { c.FW.SSHLearnWindowDays = 0 }},          // DEV-042
+		{"ssh_learn_interval_min 小于 1", func(c *Config) { c.FW.SSHLearnIntervalMin = 0 }},        // DEV-042
 		{"db.path 空", func(c *Config) { c.DB.Path = "" }},
 		{"db.archive_dir 空", func(c *Config) { c.DB.ArchiveDir = "" }},
 		{"db.batch_interval_ms 过小", func(c *Config) { c.DB.BatchIntervalMS = 50 }},
