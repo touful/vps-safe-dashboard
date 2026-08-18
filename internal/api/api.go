@@ -263,6 +263,20 @@ func parseUintParam(r *http.Request, key string, def uint64) uint64 {
 	return n
 }
 
+// eqConds 为指定查询参数生成 "key = ?" 等值条件与对应参数（缺失参数跳过）。
+// 参数名与表列名一致时使用（hConnections/hSSH/hFirewall 共用，DEV-AUDIT-001 P2-2）。
+func eqConds(q url.Values, keys []string) ([]string, []any) {
+	var conds []string
+	var args []any
+	for _, k := range keys {
+		if v := q.Get(k); v != "" {
+			conds = append(conds, k+" = ?")
+			args = append(args, v)
+		}
+	}
+	return conds, args
+}
+
 // urlPathEscape 路径 URL 编码（R-05：统一为 url.PathEscape，与 store/f2b 同规则；
 // SQLite URI 模式对 %XX 解码，转义 '?'/'#'/'%' 等 DSN 特殊字符）。
 func urlPathEscape(p string) string {

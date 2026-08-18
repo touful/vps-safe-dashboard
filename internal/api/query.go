@@ -57,20 +57,9 @@ func (s *Server) hConnections(w http.ResponseWriter, r *http.Request) {
 	if limit > 1000 {
 		limit = 1000
 	}
-	conds := []string{"1=1"}
-	args := []any{}
-	if p := q.Get("proto"); p != "" {
-		conds = append(conds, "proto = ?")
-		args = append(args, p)
-	}
-	if p := q.Get("dst_port"); p != "" {
-		conds = append(conds, "dst_port = ?")
-		args = append(args, p)
-	}
-	if p := q.Get("src_ip"); p != "" {
-		conds = append(conds, "src_ip = ?")
-		args = append(args, p)
-	}
+	eqs, eqArgs := eqConds(q, []string{"proto", "dst_port", "src_ip"})
+	conds := append([]string{"1=1"}, eqs...)
+	args := append([]any{}, eqArgs...)
 	if p := q.Get("since"); p != "" {
 		conds = append(conds, "ts >= ?")
 		args = append(args, p)
@@ -123,20 +112,9 @@ func (s *Server) hSSH(w http.ResponseWriter, r *http.Request) {
 	if limit > 1000 {
 		limit = 1000
 	}
-	conds := []string{"ts >= ?"}
-	args := []any{from}
-	if p := q.Get("src_ip"); p != "" {
-		conds = append(conds, "src_ip = ?")
-		args = append(args, p)
-	}
-	if p := q.Get("result"); p != "" {
-		conds = append(conds, "result = ?")
-		args = append(args, p)
-	}
-	if p := q.Get("username"); p != "" {
-		conds = append(conds, "username = ?")
-		args = append(args, p)
-	}
+	eqs, eqArgs := eqConds(q, []string{"src_ip", "result", "username"})
+	conds := append([]string{"ts >= ?"}, eqs...)
+	args := append([]any{from}, eqArgs...)
 	query := `SELECT ts, src_ip, username, auth_method, result, fingerprint, detail
 		FROM ssh_attempts WHERE ` + strings.Join(conds, " AND ") + ` ORDER BY ts DESC LIMIT ?`
 	args = append(args, limit)
@@ -175,14 +153,9 @@ func (s *Server) hFirewall(w http.ResponseWriter, r *http.Request) {
 	if limit > 1000 {
 		limit = 1000
 	}
-	conds := []string{"ts >= ?"}
-	args := []any{from}
-	for _, k := range []string{"dst_port", "action", "src_ip"} {
-		if p := q.Get(k); p != "" {
-			conds = append(conds, k+" = ?")
-			args = append(args, p)
-		}
-	}
+	eqs, eqArgs := eqConds(q, []string{"dst_port", "action", "src_ip"})
+	conds := append([]string{"ts >= ?"}, eqs...)
+	args := append([]any{from}, eqArgs...)
 	query := `SELECT ts, chain, action, proto, src_ip, src_port, dst_ip, dst_port, raw
 		FROM firewall_events WHERE ` + strings.Join(conds, " AND ") + ` ORDER BY ts DESC LIMIT ?`
 	args = append(args, limit)
@@ -223,23 +196,18 @@ func (s *Server) hTopPorts(w http.ResponseWriter, r *http.Request) {
 	if top > 50 {
 		top = 50
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT dst_port, COUNT(*) AS hits FROM firewall_events
-		WHERE ts >= ? GROUP BY dst_port ORDER BY hits DESC LIMIT ?`, from, top)
+	hits, err := s.topHits(ctx, from, top, "dst_port")
 	if err != nil {
 		writeErr(w, 500, "查询失败: "+err.Error())
 		return
 	}
-	defer rows.Close()
 	type hit struct {
 		DstPort int   `json:"dst_port"`
 		Hits    int64 `json:"hits"`
 	}
-	var out []hit
-	for rows.Next() {
-		var h hit
-		if rows.Scan(&h.DstPort, &h.Hits) == nil {
-			out = append(out, h)
-		}
+	out := make([]hit, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, hit{DstPort: int(h.V), Hits: h.Hits})
 	}
 	writeJSON(w, 200, map[string]any{"rows": out})
 }
@@ -253,25 +221,46 @@ func (s *Server) hTopSources(w http.ResponseWriter, r *http.Request) {
 	if top > 50 {
 		top = 50
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT src_ip, COUNT(*) AS hits FROM firewall_events
-		WHERE ts >= ? GROUP BY src_ip ORDER BY hits DESC LIMIT ?`, from, top)
+	hits, err := s.topHits(ctx, from, top, "src_ip")
 	if err != nil {
 		writeErr(w, 500, "查询失败: "+err.Error())
 		return
 	}
-	defer rows.Close()
 	type hit struct {
 		SrcIP int64 `json:"src_ip"`
 		Hits  int64 `json:"hits"`
 	}
-	var out []hit
+	out := make([]hit, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, hit{SrcIP: h.V, Hits: h.Hits})
+	}
+	writeJSON(w, 200, map[string]any{"rows": out})
+}
+
+// topHit 通用 TOP 计数行（列值 + 命中数；hTopPorts/hTopSources 共用）。
+type topHit struct {
+	V    int64
+	Hits int64
+}
+
+// topHits 查询防火墙事件表指定列 TOP 计数（hTopPorts/hTopSources 公共查询，
+// DEV-AUDIT-001 P2-2 收敛）。col 仅来自本文件常量调用点，无用户输入面。
+// 与原 handler 行为一致：不检查迭代错误（ctx 超时场景返回部分结果，200）。
+func (s *Server) topHits(ctx context.Context, from int64, top uint64, col string) ([]topHit, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+col+`, COUNT(*) AS hits FROM firewall_events
+		WHERE ts >= ? GROUP BY `+col+` ORDER BY hits DESC LIMIT ?`, from, top)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []topHit
 	for rows.Next() {
-		var h hit
-		if rows.Scan(&h.SrcIP, &h.Hits) == nil {
+		var h topHit
+		if rows.Scan(&h.V, &h.Hits) == nil {
 			out = append(out, h)
 		}
 	}
-	writeJSON(w, 200, map[string]any{"rows": out})
+	return out, nil
 }
 
 // hArchive 归档文件列表（方案 3.7：file/month/size_mb/gzip）。
