@@ -186,7 +186,7 @@ func (s *Server) hFirewall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"rows": out})
 }
 
-// hTopPorts 被探测端口 TOP（方案 4.4 DPT 口径 → DEV-045：统计所有防火墙事件，
+// hTopPorts 被探测端口 TOP（方案 4.4 DPT 口径：统计所有防火墙事件，
 // inbound 扫描探测 / reject 拦截 / drop 丢弃均计入"被探测端口"；DPT 警示固化）。
 func (s *Server) hTopPorts(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -354,14 +354,14 @@ func (s *Server) hSSHTimeline(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"rows": out})
 }
 
-// hFirewallTimeline 防火墙事件小时聚合时间线（DEV-017 双通道 → DEV-045 三通道）。
+// hFirewallTimeline 防火墙事件小时聚合时间线（双通道 → 三通道演进）。
 // 三通道语义：inbound=入站观察（扫描器流量，主通道）、reject=拦截（fail2ban）、
 // drop=丢弃；accept 保留仅为向后兼容（实际生产无 accept 记录）。
 // 与 hSSHTimeline 同模式（小时桶 + range 过滤）；按任务书要求缺数据小时补零桶，
 // 保证前端各通道按时间对齐（ssh/timeline 无补零，由前端按本端点桶时间轴对齐）。
 // 注意：防火墙日志为限速采样视图（默认 5 包/s），聚合值代表采样趋势而非全量计数。
 func (s *Server) hFirewallTimeline(w http.ResponseWriter, r *http.Request) {
-	// DEV-018 P-01（AUD-007）：30d 视图千万行级全量 SUM CASE 聚合估 2-8s，context 5s 超时会周期性 500，
+	// 30d 视图千万行级全量 SUM CASE 聚合估 2-8s，context 5s 超时会周期性 500，
 	// 导致双通道图/FW spark/评分/态势条同时失效——30d 放宽超时至 30s，其余保持 5s。
 	rng := r.URL.Query().Get("range")
 	timeout := 5 * time.Second
@@ -371,7 +371,7 @@ func (s *Server) hFirewallTimeline(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	from := rangeSeconds(r)
-	// R-04（reviewer）：统计窗口对齐小时桶边界——首桶补零起点为 (from/3600)*3600，
+	// 统计窗口对齐小时桶边界——首桶补零起点为 (from/3600)*3600，
 	// SQL 过滤须同为桶边界，否则首桶缺失 [from_floor, from) 区间最多 3599 秒数据。
 	fromBucket := (from / 3600) * 3600
 	rows, err := s.db.QueryContext(ctx, `SELECT (ts/3600)*3600 AS hour,
@@ -414,7 +414,7 @@ func (s *Server) hFirewallTimeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// range 回显（R-09：非法值回显默认 24h，与 rangeSeconds 口径一致，避免响应与实际查询不符；
-	// DEV-018 P-01：rng 已在函数头读取用于超时判定，此处复用并校验）。
+	// rng 已在函数头读取用于超时判定，此处复用并校验）。
 	switch rng {
 	case "1h", "24h", "7d", "30d":
 	default:

@@ -84,7 +84,7 @@ func (h *wsHub) broadcast(frame []byte) {
 
 // hWS WebSocket 升级与读写循环。
 // Origin 白名单校验（方案 3.7）：Origin 头必须等于白名单（默认 http://127.0.0.1:8080）。
-// M-02（auditor Minor）：无 Origin 头请求——监听回环地址（allowNoOrigin=true）时放行
+// 无 Origin 头请求——监听回环地址（allowNoOrigin=true）时放行
 // （本机 CLI/非浏览器工具场景）；监听非回环地址（0.0.0.0 等）时拒绝，
 // 防止任意远程非浏览器客户端绕过白名单直连。
 // VS-03（DEV-P1-001，AUD-VPS-001）：
@@ -253,7 +253,7 @@ func (s *Server) frameConnStats(lastNewID, lastDestID int64) (int64, int64, int6
 	return newCnt, destCnt, newMax, destMax, s.activeConns(), true
 }
 
-// frameSystem 查询新增 system_events 并构造帧列表（R-04：id 单调游标，
+// frameSystem 查询新增 system_events 并构造帧列表（id 单调游标，
 // 同秒多条全部推送不漏推）。返回（最新 id, 帧列表）。
 func (s *Server) frameSystem(afterID int64) (int64, [][]byte) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

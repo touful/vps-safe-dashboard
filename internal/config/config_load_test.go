@@ -1,4 +1,4 @@
-// 真实配置文件加载验证（DEV-042）：config.example.json / deploy/config.json 可加载
+// 真实配置文件加载验证：config.example.json / deploy/config.json 可加载
 // 且含新增 ssh_learn_* 配置项（验收标准 10：config.example.json 和 deploy/config.json 同步更新）。
 package config
 

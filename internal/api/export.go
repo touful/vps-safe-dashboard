@@ -53,7 +53,7 @@ func (s *Server) hExportCSV(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// span<0 兜底 int64 溢出回绕（from/to 极端值组合使 to-from 溢出为负，
-		// 可绕过跨度上限——R-01 reviewer 整改）；正常输入下 span>=0 恒成立。
+		// 可绕过跨度上限——评审整改）；正常输入下 span>=0 恒成立。
 		span := to - from
 		if span < 0 || span > 90*86400 {
 			writeErr(w, http.StatusBadRequest, "参数错误：自定义时间跨度不能超过 90 天")
@@ -102,7 +102,7 @@ func (s *Server) hExportCSV(w http.ResponseWriter, r *http.Request) {
 			portStr = strconv.FormatInt(port.Int64, 10)
 		}
 		// 行字段：IP 转点分十进制（复用现有转换）、本地时区时间、端口（空则输出空字段 ip,ts,）。
-		// M-01（AUD-FE-004）：写路径错误（缓冲满/客户端断开）停止迭代并留痕。
+		// 写路径错误（缓冲满/客户端断开）停止迭代并留痕。
 		// 客户端已断开，后续 rows.Err()/Flush 检查无意义，直接返回（避免再走正常路径）。
 		if err := cw.Write([]string{
 			event.Uint32ToIPv4(uint32(ipV)),
@@ -113,7 +113,7 @@ func (s *Server) hExportCSV(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// R-04（reviewer）+ M-01（AUD-FE-004）：迭代后检查 rows.Err()——超时取消/IO 错误时
+	// 迭代后检查 rows.Err()——超时取消/IO 错误时
 	// CSV 可能静默截断。中断路径必须先 cw.Flush()：csv.Writer 内部缓冲 4096 字节，
 	// 不 Flush 则最后一批已扫描行滞留缓冲，客户端连完整前缀都拿不到；
 	// Flush 后检查 cw.Error()——客户端断开等写错误不再被静默吞掉。
@@ -128,7 +128,7 @@ func (s *Server) hExportCSV(w http.ResponseWriter, r *http.Request) {
 		s.limitWarn.Report(s.sysCh, "api", "warn", "导出中断: 查询="+err.Error()+werrMsg)
 		return
 	}
-	// 正常路径 Flush 后同样检查 cw.Error()（客户端断开留痕，M-01）。
+	// 正常路径 Flush 后同样检查 cw.Error()（客户端断开留痕）。
 	cw.Flush()
 	if err := cw.Error(); err != nil {
 		s.limitWarn.Report(s.sysCh, "api", "warn", "导出写入失败: "+err.Error())

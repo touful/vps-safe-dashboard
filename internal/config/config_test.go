@@ -16,7 +16,7 @@ func TestDefaults(t *testing.T) {
 	if !cfg.F2B.Enabled {
 		t.Error("f2b.enabled 默认应为 true（D-02）")
 	}
-	// DEV-031 新增默认项。
+	// 新增配置默认项（conntrack.mode 等）。
 	if cfg.Conntrack.Mode != "auto" {
 		t.Errorf("conntrack.mode 默认应为 auto，实际 %q", cfg.Conntrack.Mode)
 	}
@@ -26,7 +26,7 @@ func TestDefaults(t *testing.T) {
 	if cfg.FW.FilterDstInternal {
 		t.Error("fw.filter_dst_internal 默认应为 false（扩展模式不启用）")
 	}
-	// DEV-042 新增默认项。
+	// SSH 学习相关默认项。
 	if !cfg.FW.SSHLearnEnabled {
 		t.Error("fw.ssh_learn_enabled 默认应为 true（SSH 成功登录自动白名单学习）")
 	}
@@ -101,7 +101,7 @@ func TestValidateOK(t *testing.T) {
 	}
 }
 
-// TestValidateRetentionDays（DEV-031 优化⑤）：retention_days 任意值合法（<=0 禁用，无范围上限）。
+// TestValidateRetentionDays：retention_days 任意值合法（<=0 禁用，无范围上限）。
 func TestValidateRetentionDays(t *testing.T) {
 	for _, v := range []int{7, 0, -1, 30, 365} {
 		cfg := Defaults()
@@ -112,7 +112,7 @@ func TestValidateRetentionDays(t *testing.T) {
 	}
 }
 
-// TestValidateInternalCIDRsOK（DEV-031 优化②）：合法自定义 CIDR 列表通过校验。
+// TestValidateInternalCIDRsOK：合法自定义 CIDR 列表通过校验。
 func TestValidateInternalCIDRsOK(t *testing.T) {
 	cfg := Defaults()
 	cfg.FW.InternalCIDRs = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
@@ -121,7 +121,7 @@ func TestValidateInternalCIDRsOK(t *testing.T) {
 	}
 }
 
-// TestValidateExcludeIPsOK（DEV-039 用户需求2）：合法 exclude_ips 列表通过校验。
+// TestValidateExcludeIPsOK：合法 exclude_ips 列表通过校验。
 func TestValidateExcludeIPsOK(t *testing.T) {
 	cfg := Defaults()
 	cfg.FW.ExcludeIPs = []string{"182.136.147.161", "203.0.113.5"}

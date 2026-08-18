@@ -48,7 +48,7 @@ type ConntrackCfg struct {
 	OverrunWarnIntervalS int `json:"overrun_warn_interval_s"`
 	// FallbackIntervalS 降级模式（B5）下 ss 快照 diff 近似间隔（秒），默认 5。
 	FallbackIntervalS int `json:"fallback_interval_s"`
-	// Mode conntrack 通道模式（DEV-031 优化④）：auto（默认，探测可用性自动降级）
+	// Mode conntrack 通道模式：auto（默认，探测可用性自动降级）
 	// | fallback（强制走 ss 快照 diff 降级——环境已知不支持时消除启动告警噪音）。
 	Mode string `json:"mode"`
 }
@@ -69,19 +69,19 @@ type FWCfg struct {
 	Prefix string `json:"prefix"`
 	// RateLimitPktS 内核限速（包/秒），默认 5（采样性质，R-09；此值仅注释用，规则由部署脚本写入）。
 	RateLimitPktS int `json:"rate_limit_pkt_s"`
-	// ExcludeInternal 是否排除内网/自身来源事件（DEV-031 优化②，默认 true；关掉恢复全量记录）。
+	// ExcludeInternal 是否排除内网/自身来源事件（默认 true；关掉恢复全量记录）。
 	ExcludeInternal bool `json:"exclude_internal"`
-	// InternalCIDRs 自定义内网网段列表（DEV-031；空 = 使用内置默认列表：127.0.0.0/8、
+	// InternalCIDRs 自定义内网网段列表（空 = 使用内置默认列表：127.0.0.0/8、
 	// 10.0.0.0/8、172.16.0.0/12、192.168.0.0/16、100.64.0.0/10、169.254.0.0/16、224.0.0.0/4）。
 	InternalCIDRs []string `json:"internal_cidrs"`
-	// FilterDstInternal 扩展模式：外部→内网目的事件也过滤（DEV-031 D.4 裁定 3，默认 false；
+	// FilterDstInternal 扩展模式：外部→内网目的事件也过滤（D.4 裁定 3，默认 false；
 	// 开启后 SRC 或 DST 任一命中内网网段即过滤）。
 	FilterDstInternal bool `json:"filter_dst_internal"`
-	// ExcludeIPs 排除指定来源 IP 的事件（DEV-039 用户需求2：操作方/可信 IP 白名单排除，
+	// ExcludeIPs 排除指定来源 IP 的事件（用户需求2：操作方/可信 IP 白名单排除，
 	// 默认空；命中 SRC 的事件在采集层丢弃——解决操作方正常访问流量被 LOG 无条件记录
 	// 而成为"TOP 攻击源"的问题）。仅接受 IPv4 点分十进制。
 	ExcludeIPs []string `json:"exclude_ips"`
-	// SSHLearnEnabled 是否启用 SSH 成功登录自动白名单学习（DEV-042，默认 true）：
+	// SSHLearnEnabled 是否启用 SSH 成功登录自动白名单学习（默认 true）：
 	// 从 ssh_attempts 表提取近 SSHLearnWindowDays 天成功登录（result=1）的源 IP，
 	// 自动加入 fw 白名单（排除列表），操作方 IP 变化时自动更新，不再被记录为"外部威胁"。
 	// 仅学习成功登录（可信来源），不学习失败登录。
@@ -113,7 +113,7 @@ type DBCfg struct {
 	BatchSize int `json:"batch_size"`
 	// ArchiveDir 压缩副本目录（默认 /var/lib/sentry-agent/archive）。
 	ArchiveDir string `json:"archive_dir"`
-	// RetentionDays 事件数据保留天数（DEV-031 优化⑤，默认 7；<=0 禁用清理，
+	// RetentionDays 事件数据保留天数（默认 7；<=0 禁用清理，
 	// 恢复永久保留语义——首次启用时早于保留期的存量数据将在启动首轮清理中删除）。
 	RetentionDays int `json:"retention_days"`
 }
@@ -294,11 +294,11 @@ func (c *Config) validateFW() error {
 	if c.FW.Prefix == "" {
 		return fmt.Errorf("fw.prefix 不能为空")
 	}
-	// DEV-031 优化②：fw.internal_cidrs 逐项校验 CIDR 格式（空列表合法=内置默认网段）。
+	// fw.internal_cidrs 逐项校验 CIDR 格式（空列表合法=内置默认网段）。
 	// 仅接受 IPv4 网段：当前采集层过滤仅 IPv4 判定（IPv6 行 SrcIP=0 不参与，B.2.2 首期
-	// 不启用），静默接受会让运维误以为已覆盖 IPv6 流量（reviewer R-04）。
+	// 不启用），静默接受会让运维误以为已覆盖 IPv6 流量。
 	// 用 Mask.Size 判断 bits：同时覆盖纯 IPv6（fc00::/7）与 IPv4-mapped IPv6
-	// （::ffff:10.0.0.0/120，其 To4() 非 nil 但 bits=128，reviewer R-N2）。
+	// （::ffff:10.0.0.0/120，其 To4() 非 nil 但 bits=128）。
 	for i, cidr := range c.FW.InternalCIDRs {
 		_, ipnet, err := net.ParseCIDR(cidr)
 		if err != nil {
@@ -308,7 +308,7 @@ func (c *Config) validateFW() error {
 			return fmt.Errorf("fw.internal_cidrs[%d]=%q 为 IPv6 网段：当前仅支持 IPv4（IPv6 行不参与过滤，首期不启用，DEV-031 B.2.2）", i, cidr)
 		}
 	}
-	// DEV-039 用户需求2：fw.exclude_ips 逐项校验 IPv4 点分十进制（空列表合法=不排除）。
+	// fw.exclude_ips 逐项校验 IPv4 点分十进制（空列表合法=不排除）。
 	// 仅接受 IPv4：与 internal_cidrs 一致，IPv6 行（SrcIP=0）不参与排除判定。
 	for i, ip := range c.FW.ExcludeIPs {
 		parsed := net.ParseIP(ip)
@@ -316,7 +316,7 @@ func (c *Config) validateFW() error {
 			return fmt.Errorf("fw.exclude_ips[%d]=%q 非法 IPv4 地址（当前仅支持 IPv4 点分十进制）", i, ip)
 		}
 	}
-	// DEV-042：ssh_learn_window_days / ssh_learn_interval_min 下限校验（>=1）。
+	// ssh_learn_window_days / ssh_learn_interval_min 下限校验（>=1）。
 	if c.FW.SSHLearnWindowDays < 1 {
 		return fmt.Errorf("fw.ssh_learn_window_days=%d 小于下限 1", c.FW.SSHLearnWindowDays)
 	}

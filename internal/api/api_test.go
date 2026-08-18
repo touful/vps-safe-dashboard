@@ -95,7 +95,7 @@ INSERT INTO meta(key, value) VALUES('schema_version', '1');
 
 	srv, err := NewServer(dbPath, filepath.Join(dir, "archive"), "http://127.0.0.1:8080", true,
 		func() *event.ConnSnapshot {
-			// Cnt=-1：count 文件不可读（测试环境无 /proc），回退 ss 口径（DEV-033）。
+			// Cnt=-1：count 文件不可读（测试环境无 /proc），回退 ss 口径。
 			return &event.ConnSnapshot{TS: now, Cnt: -1, Conn: []event.SnapConn{
 				{Proto: 6, SrcIP: 0xCB007105, SrcPort: 50000, DstIP: 0x0A000002, DstPort: 22, State: "ESTAB"},
 			}}
@@ -141,7 +141,7 @@ func TestSummary(t *testing.T) {
 	if out["active_conns"].(float64) != 1 {
 		t.Errorf("active_conns = %v, 期望 1（ss 快照回退口径，Cnt=-1）", out["active_conns"])
 	}
-	// DEV-045：summary top_ports 与 hTopPorts 同口径（全量防火墙事件）——种子 4 条 drop（22/23/24/25）。
+	// summary top_ports 与 hTopPorts 同口径（全量防火墙事件）——种子 4 条 drop（22/23/24/25）。
 	top := out["top_ports"].([]any)
 	if len(top) != 4 {
 		t.Fatalf("top_ports 数 = %d, 期望 4", len(top))
@@ -161,7 +161,7 @@ func TestSummary(t *testing.T) {
 	}
 }
 
-// TestActiveConnsCntPriority（DEV-033 新增测试，DEV-032 核查结论 8）：活跃连接数优先
+// TestActiveConnsCntPriority（现场核查结论 8）：活跃连接数优先
 // conntrack count 文件值（Cnt>=0，含 0）；Cnt=-1（不可读）回退 ss 快照连接数。
 func TestActiveConnsCntPriority(t *testing.T) {
 	dir := t.TempDir()
@@ -197,7 +197,7 @@ func TestActiveConnsCntPriority(t *testing.T) {
 	}
 }
 
-// TestActiveConnsFallbackTrace（AUDIT-005 A-03）：Cnt=-1 回退 ss 口径时限频留痕一次
+// TestActiveConnsFallbackTrace：Cnt=-1 回退 ss 口径时限频留痕一次
 // （info，1/小时）；Cnt>=0 不产生回退留痕。
 func TestActiveConnsFallbackTrace(t *testing.T) {
 	dir := t.TempDir()
@@ -235,7 +235,7 @@ func TestActiveConnsFallbackTrace(t *testing.T) {
 	}
 }
 
-// TestHealthRetentionDays（AUDIT-005 A-04）：health 返回 retention_days（前端提示数据源）。
+// TestHealthRetentionDays：health 返回 retention_days（前端提示数据源）。
 func TestHealthRetentionDays(t *testing.T) {
 	srv, _ := newTestServer(t)
 	srv.SetRetentionDays(7)
@@ -254,7 +254,7 @@ func TestHealthRetentionDays(t *testing.T) {
 	}
 }
 
-// TestTopPortsDPT（DEV-045）：TOP 端口统计所有防火墙事件（inbound/reject/drop 均计入"被探测端口"）。
+// TestTopPortsDPT：TOP 端口统计所有防火墙事件（inbound/reject/drop 均计入"被探测端口"）。
 func TestTopPortsDPT(t *testing.T) {
 	srv, dbPath := newTestServer(t)
 	// 补插 inbound/reject 事件（种子数据为 4 条 drop，端口 22/23/24/25）：
@@ -341,7 +341,7 @@ func TestSSHAndFirewallAndBans(t *testing.T) {
 	}
 }
 
-// TestFirewallTimeline（DEV-017 → DEV-045）：小时桶聚合 + drop/accept/reject/inbound 四通道计数 + 补零 + range 回显。
+// TestFirewallTimeline（双通道 → 三通道演进）：小时桶聚合 + drop/accept/reject/inbound 四通道计数 + 补零 + range 回显。
 func TestFirewallTimeline(t *testing.T) {
 	srv, dbPath := newTestServer(t)
 	now := time.Now().Unix()
@@ -706,7 +706,7 @@ func TestFrameConnStatsCursors(t *testing.T) {
 	}
 }
 
-// TestReadOnlyConnection 只读连接与写线程并发（auditor 坑点验证：WAL 多读者）。
+// TestReadOnlyConnection 只读连接与写线程并发（坑点验证：WAL 多读者）。
 func TestReadOnlyConnection(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "state.db")

@@ -1,6 +1,6 @@
 // Package api 实现 M-07 API 与 WebSocket 模块（方案 3.7）。
 // 只读查询 REST + WS 实时推送；监听地址可配置（默认 127.0.0.1:8080，D-03）。
-// 关键实现约束（auditor 交接）：主库写线程独占连接（MaxOpenConns(1)），
+// 关键实现约束：主库写线程独占连接（MaxOpenConns(1)），
 // 本包使用独立只读连接（WAL 模式支持多读者）——绝不与写线程共享连接。
 package api
 
@@ -39,9 +39,9 @@ type Server struct {
 	heavyLimiter *tokenBucket             // 重聚合端点限流（默认 1 rps / burst 6）
 	sysCh        chan<- event.SystemEvent // system_event 通道（限流拒绝留痕，main 注入）
 	limitWarn    *event.RateLimiter       // 限流拒绝留痕限频（1/分钟）
-	// connFallbackRep activeConns 回退 ss 口径留痕限频（AUDIT-005 A-03：1/小时）。
+	// connFallbackRep activeConns 回退 ss 口径留痕限频（1/小时）。
 	connFallbackRep *event.RateLimiter
-	// retentionDays 数据保留天数（AUDIT-005 A-04：health 返回，前端 range 提示）。
+	// retentionDays 数据保留天数（health 返回，前端 range 提示）。
 	retentionDays int
 }
 
@@ -70,7 +70,7 @@ func NewServer(dbPath, archiveDir, wsOrigin string, allowNoOrigin bool, snapshot
 		apiLimiter:   newTokenBucket(10, 20),
 		heavyLimiter: newTokenBucket(1, 6),
 		limitWarn:    event.NewRateLimiter(time.Minute),
-		// A-03：activeConns 回退 ss 口径留痕限频（1/小时，fallback 等无模块环境为预期常态）。
+		// activeConns 回退 ss 口径留痕限频（1/小时，fallback 等无模块环境为预期常态）。
 		connFallbackRep: event.NewRateLimiter(time.Hour),
 	}
 	s.routes()
@@ -201,7 +201,7 @@ func (s *Server) Serve(ctx context.Context, addr string) error {
 // Close 关闭只读连接。
 func (s *Server) Close() error { return s.db.Close() }
 
-// SetOverrunCounter 注入共享溢出计数（M-01：conn 模块直接累加，API 只读展示，
+// SetOverrunCounter 注入共享溢出计数（conn 模块直接累加，API 只读展示，
 // 避免通道双消费者竞争；替换旧 AddOverrun 增量注入方式）。
 // 注意：须在 Serve 之前调用（运行期不热更新）。
 func (s *Server) SetOverrunCounter(c *atomic.Uint64) {
@@ -310,7 +310,7 @@ func (s *Server) hHealth(w http.ResponseWriter, r *http.Request) {
 		"system_events_total":     seCount,
 		"conntrack_overrun_total": s.overrunCounter.Load(),
 		"schema_version":          schemaVer,
-		// A-04（AUDIT-005）：数据保留天数（前端 range 提示"数据保留 N 天"；
+		// 数据保留天数（前端 range 提示"数据保留 N 天"；
 		// <=0 表示禁用清理=永久保留）。
 		"retention_days": s.retentionDays,
 	})
@@ -320,7 +320,7 @@ func (s *Server) hHealth(w http.ResponseWriter, r *http.Request) {
 // 注意：须在 Serve 之前调用（运行期不热更新）。
 func (s *Server) SetDBPath(p string) { s.dbPath = p }
 
-// SetRetentionDays 注入数据保留天数（AUDIT-005 A-04：health 返回，前端 range 提示）。
+// SetRetentionDays 注入数据保留天数（health 返回，前端 range 提示）。
 // 注意：须在 Serve 之前调用（运行期不热更新）。
 func (s *Server) SetRetentionDays(days int) { s.retentionDays = days }
 
@@ -335,7 +335,7 @@ func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ssh_attempts WHERE ts >= ? AND result = 0`, from).Scan(&sshFail)
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ssh_attempts WHERE ts >= ? AND result = 1`, from).Scan(&sshOK)
 
-	// 攻击端口 TOP（防火墙 DPT 口径，方案 3.4 强制：只允许 DPT；DEV-045：与 hTopPorts
+	// 攻击端口 TOP（防火墙 DPT 口径，方案 3.4 强制：只允许 DPT；与 hTopPorts
 	// 同口径——统计所有防火墙事件，inbound 扫描探测/reject 拦截/drop 丢弃均计入）。
 	type portHit struct {
 		DstPort int   `json:"dst_port"`
@@ -365,10 +365,10 @@ func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {
 	writeErr(w, 500, "查询失败: "+err.Error())
 }
 
-// activeConns 活跃连接数（DEV-033，DEV-032 现场核查结论 8）：优先 conntrack count 文件值
+// activeConns 活跃连接数（现场核查结论 8）：优先 conntrack count 文件值
 // （Cnt>=0，sysctl 接口模块加载即可读）；读取失败（Cnt=-1，如 fallback 模式无模块）回退
 // ss 快照连接数口径。
-// AUDIT-005 A-03：回退口径切换限频留痕（info，1/小时）——运维可观测口径变化；
+// 回退口径切换限频留痕（info，1/小时）——运维可观测口径变化；
 // fallback 等无模块环境为预期常态，不告警。
 func (s *Server) activeConns() int {
 	if s.snapshotFn == nil {

@@ -24,8 +24,8 @@ func doExport(t *testing.T, srv *Server, path string) *httptest.ResponseRecorder
 	return rec
 }
 
-// TestExportCSVParams（DEV-EXPORT-001）：参数校验 400 分支。
-// 覆盖：都缺 / 同时给 / from>to / 跨度>90 天 / 非数字 / int64 溢出回绕（R-01 reviewer 整改）。
+// TestExportCSVParams：参数校验 400 分支。
+// 覆盖：都缺 / 同时给 / from>to / 跨度>90 天 / 非数字 / int64 溢出回绕。
 func TestExportCSVParams(t *testing.T) {
 	srv, _ := newTestServer(t)
 	cases := []string{
@@ -54,7 +54,7 @@ func TestExportCSVParams(t *testing.T) {
 	}
 }
 
-// TestExportCSVBoundary（DEV-EXPORT-001，R-05 reviewer 整改）：合法边界语义固化——
+// TestExportCSVBoundary：合法边界语义固化——
 // from==to 单秒窗口 200、负时间戳合法（空数据）、非法 range 回退 24h（与 rangeSeconds 一致）。
 func TestExportCSVBoundary(t *testing.T) {
 	srv, _ := newTestServer(t)
@@ -102,7 +102,7 @@ func TestExportCSVFormat(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/csv") {
 		t.Errorf("Content-Type = %q, 期望 text/csv 前缀", ct)
 	}
-	// R-06（reviewer 整改）：完整文件名格式断言（sentry_export_YYYYMMDD_HHMMSS.csv，引号闭合）。
+	// 完整文件名格式断言（sentry_export_YYYYMMDD_HHMMSS.csv，引号闭合）。
 	// 注：正则用双引号字符串字面量（避免反引号嵌套）。
 	dispRe := regexp.MustCompile("^attachment; filename=\"sentry_export_\\d{8}_\\d{6}\\.csv\"$")
 	if cd := rec.Header().Get("Content-Disposition"); !dispRe.MatchString(cd) {
@@ -198,7 +198,7 @@ func TestExportCSVEmpty(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/csv") {
 		t.Errorf("Content-Type = %q, 期望 text/csv 前缀", ct)
 	}
-	// R-06（reviewer 整改）：完整文件名格式断言（sentry_export_YYYYMMDD_HHMMSS.csv，引号闭合）。
+	// 完整文件名格式断言（sentry_export_YYYYMMDD_HHMMSS.csv，引号闭合）。
 	// 注：正则用双引号字符串字面量（避免反引号嵌套）。
 	dispRe := regexp.MustCompile("^attachment; filename=\"sentry_export_\\d{8}_\\d{6}\\.csv\"$")
 	if cd := rec.Header().Get("Content-Disposition"); !dispRe.MatchString(cd) {
@@ -234,7 +234,7 @@ func TestExportRateLimitHeavy(t *testing.T) {
 		if rec.Code != want {
 			t.Fatalf("第 %d 次导出请求状态码 = %d, 期望 %d", i+1, rec.Code, want)
 		}
-		// R-06（reviewer 整改）：429 响应契约断言 Retry-After 头（limitHeavy 统一设置）。
+		// 429 响应契约断言 Retry-After 头（limitHeavy 统一设置）。
 		if rec.Code == http.StatusTooManyRequests && rec.Header().Get("Retry-After") != "1" {
 			t.Errorf("429 响应 Retry-After = %q, 期望 1", rec.Header().Get("Retry-After"))
 		}
@@ -270,7 +270,7 @@ func TestExportCSVFlushError(t *testing.T) {
 
 // TestExportCSVWriteErrorBreak（DEV-CLEAN-001，M-01 修复）：写路径错误（数据 >4096B
 // 触发 csv.Writer 缓冲满，Write 阶段即报错）应停止迭代并留痕。预插 200 行 fw drop
-//（≈7KB 输出 > 内部缓冲 4096B）使 Write 阶段报错。
+// （≈7KB 输出 > 内部缓冲 4096B）使 Write 阶段报错。
 func TestExportCSVWriteErrorBreak(t *testing.T) {
 	srv, dbPath := newTestServer(t)
 	sysCh := make(chan event.SystemEvent, 8)
