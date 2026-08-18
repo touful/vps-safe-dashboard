@@ -138,3 +138,25 @@ func TestReportSysFullChannel(t *testing.T) {
 		t.Fatalf("应保留原事件，实际 %+v", e)
 	}
 }
+
+// TestMicrosToUnix 微秒时间戳解析（DEV-AUDIT-001 P1-5：ssh/fw 共用解析合并后
+// 语义保持：纯数字串 → 微秒/1e6；空串/非数字 → ok=false，回退由调用方决定）。
+func TestMicrosToUnix(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int64
+		ok   bool
+	}{
+		{"", 0, false},
+		{"abc123", 0, false},
+		{"123abc", 0, false},
+		{"1786870000000000", 1786870000, true},
+		{"0", 0, true},
+	}
+	for _, c := range cases {
+		got, ok := MicrosToUnix(c.in)
+		if ok != c.ok || got != c.want {
+			t.Fatalf("MicrosToUnix(%q) = (%d, %v), 期望 (%d, %v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}

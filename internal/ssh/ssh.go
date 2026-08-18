@@ -127,26 +127,11 @@ func parseJournalLine(data []byte) (journalEntry, error) {
 
 // ts 提取条目时间戳（Unix 秒）：优先源侧时间戳，缺失用接收时间，再缺失用当前时间。
 func (e *journalEntry) ts() int64 {
-	if v, ok := parseMicro(e.SourceRealtime); ok {
+	if v, ok := event.MicrosToUnix(e.SourceRealtime); ok {
 		return v
 	}
-	if v, ok := parseMicro(e.Realtime); ok {
+	if v, ok := event.MicrosToUnix(e.Realtime); ok {
 		return v
 	}
 	return time.Now().Unix()
-}
-
-// parseMicro 解析微秒时间戳字符串为 Unix 秒。
-func parseMicro(s string) (int64, bool) {
-	if s == "" {
-		return 0, false
-	}
-	var micro int64
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return 0, false
-		}
-		micro = micro*10 + int64(c-'0')
-	}
-	return micro / 1_000_000, true
 }

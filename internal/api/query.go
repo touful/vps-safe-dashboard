@@ -2,12 +2,13 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 	"sort"
 	"strings"
 	"time"
+
+	"sentry-agent/internal/event"
 )
 
 // hResources 资源指标（方案 3.7：range + step 聚合）。
@@ -330,20 +331,12 @@ func (s *Server) hSnapshot(w http.ResponseWriter, r *http.Request) {
 	for _, c := range snap.Conn {
 		out = append(out, snapRow{
 			Proto: int(c.Proto),
-			SrcIP: ipToDotted(c.SrcIP), SrcPort: int(c.SrcPort),
-			DstIP: ipToDotted(c.DstIP), DstPort: int(c.DstPort),
+			SrcIP: event.Uint32ToIPv4(c.SrcIP), SrcPort: int(c.SrcPort),
+			DstIP: event.Uint32ToIPv4(c.DstIP), DstPort: int(c.DstPort),
 			State: c.State, Pid: c.Pid,
 		})
 	}
 	writeJSON(w, 200, map[string]any{"ts": snap.TS, "rows": out})
-}
-
-// ipToDotted uint32 → 点分十进制（API 层转换，方案 3 章说明）。
-func ipToDotted(v uint32) string {
-	if v == 0 {
-		return "0.0.0.0"
-	}
-	return fmt.Sprintf("%d.%d.%d.%d", byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
 }
 
 // hSSHTimeline SSH 失败时间线（每小时聚合，方案 4.4；前端"SSH 爆破时间线"用）。

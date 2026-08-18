@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"sentry-agent/internal/event"
 )
 
 // hExportCSV 数据导出（DEV-EXPORT-001）：CSV 三列（攻击者 IP、攻击时间、攻击端口），无表头。
@@ -103,7 +105,7 @@ func (s *Server) hExportCSV(w http.ResponseWriter, r *http.Request) {
 		// M-01（AUD-FE-004）：写路径错误（缓冲满/客户端断开）停止迭代并留痕。
 		// 客户端已断开，后续 rows.Err()/Flush 检查无意义，直接返回（避免再走正常路径）。
 		if err := cw.Write([]string{
-			ipToDotted(uint32(ipV)),
+			event.Uint32ToIPv4(uint32(ipV)),
 			time.Unix(ts, 0).Format("2006-01-02 15:04:05"),
 			portStr,
 		}); err != nil {

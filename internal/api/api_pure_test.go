@@ -58,25 +58,6 @@ func TestParseUintParam(t *testing.T) {
 	}
 }
 
-// TestIPToDotted uint32 → 点分十进制（含 0 与边界）。
-func TestIPToDotted(t *testing.T) {
-	cases := []struct {
-		in   uint32
-		want string
-	}{
-		{0, "0.0.0.0"},
-		{0xCB007105, "203.0.113.5"},
-		{0x0A000002, "10.0.0.2"},
-		{0xFFFFFFFF, "255.255.255.255"},
-		{0x01020304, "1.2.3.4"},
-	}
-	for _, c := range cases {
-		if got := ipToDotted(c.in); got != c.want {
-			t.Errorf("ipToDotted(%d) = %s, 期望 %s", c.in, got, c.want)
-		}
-	}
-}
-
 // TestURLPathEscape 路径 URL 编码（url.PathEscape：整路径转义，含斜杠；DSN 特殊字符转义）。
 func TestURLPathEscape(t *testing.T) {
 	cases := []struct {

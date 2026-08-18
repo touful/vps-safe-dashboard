@@ -63,7 +63,12 @@ func runJournaldKernel(ctx context.Context, prefix string, filter FwFilter, stat
 		if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
 			continue
 		}
-		handleLine(ctx, sink, sys, rep, e.Message, journalMicroTS(e.Realtime), prefix, filter, stats)
+		// 时间戳：journal 微秒转 Unix 秒；空串/非数字回退当前时间。
+		ts := time.Now().Unix()
+		if v, ok := event.MicrosToUnix(e.Realtime); ok {
+			ts = v
+		}
+		handleLine(ctx, sink, sys, rep, e.Message, ts, prefix, filter, stats)
 	}
 	waitErr := cmd.Wait()
 	if ctx.Err() != nil {
@@ -105,19 +110,4 @@ func handleLine(ctx context.Context, sink chan<- event.FirewallEvent, sys chan<-
 	case sink <- ev:
 	case <-ctx.Done():
 	}
-}
-
-// journalMicroTS 解析 journal 微秒时间戳为 Unix 秒；失败返回当前时间。
-func journalMicroTS(s string) int64 {
-	if s == "" {
-		return time.Now().Unix()
-	}
-	var micro int64
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return time.Now().Unix()
-		}
-		micro = micro*10 + int64(c-'0')
-	}
-	return micro / 1_000_000
 }

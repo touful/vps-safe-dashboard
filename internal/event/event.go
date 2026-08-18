@@ -7,6 +7,7 @@
 //   - 事件类通道（conn/overrun）：TS = 处理时刻（内核事件无源时间戳语义，netlink 消息
 //     不带内核时间，采用接收时刻；误差为处理延迟，毫秒级）；
 //   - 资源采样：TS = 采样时刻。
+//
 // 全部为 Unix 秒（int64），落库/API/前端一致。
 package event
 
@@ -150,6 +151,23 @@ func IPv4ToUint32(ip net.IP) uint32 {
 // Uint32ToIPv4 将无符号 32 位整数还原为点分十进制字符串。
 func Uint32ToIPv4(v uint32) string {
 	return fmt.Sprintf("%d.%d.%d.%d", byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
+}
+
+// MicrosToUnix 解析微秒时间戳字符串为 Unix 秒（journald __REALTIME_TIMESTAMP /
+// _SOURCE_REALTIME_TIMESTAMP 格式，DEV-AUDIT-001 P1-5：ssh/fw 两包共用合并）。
+// 空串或含非数字字符返回 ok=false（调用方决定回退策略）。
+func MicrosToUnix(s string) (int64, bool) {
+	if s == "" {
+		return 0, false
+	}
+	var micro int64
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		micro = micro*10 + int64(c-'0')
+	}
+	return micro / 1_000_000, true
 }
 
 // ReportSys 非阻塞上报 system_event（通道满时丢弃，避免阻塞采集主路径）。
