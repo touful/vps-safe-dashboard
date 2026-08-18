@@ -319,20 +319,14 @@ func (s *Store) Run(ctx context.Context) error {
 			}
 		case <-retentionNow:
 			// 首轮清理（启动立即触发；批间 yield 消费通道维持写吞吐）。
-			if err := s.runRetentionOnce(ctx, yield); err != nil {
-				event.ReportSys(s.ch.System, "store", "error", "retention 首轮清理失败: "+err.Error())
-			}
-			if yieldErr != nil {
-				return fmt.Errorf("批量提交失败: %w", yieldErr)
+			if err := s.retentionStep(ctx, yield, &yieldErr, "首轮"); err != nil {
+				return err
 			}
 		case <-retentionC:
 			// 每日 02:30 定时清理；失败仅留痕不退出（清理是容错可重试操作，
 			// 写路径主职责不受影响）。
-			if err := s.runRetentionOnce(ctx, yield); err != nil {
-				event.ReportSys(s.ch.System, "store", "error", "retention 定时清理失败: "+err.Error())
-			}
-			if yieldErr != nil {
-				return fmt.Errorf("批量提交失败: %w", yieldErr)
+			if err := s.retentionStep(ctx, yield, &yieldErr, "定时"); err != nil {
+				return err
 			}
 			// 重置为下一个 02:30：time.After 新建 channel 替换（触发后旧 channel 已消费，
 			// 无 Reset 语义需求，避免 timer.Reset 的排空前提，reviewer R-07）。
@@ -345,23 +339,17 @@ func (s *Store) Run(ctx context.Context) error {
 			// A-01 的 os.Exit(1) 退出语义仅适用于 Run 主写路径错误（flush/writeBatch 失败）。
 			_ = s.execArchive(req)
 		case v := <-s.ch.Resource:
-			pending = append(pending, eventItem{kind: "resource", v: v})
-			nInBatch++
+			enqueue(&pending, &nInBatch, "resource", v)
 		case v := <-s.ch.Conn:
-			pending = append(pending, eventItem{kind: "conn", v: v})
-			nInBatch++
+			enqueue(&pending, &nInBatch, "conn", v)
 		case v := <-s.ch.Overrun:
-			pending = append(pending, eventItem{kind: "overrun", v: v})
-			nInBatch++
+			enqueue(&pending, &nInBatch, "overrun", v)
 		case v := <-s.ch.SSH:
-			pending = append(pending, eventItem{kind: "ssh", v: v})
-			nInBatch++
+			enqueue(&pending, &nInBatch, "ssh", v)
 		case v := <-s.ch.FW:
-			pending = append(pending, eventItem{kind: "fw", v: v})
-			nInBatch++
+			enqueue(&pending, &nInBatch, "fw", v)
 		case v := <-s.ch.F2B:
-			pending = append(pending, eventItem{kind: "f2b", v: v})
-			nInBatch++
+			enqueue(&pending, &nInBatch, "f2b", v)
 		case v := <-s.ch.System:
 			// 高优先：system 事件立即提交（方案 3.6"立即批"，防丢失）。
 			if err := s.writeBatch([]eventItem{{kind: "system", v: v}}); err != nil {
@@ -381,26 +369,19 @@ func (s *Store) drainInto(pending *[]eventItem, n *int) {
 	for {
 		select {
 		case v := <-s.ch.Resource:
-			*pending = append(*pending, eventItem{kind: "resource", v: v})
-			*n++
+			enqueue(pending, n, "resource", v)
 		case v := <-s.ch.Conn:
-			*pending = append(*pending, eventItem{kind: "conn", v: v})
-			*n++
+			enqueue(pending, n, "conn", v)
 		case v := <-s.ch.Overrun:
-			*pending = append(*pending, eventItem{kind: "overrun", v: v})
-			*n++
+			enqueue(pending, n, "overrun", v)
 		case v := <-s.ch.SSH:
-			*pending = append(*pending, eventItem{kind: "ssh", v: v})
-			*n++
+			enqueue(pending, n, "ssh", v)
 		case v := <-s.ch.FW:
-			*pending = append(*pending, eventItem{kind: "fw", v: v})
-			*n++
+			enqueue(pending, n, "fw", v)
 		case v := <-s.ch.F2B:
-			*pending = append(*pending, eventItem{kind: "f2b", v: v})
-			*n++
+			enqueue(pending, n, "f2b", v)
 		case v := <-s.ch.System:
-			*pending = append(*pending, eventItem{kind: "system", v: v})
-			*n++
+			enqueue(pending, n, "system", v)
 		default:
 			return
 		}

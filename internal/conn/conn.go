@@ -257,66 +257,83 @@ func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 		case <-dead:
 			return fmt.Errorf("netlink 监听循环终止（大概率因缓冲溢出）")
 		case <-freshTicker.C:
-			// 事件计数未推进 = 停滞；结合 conntrack 表连接数变化判级：
-			// 表在动但事件无 → 订阅失效高置信（warn）；表无变化 → 低流量或失效（info）。
-			curEvts := evts.Load()
-			if curEvts == lastEvts {
-				curCnt := readConntrackCount(conntrackCountPath)
-				stalled, tableActive := staleVerdict(curEvts, lastEvts, lastCnt, curCnt)
-				if tableActive {
-					staleWarnRep.Report(sys, "conntrack", "warn",
-						fmt.Sprintf("conntrack 事件流停滞：%v 无事件但表连接数变化（%d→%d），订阅可能失效", freshnessCheckInterval, lastCnt, curCnt))
-				} else if stalled {
-					staleRep.Report(sys, "conntrack", "info",
-						fmt.Sprintf("conntrack 事件流 %v 无事件（低流量或订阅失效，当前表连接数 %d）", freshnessCheckInterval, curCnt))
-				}
-			}
-			lastEvts = curEvts
-			lastCnt = readConntrackCount(conntrackCountPath)
+			// 事件计数未推进 = 停滞；结合 conntrack 表连接数变化判级（见 checkFreshness）。
+			checkFreshness(sys, &evts, &lastEvts, &lastCnt, staleRep, staleWarnRep)
 		case <-ticker.C:
-			drops, err := netlinkDrops()
-			if err != nil {
-				event.ReportSys(sys, "conntrack", "warn", "读取 netlink 溢出计数失败: "+err.Error())
-				continue
-			}
-			if first {
-				first = false
-				lastDrops = drops
-				continue
-			}
-			diff := drops - lastDrops // 计数器单调不减，无回绕场景
-			lastDrops = drops
-			if diff == 0 {
-				continue
-			}
-			// 溢出留痕（永留存，符合"只记录"精神：记录丢了什么也是记录）。
-			event.ReportSys(sys, "conntrack", "warn", fmt.Sprintf("netlink 缓冲溢出，丢弃 %d 条事件（R-10 留痕）", diff))
-			// M-01（auditor Minor）：共享 atomic 计数（main 注入，API health 直接读取），
-			// overrun 通道保持 store 单消费者（防止双消费者竞争导致计数/留痕减半）。
-			if counter != nil {
-				counter.Add(diff)
-			}
-			if overrun != nil {
-				select {
-				case overrun <- event.OverrunInfo{TS: time.Now().Unix(), Dropped: diff}:
-				case <-ctx.Done():
-					return nil
-				}
-			}
-			// 动态扩容（上限 8MB）；失败维持现状，下轮继续告警。
-			if bufSize < netlinkBufferMax {
-				bufSize *= 2
-				if bufSize > netlinkBufferMax {
-					bufSize = netlinkBufferMax
-				}
-				if err := nfct.Con.SetReadBuffer(bufSize); err != nil {
-					event.ReportSys(sys, "conntrack", "warn", fmt.Sprintf("扩容 netlink 缓冲至 %d B 失败: %v", bufSize, err))
-				} else {
-					event.ReportSys(sys, "conntrack", "info", fmt.Sprintf("netlink 缓冲已扩容至 %d B", bufSize))
-				}
+			if !checkOverrun(ctx, sys, nfct, &bufSize, overrun, counter, &lastDrops, &first) {
+				return nil
 			}
 		}
 	}
+}
+
+// checkFreshness 新鲜度自检（DEV-036）：事件计数未推进时结合 conntrack 表连接数
+// 变化判级——表在动但事件无 → 订阅失效高置信（warn）；表无变化 → 低流量或失效（info）。
+// 状态（evts 计数、lastEvts/lastCnt）由调用方持有，本函数无状态（DEV-AUDIT-001 P1-4 提取）。
+func checkFreshness(sys chan<- event.SystemEvent, evts *atomic.Uint64, lastEvts *uint64, lastCnt *int64, staleRep, staleWarnRep *event.RateLimiter) {
+	curEvts := evts.Load()
+	if curEvts == *lastEvts {
+		curCnt := readConntrackCount(conntrackCountPath)
+		stalled, tableActive := staleVerdict(curEvts, *lastEvts, *lastCnt, curCnt)
+		if tableActive {
+			staleWarnRep.Report(sys, "conntrack", "warn",
+				fmt.Sprintf("conntrack 事件流停滞：%v 无事件但表连接数变化（%d→%d），订阅可能失效", freshnessCheckInterval, *lastCnt, curCnt))
+		} else if stalled {
+			staleRep.Report(sys, "conntrack", "info",
+				fmt.Sprintf("conntrack 事件流 %v 无事件（低流量或订阅失效，当前表连接数 %d）", freshnessCheckInterval, curCnt))
+		}
+	}
+	*lastEvts = curEvts
+	*lastCnt = readConntrackCount(conntrackCountPath)
+}
+
+// checkOverrun 溢出监控（R-10）：检查本进程 netfilter 套接字 Drops 累计差值，
+// 有溢出时留痕 + 累加共享计数 + 投递 overrun 通道（store 单消费者）+ 动态扩容（上限 8MB）。
+// 返回 false 表示 ctx 取消（调用方应结束监听循环）；其余情况返回 true（continue 语义）。
+// 状态（lastDrops/first/bufSize）由调用方持有，本函数无状态（DEV-AUDIT-001 P1-4 提取）。
+func checkOverrun(ctx context.Context, sys chan<- event.SystemEvent, nfct *conntrack.Nfct, bufSize *int, overrun chan<- event.OverrunInfo, counter *atomic.Uint64, lastDrops *uint64, first *bool) bool {
+	drops, err := netlinkDrops()
+	if err != nil {
+		event.ReportSys(sys, "conntrack", "warn", "读取 netlink 溢出计数失败: "+err.Error())
+		return true
+	}
+	if *first {
+		*first = false
+		*lastDrops = drops
+		return true
+	}
+	diff := drops - *lastDrops // 计数器单调不减，无回绕场景
+	*lastDrops = drops
+	if diff == 0 {
+		return true
+	}
+	// 溢出留痕（永留存，符合"只记录"精神：记录丢了什么也是记录）。
+	event.ReportSys(sys, "conntrack", "warn", fmt.Sprintf("netlink 缓冲溢出，丢弃 %d 条事件（R-10 留痕）", diff))
+	// M-01（auditor Minor）：共享 atomic 计数（main 注入，API health 直接读取），
+	// overrun 通道保持 store 单消费者（防止双消费者竞争导致计数/留痕减半）。
+	if counter != nil {
+		counter.Add(diff)
+	}
+	if overrun != nil {
+		select {
+		case overrun <- event.OverrunInfo{TS: time.Now().Unix(), Dropped: diff}:
+		case <-ctx.Done():
+			return false
+		}
+	}
+	// 动态扩容（上限 8MB）；失败维持现状，下轮继续告警。
+	if *bufSize < netlinkBufferMax {
+		*bufSize *= 2
+		if *bufSize > netlinkBufferMax {
+			*bufSize = netlinkBufferMax
+		}
+		if err := nfct.Con.SetReadBuffer(*bufSize); err != nil {
+			event.ReportSys(sys, "conntrack", "warn", fmt.Sprintf("扩容 netlink 缓冲至 %d B 失败: %v", *bufSize, err))
+		} else {
+			event.ReportSys(sys, "conntrack", "info", fmt.Sprintf("netlink 缓冲已扩容至 %d B", *bufSize))
+		}
+	}
+	return true
 }
 
 // connEventFromCon 将 go-conntrack 的 Con 转换为业务事件 ConnEvent。

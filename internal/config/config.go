@@ -207,13 +207,62 @@ func Load(path string) (*Config, error) {
 }
 
 // Validate 校验配置合法性（R-03：轮询间隔仅提供 >=5s 校验，禁止调小）。
+// 校验链按配置段拆分为 validate* 方法（DEV-AUDIT-001 P1-4：纯搬移，顺序与错误消息不变）。
 func (c *Config) Validate() error {
+	if err := c.validateCollect(); err != nil {
+		return err
+	}
+	if err := c.validateSS(); err != nil {
+		return err
+	}
+	if err := c.validateConntrack(); err != nil {
+		return err
+	}
+	if err := c.validateSSH(); err != nil {
+		return err
+	}
+	if err := c.validateFW(); err != nil {
+		return err
+	}
+	if err := c.validateF2B(); err != nil {
+		return err
+	}
+	if err := c.validateDB(); err != nil {
+		return err
+	}
+	if err := c.validateArchive(); err != nil {
+		return err
+	}
+	if err := c.validateWeb(); err != nil {
+		return err
+	}
+	if err := c.validateDisk(); err != nil {
+		return err
+	}
+	if err := c.validateLog(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateCollect 校验资源采集段。
+func (c *Config) validateCollect() error {
 	if c.Collect.ResourceIntervalSeconds < 5 {
 		return fmt.Errorf("collect.resource_interval_seconds=%d 小于下限 5s（R-03 固定值防误改，禁止调小）", c.Collect.ResourceIntervalSeconds)
 	}
+	return nil
+}
+
+// validateSS 校验 ss 快照段。
+func (c *Config) validateSS() error {
 	if c.SS.SnapshotIntervalS < 5 {
 		return fmt.Errorf("ss.snapshot_interval_s=%d 小于下限 5s（R-03 约束）", c.SS.SnapshotIntervalS)
 	}
+	return nil
+}
+
+// validateConntrack 校验 conntrack 段。
+func (c *Config) validateConntrack() error {
 	if c.Conntrack.BufferSizeKB < 1 || c.Conntrack.BufferSizeKB > 8192 {
 		return fmt.Errorf("conntrack.buffer_size_kb=%d 超出范围 1-8192（R-10 缓冲上限 8MB）", c.Conntrack.BufferSizeKB)
 	}
@@ -226,9 +275,19 @@ func (c *Config) Validate() error {
 	if c.Conntrack.Mode != "auto" && c.Conntrack.Mode != "fallback" {
 		return fmt.Errorf("conntrack.mode=%q 非法，仅支持 auto|fallback（DEV-031）", c.Conntrack.Mode)
 	}
+	return nil
+}
+
+// validateSSH 校验 ssh 段。
+func (c *Config) validateSSH() error {
 	if c.SSH.Source != "journald" && c.SSH.Source != "rsyslog" {
 		return fmt.Errorf("ssh.source=%q 非法，仅支持 journald|rsyslog", c.SSH.Source)
 	}
+	return nil
+}
+
+// validateFW 校验 fw 段（含内网 CIDR、排除 IP 与 SSH 学习参数）。
+func (c *Config) validateFW() error {
 	if c.FW.Source != "journald-kernel" && c.FW.Source != "kmsg" {
 		return fmt.Errorf("fw.source=%q 非法，仅支持 journald-kernel|kmsg", c.FW.Source)
 	}
@@ -264,9 +323,19 @@ func (c *Config) Validate() error {
 	if c.FW.SSHLearnIntervalMin < 1 {
 		return fmt.Errorf("fw.ssh_learn_interval_min=%d 小于下限 1", c.FW.SSHLearnIntervalMin)
 	}
+	return nil
+}
+
+// validateF2B 校验 f2b 段。
+func (c *Config) validateF2B() error {
 	if c.F2B.LogPath == "" || c.F2B.DBPath == "" {
 		return fmt.Errorf("f2b.log_path / f2b.db_path 不能为空")
 	}
+	return nil
+}
+
+// validateDB 校验 db 段。
+func (c *Config) validateDB() error {
 	if c.DB.Path == "" || c.DB.ArchiveDir == "" {
 		return fmt.Errorf("db.path / db.archive_dir 不能为空")
 	}
@@ -276,6 +345,11 @@ func (c *Config) Validate() error {
 	if c.DB.BatchSize < 1 || c.DB.BatchSize > 100000 {
 		return fmt.Errorf("db.batch_size=%d 超出范围 1-100000", c.DB.BatchSize)
 	}
+	return nil
+}
+
+// validateArchive 校验归档段。
+func (c *Config) validateArchive() error {
 	if c.Archive.GzipLevel < 1 || c.Archive.GzipLevel > 9 {
 		return fmt.Errorf("archive.gzip_level=%d 超出范围 1-9", c.Archive.GzipLevel)
 	}
@@ -285,6 +359,11 @@ func (c *Config) Validate() error {
 	if _, _, err := parseHourMinute(c.Archive.MonthlyHour); err != nil {
 		return fmt.Errorf("archive.monthly_hour=%q 非法: %v", c.Archive.MonthlyHour, err)
 	}
+	return nil
+}
+
+// validateWeb 校验 web 段（监听、WS Origin、连接上限与速率限制）。
+func (c *Config) validateWeb() error {
 	if c.Web.Listen == "" {
 		return fmt.Errorf("web.listen 不能为空")
 	}
@@ -308,6 +387,11 @@ func (c *Config) Validate() error {
 	if c.Web.HeavyLimitRPS < 1 || c.Web.HeavyLimitRPS > 100 {
 		return fmt.Errorf("web.heavy_limit_rps=%d 超出范围 1-100", c.Web.HeavyLimitRPS)
 	}
+	return nil
+}
+
+// validateDisk 校验磁盘阈值段。
+func (c *Config) validateDisk() error {
 	if c.Disk.WarnPercent < 1 || c.Disk.WarnPercent > 100 ||
 		c.Disk.CriticalPercent < 1 || c.Disk.CriticalPercent > 100 ||
 		c.Disk.EmergencyPercent < 1 || c.Disk.EmergencyPercent > 100 {
@@ -316,6 +400,11 @@ func (c *Config) Validate() error {
 	if c.Disk.WarnPercent >= c.Disk.CriticalPercent || c.Disk.CriticalPercent >= c.Disk.EmergencyPercent {
 		return fmt.Errorf("disk 阈值须满足 warn < critical < emergency")
 	}
+	return nil
+}
+
+// validateLog 校验日志级别段。
+func (c *Config) validateLog() error {
 	if c.Log.Level != "info" && c.Log.Level != "debug" && c.Log.Level != "warn" && c.Log.Level != "error" {
 		return fmt.Errorf("log.level=%q 非法，仅支持 info|debug|warn|error", c.Log.Level)
 	}

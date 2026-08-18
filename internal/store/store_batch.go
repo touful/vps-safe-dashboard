@@ -12,6 +12,13 @@ type eventItem struct {
 	v    any
 }
 
+// enqueue 将一条事件追加到待写批次（kind 与 insertStmts 键对应；Run 主循环与
+// drainInto 共用，DEV-AUDIT-001 P1-4 去重）。
+func enqueue(pending *[]eventItem, n *int, kind string, v any) {
+	*pending = append(*pending, eventItem{kind: kind, v: v})
+	*n++
+}
+
 // insertStmts 各表 INSERT 语句（与方案 4.2 DDL 字段一一对应）。
 var insertStmts = map[string]string{
 	"resource": `INSERT INTO resources

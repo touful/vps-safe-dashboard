@@ -103,6 +103,20 @@ func (s *Store) runRetentionOnce(ctx context.Context, yield func()) error {
 	return nil
 }
 
+// retentionStep 执行一轮 retention 清理并检查批间让出期间的致命写错误。
+// label 用于留痕消息（"首轮"/"定时"）；清理失败仅留痕不退出（清理是容错可重试操作，
+// 写路径主职责不受影响）；yieldErr 非 nil 表示批间 flush 失败（写路径致命错误），
+// 返回错误终止 Run（DEV-AUDIT-001 P1-4：Run 主循环双分支公共处理提取）。
+func (s *Store) retentionStep(ctx context.Context, yield func(), yieldErr *error, label string) error {
+	if err := s.runRetentionOnce(ctx, yield); err != nil {
+		event.ReportSys(s.ch.System, "store", "error", "retention "+label+"清理失败: "+err.Error())
+	}
+	if *yieldErr != nil {
+		return fmt.Errorf("批量提交失败: %w", *yieldErr)
+	}
+	return nil
+}
+
 // warnRetentionArchiveGap 启动时检测 retention 与归档跨度的空洞语义（B.5.1，reviewer R-03a）。
 // 推导：归档执行日对 cutoff 月（now - copy_after_days 所在月）做整月复制，最大年龄 =
 // copy_after_days + 30；故 retention_days < copy_after_days + 30 时归档副本必然含空洞。
