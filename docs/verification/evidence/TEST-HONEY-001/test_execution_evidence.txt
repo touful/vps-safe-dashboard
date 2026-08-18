@@ -1,0 +1,43 @@
+=== TEST-HONEY-001 测试执行记录 ===
+
+== 1. 集成脚本（10 协议 ALL_MATCH）==
+[OK] telnet user='admin' pass='secr3t'; [OK] ftp user='anonymous' pass='guest@x.com'; [OK] redis user='user' pass='pass1234'
+[OK] postgres user='postgres' pass='cleartext1'; [OK] mysql user='root' pass=hex(303132...); [OK] mongodb user='admin' pass=''
+[OK] mssql user='sa' pass=01a402a3; [OK] smb user='WORKGROUP\\attacker' pass=hex; [OK] rdp user='' pass=''; [OK] memcached user='' pass=''
+API rows=20 → RESULT: ALL_MATCH
+
+== 2. 畸形输入鲁棒性（46 用例）==
+telnet IAC 截断×6/ftp 半包超长×6/redis RESP 畸形×8/postgres startup 畸形×5/mysql 握手异常×4
+mongodb OP 头异常×3/mssql TDS 头异常×3/smb 分片错乱×4/rdp X.224 截断×3/memcached 畸形×4
+46/46 CLOSED（连接及时关闭）；10 半开连接后 health=200；挂死嫌疑=0
+
+== 3. 连接治理 ==
+限速：12 连 → #1-10 DATA(接受) + #11-12 REJECT(立即 EOF) —— 10 ACCEPT + 2 REJECT 与 ipConnLimit=10 吻合
+30s 超时：半开连接 30.0s 被服务端关闭（精确）
+50 并发：alive=9（窗口被前序半开占用 1 配额）+ rejected=41，agent 存活 health=200；maxConns=200 sem 代码确认(make(chan struct{},200))
+
+== 4. API /api/v1/honeypot/events ==
+默认 rows=30 range=24h；proto=mysql → 3 行过滤；limit=500/limit=abc 正常；range=bad 回显 24h
+全量 7d limit=500 → 132 行（26 行有用户名含集成凭据 + 106 行空）
+
+== 5. 前端蜜罐卡 ==
+卡片标题/风险说明/表头(时间/协议/源IP/用户名/密码/备注)渲染；初始 60 行全部遮蔽(••••)
+协议筛选 mysql → 3 行全 mysql + 统计小计'捕获 3 条'动态更新
+三态代码确认（L1223 loading / L1224 empty）；与攻击页共存零回归
+【缺陷 D-B】点击单行密码 toggle → 同组 60 行全部揭示（遮蔽 key=ts|proto|src|user 无序号，同秒同 proto 同空用户行共享 key）
+
+== 6. 全量回归 ==
+go build/vet exit 0；node --check exit 0；Linux amd64 交叉编译 exit 0；go test -count=1 ./... 18 包全绿
+
+== 7. 部署资产 ==
+setup_firewall.sh 仓库内 LF 版本 bash -n exit=0（工作区 CRLF 为 Windows checkout 转换假象）
+SENTRY_HONEYPOT 链/读 config honeypot.listen/与 DROP+LOG 协调逻辑静态核对
+compose NET_BIND_SERVICE：cap_add 条件启用+VS-13 评估+user 1000 说明完整
+
+== 8. 凭据红线 ==
+git grep 凭据串（secr3t/pass1234/cleartext1/guest@x.com）零命中（测试/文档除外）
+honeypot.go L9-10：凭据仅存 cred_events 表，system_events 只记源IP/协议（代码确认）
+config.example.json account_id/license_key 空占位；deploy/config.json 已解除跟踪
+
+== G-01 修复回归 ==
+无 mmdb + country=Unknown → rows=9（修复前 0）——TEST-GEO-001 D-1 修复运行时确认
