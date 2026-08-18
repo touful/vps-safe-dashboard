@@ -75,6 +75,8 @@ def probe(proto, payloads, name):
                 break
         elapsed = time.time() - t_wait
         s.close()
+        # 分类阈值语义：elapsed<3s = 解析器快速失败（CLOSED）；3~35s 内关闭 = 30s 超时兜底（CLOSED_30S）。
+        # 实测双峰分明（15 例 <1s 立即拒绝、31 例 28-30s 超时兜底），无 2-3s 边界用例；阈值仅为分类语义边界。
         if closed and elapsed < 3:
             status = "CLOSED"
         elif closed:
