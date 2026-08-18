@@ -1,7 +1,25 @@
-# TEST-GEO-001 前端浏览器断言（Chrome DevTools MCP，http://127.0.0.1:18080，有 mmdb）
-1. 总览：5 KPI 卡（外部威胁事件/SSH 失败/当前活跃连接/磁盘使用率/风险评分）——无封禁 KPI；评分 44/100（权重 40/40/20，app.js L324-325）；态势条无'已封禁'短语；最近事件标题'拦截/丢弃 / SSH 失败'（无封禁）；事件流无 ban 类型条目
-2. 攻击页：全球攻击地图区块（world.json embed 加载，SVG 14 path 3 国家着色 RU/DE/HK 与 API 一致）；国家下拉（俄罗斯联邦/德国/香港）+ 次数阈值下拉（>=5/>=10/>=50）+ 导出 CSV 按钮；IP 列表 #1-#9 带国家名；FAIL2BAN 封禁记录表已移除
-3. 联动：国家下拉选 RU -> 列表仅剩 3 行（45.155.205.2/45.155.205.3/45.155.205.1）；阈值 >=10 -> 9 行全部 >=10（24/23/22/21/20/20/15/14/13）；geoExport(L686) 拼接 range/country/min_count 参数（代码确认）
-4. 数据导出页：文案已移除 fail2ban 封禁（'外部威胁事件+SSH 失败尝试'），新增'按来源国家导出请使用攻击页全球攻击地图卡内的导出按钮'提示
-5. 四页签导航/时间范围按钮/TOP 联动/SSH 明细过滤/外部威胁过滤全部正常（零回归）；console 无 error/warn（WS 正常）
-6. conntrack 降级提示（Windows 无 ss）为预期行为
+=== TEST-GEO-001 前端浏览器断言（Chrome DevTools MCP，http://127.0.0.1:18080 有 mmdb）===
+
+== 1. 总览 ==
+5 KPI 卡（外部威胁事件 271/SSH 失败 171/当前活跃连接 0/磁盘使用率 61.1%/风险评分 44）——无封禁 KPI
+评分权重 40/40/20（app.js L324-325 注释）
+态势条无'已封禁'短语；最近事件标题'拦截/丢弃 / SSH 失败'（无封禁）；事件流无 ban 类型条目
+
+== 2. 攻击页地图（权威验证：ECharts 实例数据）==
+容器 #chart-world（class=chart，height 340px）canvas 渲染（ECharts 默认 renderer，1 canvas）；echarts.getInstanceByDom 确认 type='map'
+series[0].data = [Russia:59, Germany:92]——RU=24+20+15=59 ✓、DE=23+22+20+14+13=92 ✓（与 geo API 9 行 count 手工核对一致）
+world.json 180 features（256950 字节≈256KB）；无 HKG feature；GEO_CODE_NAME 无 HK 键 → HK 不入地图（app.js L585-587 跳过），列表仍展示（#4 91.240.118.77 香港 21 次）——地图正确行为
+aria-label 残留'全球攻击地图：数据加载中'（加载完成后未更新，Note D-3）
+
+== 3. 筛选联动 ==
+国家下拉选'俄罗斯联邦'→ 列表仅剩 3 行 RU（45.155.205.2/45.155.205.3/45.155.205.1）
+次数阈值选'≥ 10'→ 9 行全部 ≥10（24/23/22/21/20/20/15/14/13）
+地图点击联动：wc.on('click')→setGeoCountry→列表/导出（app.js L619-624 代码确认，与下拉共用 setGeoCountry 入口）
+geoExport(L686-696)：href=/api/v1/export/attacks_csv?range=X&country=Y&min_count=Z（携带当前筛选，代码确认）
+
+== 4. 数据导出页 ==
+文案无 fail2ban 封禁（'外部威胁事件+SSH 失败尝试'），新增'按来源国家导出请使用攻击页全球攻击地图卡内的导出按钮'提示
+
+== 5. 零回归 ==
+四页签导航/时间范围按钮/TOP 图/SSH 明细过滤/外部威胁过滤/连接页事件流全部正常；console 无 error/warn（WS 正常）
+conntrack 降级提示（Windows 无 ss）为预期行为

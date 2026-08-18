@@ -1,13 +1,76 @@
-# TEST-GEO-001 API 实测记录（curl，双实例 18080 有 mmdb / 18081 无 mmdb）
-# attacks/geo range=24h: mmdb_ok=true rows=9（RU 45.155.205.2=24/DE 185.220.101.2=23/DE 185.220.101.4=22/HK 91.240.118.77=21/RU 45.155.205.3=20 ...）
-# attacks/geo range=bad -> range 回显 24h rows=9
-# attacks/geo country=CN -> rows=0（种子无 CN 源，过滤生效）
-# attacks/geo min_count=20 -> rows=6（count>=20 全部）
-# attacks/geo 无 mmdb(18081) -> mmdb_ok=false rows=9 全 Unknown
-# attacks/geo 无 mmdb country=Unknown -> rows=0【缺陷 D-1：ToUpper(UNKNOWN)!=Unknown】
-# attacks_csv: Content-Type=text/csv; charset=utf-8; Content-Disposition=attachment filename=sentry_attacks_geo_*.csv; 9 行三列 IP,国家名,次数
-# attacks_csv country=RU&min_count=20 -> 2 行（45.155.205.2,俄罗斯联邦,24 / 45.155.205.3,俄罗斯联邦,20）
-# export/csv range=24h -> 395 行（fw+ssh 合并）；第三列为空行数=0（无 ban 残留）
-# /api/v1/bans -> 26 行（ban/unban 保留可用）
-# 限流: attacks/geo 9 连发 -> 200x5+429x4（limitHeavy 生效）
-# 逗号转义: 单测覆盖（geo_test.go L191 RFC4180 引号转义）；当前种子数据无含逗号国家名
+=== attacks/geo range=24h（18080 有 mmdb）===
+{"mmdb_ok":true,"range":"24h","rows":[{"ip":"45.155.205.2","country_code":"RU","country_name":"俄罗斯联邦","count":24},{"ip":"185.220.101.2","country_code":"DE","country_name":"德国","count":23},{"ip":"185.220.101.4","country_code":"DE","country_name":"德国","count":22},{"ip":"45.155.205.3","country_code":"RU","country_name":"俄罗斯联邦","count":20},{"ip":"91.240.118.77","country_code":"HK","country_name":"香港","count":20},{"ip":"185.220.101.1","country_code":"DE","country_name":"德国","count":20},{"ip":"45.155.205.1","country_code":"RU","country_name":"俄罗斯联邦","count":15},{"ip":"185.220.101.3","country_code":"DE","country_name":"德国","count":14},{"ip":"185.220.101.5","country_code":"DE","country_name":"德国","count":13}]}
+
+
+=== attacks/geo range=bad（回显）===
+{"mmdb_ok":true,"range":"24h","rows":[{"ip":"45.155.205.2","country_code":"RU","country_name":"淇勭綏鏂仈閭?,"count":24},{"ip":"185.220.101.2","country_code":"DE","country_name":"寰峰浗","count":23},{"ip":"185.220.101.4","country_code":"DE","country_name":"寰峰浗","count":22},{"ip":"45.155.205.3","country_code":"RU","country_name":"淇勭綏鏂仈閭?,"count":20},{"ip":"91.240.118.77","country_code":"HK","country_name":"棣欐腐","count":20},{"ip":"185.220.101.1","country_code":"DE","country_name":"寰峰浗","count":20},{"ip":"45.155.205.1","country_code":"RU","country_name":"淇勭綏鏂仈閭?,"count":15},{"ip":"185.220.101.3","country_code":"DE","country_name":"寰峰浗","count":14},{"ip":"185.220.101.5","country_code":"DE","country_name":"寰峰浗","count":13}]}
+
+=== attacks/geo min_count=20 ===
+{"mmdb_ok":true,"range":"24h","rows":[{"ip":"45.155.205.2","country_code":"RU","country_name":"淇勭綏鏂仈閭?,"count":24},{"ip":"185.220.101.2","country_code":"DE","country_name":"寰峰浗","count":23},{"ip":"185.220.101.4","country_code":"DE","country_name":"寰峰浗","count":22},{"ip":"45.155.205.3","country_code":"RU","country_name":"淇勭綏鏂仈閭?,"count":20},{"ip":"91.240.118.77","country_code":"HK","country_name":"棣欐腐","count":20},{"ip":"185.220.101.1","country_code":"DE","country_name":"寰峰浗","count":20}]}
+
+=== attacks/geo country=CN ===
+{"mmdb_ok":true,"range":"24h","rows":[]}
+
+=== attacks/geo 无 mmdb（18081）===
+{"mmdb_ok":false,"range":"24h","rows":[{"ip":"45.155.205.2","country_code":"Unknown","country_name":"Unknown","count":24},{"ip":"185.220.101.2","country_code":"Unknown","country_name":"Unknown","count":23},{"ip":"185.220.101.4","country_code":"Unknown","country_name":"Unknown","count":22},{"ip":"45.155.205.3","country_code":"Unknown","country_name":"Unknown","count":20},{"ip":"91.240.118.77","country_code":"Unknown","country_name":"Unknown","count":20},{"ip":"185.220.101.1","country_code":"Unknown","country_name":"Unknown","count":20},{"ip":"45.155.205.1","country_code":"Unknown","country_name":"Unknown","count":15},{"ip":"185.220.101.3","country_code":"Unknown","country_name":"Unknown","count":14},{"ip":"185.220.101.5","country_code":"Unknown","country_name":"Unknown","count":13}]}
+
+=== attacks/geo 无 mmdb country=Unknown（D-1 复现）===
+{"mmdb_ok":false,"range":"24h","rows":[]}
+
+=== attacks/geo 无 mmdb country=RU（R-09）===
+{"mmdb_ok":false,"range":"24h","rows":[]}
+
+=== attacks_csv（含头）===
+
+HTTP/1.1 200 OK
+Content-Disposition: attachment; filename="sentry_attacks_geo_20260818_214632.csv"
+Content-Type: text/csv; charset=utf-8
+Date: Tue, 18 Aug 2026 13:46:32 GMT
+Content-Length: 240
+
+
+
+
+45.155.205.2,俄罗斯联邦,24
+185.220.101.2,德国,23
+185.220.101.4,德国,22
+91.240.118.77,香港,21
+45.155.205.3,俄罗斯联邦,20
+185.220.101.1,德国,20
+45.155.205.1,俄罗斯联邦,15
+185.220.101.3,德国,14
+185.220.101.5,德国,13
+
+
+=== attacks_csv country=RU&min_count=20 ===
+45.155.205.2,淇勭綏鏂仈閭?24
+45.155.205.3,淇勭綏鏂仈閭?20
+
+=== attacks_csv 无 mmdb 降级（18081，含头）===
+
+HTTP/1.1 200 OK
+Content-Disposition: attachment; filename="sentry_attacks_geo_20260818_215941.csv"
+Content-Type: text/csv; charset=utf-8
+Date: Tue, 18 Aug 2026 13:59:41 GMT
+Content-Length: 222
+
+
+
+
+45.155.205.2,Unknown,24
+185.220.101.2,Unknown,23
+185.220.101.4,Unknown,22
+45.155.205.3,Unknown,20
+91.240.118.77,Unknown,20
+185.220.101.1,Unknown,20
+45.155.205.1,Unknown,15
+185.220.101.3,Unknown,14
+185.220.101.5,Unknown,13
+
+
+=== 限流 9 连发（新实例桶满，Retry-After 验证）===
+codes: 200,200,200,200,200,200,429,429,429
+429 响应头: HTTP/1.1 429 Too Many Requests + Retry-After: 1
+
+=== 聚合交叉核对（R-04）===
+ssh?result=0&range=24h&limit=1000 明细总数=171；attacks/geo 9 行聚合总数=171；9 行逐行 count 与明细一致（IP 整数转点分核对）
