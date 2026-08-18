@@ -302,7 +302,7 @@ func (c *Config) validateFW() error {
 	for i, cidr := range c.FW.InternalCIDRs {
 		_, ipnet, err := net.ParseCIDR(cidr)
 		if err != nil {
-			return fmt.Errorf("fw.internal_cidrs[%d]=%q 非法 CIDR: %v", i, cidr, err)
+			return fmt.Errorf("fw.internal_cidrs[%d]=%q 非法 CIDR: %w", i, cidr, err)
 		}
 		if _, bits := ipnet.Mask.Size(); bits != 32 {
 			return fmt.Errorf("fw.internal_cidrs[%d]=%q 为 IPv6 网段：当前仅支持 IPv4（IPv6 行不参与过滤，首期不启用，DEV-031 B.2.2）", i, cidr)
@@ -357,7 +357,7 @@ func (c *Config) validateArchive() error {
 		return fmt.Errorf("archive.copy_after_days=%d 小于下限 1", c.Archive.CopyAfterDays)
 	}
 	if _, _, err := parseHourMinute(c.Archive.MonthlyHour); err != nil {
-		return fmt.Errorf("archive.monthly_hour=%q 非法: %v", c.Archive.MonthlyHour, err)
+		return fmt.Errorf("archive.monthly_hour=%q 非法: %w", c.Archive.MonthlyHour, err)
 	}
 	return nil
 }

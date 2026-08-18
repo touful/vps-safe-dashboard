@@ -74,7 +74,7 @@ func runJournaldKernel(ctx context.Context, prefix string, filter FwFilter, stat
 	if ctx.Err() != nil {
 		return nil
 	}
-	return fmt.Errorf("journalctl -k 流提前结束: %v", waitErr)
+	return fmt.Errorf("journalctl -k 流提前结束: %w", waitErr)
 }
 
 // runKmsg 直接读取 /dev/kmsg（分支 B1，非 systemd 环境；需特权访问）。

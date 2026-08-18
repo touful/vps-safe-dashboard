@@ -56,7 +56,7 @@ func RunF2BListener(ctx context.Context, logPath string, sink chan<- event.BanEv
 	if ctx.Err() != nil {
 		return nil
 	}
-	return fmt.Errorf("fail2ban 日志流提前结束: %v", waitErr)
+	return fmt.Errorf("fail2ban 日志流提前结束: %w", waitErr)
 }
 
 // BannedQueryError 封禁名单查询分类错误（DEV-031 优化①：探测式适配，按根因分类）。

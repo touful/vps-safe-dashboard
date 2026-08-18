@@ -61,7 +61,7 @@ func runJournald(ctx context.Context, sink chan<- event.SSHAttempt, sys chan<- e
 	if ctx.Err() != nil {
 		return nil // 正常退出（ctx 取消）
 	}
-	return fmt.Errorf("journalctl 流提前结束: %v", waitErr)
+	return fmt.Errorf("journalctl 流提前结束: %w", waitErr)
 }
 
 // runRsyslog 通过 tail -F -n 0 /var/log/auth.log 流式读取（分支 B1，rsyslog/syslogd 落盘）。
@@ -93,7 +93,7 @@ func runRsyslog(ctx context.Context, sink chan<- event.SSHAttempt, sys chan<- ev
 	if ctx.Err() != nil {
 		return nil
 	}
-	return fmt.Errorf("tail 流提前结束: %v", waitErr)
+	return fmt.Errorf("tail 流提前结束: %w", waitErr)
 }
 
 // handleLine 对单行做匹配解析；匹配则发送，不匹配限频上报（方案 3.3：限频 1/分钟）。
