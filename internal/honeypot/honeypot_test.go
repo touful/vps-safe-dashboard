@@ -196,12 +196,13 @@ func TestServerStats(t *testing.T) {
 	}
 }
 
-// TestServerConnTimeout 连接超时常量与 deadline 设置（编译期 + 行为断言）。
+// TestServerConnTimeout 连接超时常量与空闲连接行为（编译期 + 行为断言）。
 func TestServerConnTimeout(t *testing.T) {
 	if connTimeout != 30*time.Second {
 		t.Fatalf("connTimeout = %v, 期望 30s（任务书建议值）", connTimeout)
 	}
-	// 行为验证：handleConn 设置 30s 读写超时——空闲连接 30s 后被框架关闭。
+	// 行为验证：telnet banner 发送后连接空闲——服务器不主动发数据（等待客户端输入），
+	// 客户端侧短读超时到期（服务器 30s 超时未到，连接仍存活）。
 	credCh := make(chan event.CredEvent, 16)
 	srv, addrs := startTestServer(t, []string{"telnet"}, credCh, nil)
 	c, err := net.DialTimeout("tcp", addrs["telnet"], time.Second)
@@ -209,17 +210,18 @@ func TestServerConnTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	// 模拟空闲：不发送任何数据。框架 handler 读阻塞至超时（占位 stub 读阻塞）。
+	// 读掉 banner（证明服务器有响应）。
 	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
-	start := time.Now()
-	buf := make([]byte, 1)
-	_, err = c.Read(buf)
-	// 客户端侧 2s 读超时先触发（服务器侧 30s 未到）；验证服务器连接仍存活。
-	if err == nil {
-		t.Fatal("空闲连接不应有数据")
+	buf := make([]byte, 64)
+	n, err := c.Read(buf)
+	if err != nil || n == 0 {
+		t.Fatalf("banner 读取失败: n=%d err=%v", n, err)
 	}
-	if time.Since(start) < 1*time.Second {
-		t.Fatalf("连接应保持到客户端读超时，实际 %v", time.Since(start))
+	// 服务器随后发送 login 提示（认证引导，非真实系统信息）。
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	n2, err := c.Read(buf)
+	if err != nil || string(buf[:n2]) != "login: " {
+		t.Fatalf("login 提示读取失败: n=%d data=%q err=%v", n2, buf[:n2], err)
 	}
 	_ = srv
 }

@@ -1,6 +1,4 @@
-// 协议处理器占位实现（阶段 1 框架自测用；阶段 2/3 按协议分组替换为完整实现）。
-// 占位行为：仅读取并丢弃客户端数据直至超时/断开（不产生凭据事件），
-// 保证 protoHandlers 注册表可编译、框架连接治理路径可自测。
+// 阶段 3 复杂/加密协议占位（阶段 2 自测期间保持可编译；阶段 3 替换为完整实现）。
 package honeypot
 
 import (
@@ -25,12 +23,7 @@ func stubHandler(ctx context.Context, conn net.Conn, srcIP uint32, rec func(even
 	}
 }
 
-// 阶段 2/3 替换为真实实现。
 var (
-	handleTelnet    = stubHandler
-	handleFTP       = stubHandler
-	handleRedis     = stubHandler
-	handlePostgres  = stubHandler
 	handleMySQL     = stubHandler
 	handleMongoDB   = stubHandler
 	handleMSSQL     = stubHandler
