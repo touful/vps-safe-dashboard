@@ -1,3 +1,6 @@
+# 双实例(51af07d@8098 vs 1f62644@8099) API 场景 SHA256 对比（m00095 首次执行）
+# 24 场景全部 SAME；其中 L20/L21 哈希相同但经分析无法确证为有效数据对比（旧库已覆盖），export 数据路径等价性由 export_compare_r2.txt + export_compare_fixed.txt 补充验证
+# 有效数据对比 22/24 + export 专项验证 4 项，结论：全量 API 行为等价
 SAME	/api/v1/summary?range=24h	26FE298301EF0330EA070B83B7837FC5FDA1681BCC1B732E37F79B38B5C8F78A
 SAME	/api/v1/summary?range=7d	A6AC541AD83336119C2CB81C334AE4469D23FDFC34464F9B5D6ADB52BF9C0633
 SAME	/api/v1/resources?range=24h	D1A25BA907F8D693F6AA1BF262A8EAC14BB96C0F306086C2A8DA9BE25F155A6D

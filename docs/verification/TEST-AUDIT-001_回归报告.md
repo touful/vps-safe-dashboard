@@ -33,7 +33,15 @@
 
 注意：首次脚本字符串比较出现 3 处"DIFF"（export/top_ports/nonexistent），经文件 SHA256 复验均为 PowerShell 字符串比较编码假象，非真实差异。
 
-**export 观察项**（O-1）：export/csv 的 `table` 参数被忽略，三个 table 值输出相同内容（统一三源合并 CSV，415 行：外部威胁+SSH+fail2ban，与前端"数据导出"页说明一致）。新旧行为一致，为既有设计（API 参数冗余），非本次回归引入。
+**export 场景有效性说明（R-09 整改）**：m00095 对比脚本中 export 场景 L17-19（range=24h&table=X，哈希 73EE）经独立实测确认为 200 有效对比（415 行 CSV 全集）；L20（from/to）/L21（range=bad）哈希相同（1B76），但与"L17 与 L21 同为 24h 窗口应输出相同"矛盾，无法确证为有效数据对比（对比所用种子库此后已被重建覆盖，无法复验；疑为当时响应异常或窗口边界数据子集重合）。为此**追加 export 数据路径专项验证**（证据：evidence/TEST-AUDIT-001/export_compare_r2.txt + export_compare_fixed.txt）：
+1. 固定时间戳窗口 from=1786977000&to=1787049000：3/3 SAME（bans/firewall/ssh，各 344 行）
+2. range=bad 并行请求（同刻窗口）：SAME（各 408 行）
+3. range=bad 顺序请求：两文件 Compare-Object 无差异（各 411 行）
+4. 单实例（NEW）内 range=bad 与 range=24h 输出一致（411 行，非法值回退 24h 语义正确）
+另注：交替请求间隔 1.2s 时曾出现 OLD=411 NEW=410 的临时 DIFF，经并行请求复验为**滑动窗口边界效应**（种子库存在恰位于 now-24h 边界的数据行），非行为差异。
+**结论：export 数据路径（参数校验/窗口语义/三源 UNION/table 忽略/流式输出）双实例字节级等价；24 场景对比中 22 项为确定有效数据对比，2 项存疑场景由专项验证覆盖。**
+
+**export 观察项**（O-1）：export/csv 的 `table` 参数被忽略，三个 table 值输出相同内容（统一三源合并 CSV，与前端"数据导出"页说明一致）。新旧行为一致，为既有设计（API 参数冗余），非本次回归引入。
 
 ### 2.3 代码级逐条核对（与 51af07d 旧实现对照，已验证）
 

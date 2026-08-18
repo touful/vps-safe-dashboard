@@ -1,0 +1,13 @@
+# export 数据路径补充验证（R-09 整改：m00095 中 L20/L21 存疑场景的替代验证）
+# 背景：m00095 对比脚本中 export 场景 L17-19(73EE)=200 有效；L20(from/to)/L21(range=bad)=1B76 哈希相同但与 L17 同窗口矛盾（L21 应=L17），旧种子库已被重建无法复验，判定为无效/存疑对比
+# 补充验证 1：固定时间戳窗口（无滑动干扰）
+SAME	/api/v1/export/csv?from=1786977000&to=1787049000&table=bans	OLD_lines=344 NEW_lines=344
+SAME	/api/v1/export/csv?from=1786977000&to=1787049000&table=firewall	OLD_lines=344 NEW_lines=344
+SAME	/api/v1/export/csv?from=1786977000&to=1787049000&table=ssh	OLD_lines=344 NEW_lines=344
+# 补充验证 2：range=bad 并行请求（同刻窗口消除滑动差异）
+SAME	/api/v1/export/csv?range=bad (并行)	OLD_lines=408 NEW_lines=408
+# 补充验证 3：range=bad 顺序请求（间隔>7s，窗口不同）——首尾行相同、Compare-Object 无差异
+SAME	/api/v1/export/csv?range=bad (顺序)	OLD_lines=411 NEW_lines=411
+# 补充验证 4：单实例（NEW）内 L17-L21 全部 200：L17-19 同哈希(411 行,table 忽略)、L20 252 行(不同窗口不同子集)、L21==L17(411 行,回退 24h)
+# 结论：export 数据路径（参数校验/窗口语义/三源 UNION/table 忽略/流式输出）双实例字节级等价
+# 注：m00126 交替请求 1.2s 间隔出现 OLD=411 NEW=410 的 DIFF，经并行请求复验为滑动窗口边界效应（种子库存在恰位于 now-24h 边界的数据行），非行为差异
