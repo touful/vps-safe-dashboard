@@ -417,7 +417,9 @@ func (s *Store) RequestArchive(month string) error {
 	}
 }
 
-// QuerySuccessfulSSHIPs 查询近 windowDays 天内成功登录（result=1）的源 IP（去重，DEV-042）。
+// QuerySuccessfulSSHIPs 查询近 windowDays 天内 publickey 密钥认证成功（result=1 且
+// auth_method='publickey'）的源 IP（去重，DEV-042；A-01 整改：仅密钥认证学习，
+// 密码爆破成功不进入白名单）。
 // 供 fw 包 SSH 成功登录自动白名单学习使用（实现 fw.SuccessfulSSHIPSource 接口）。
 // 只读查询：WAL 模式与写线程并发安全；查询走 idx_ssh_ts 索引，毫秒级。
 // 注意：与写线程共享连接池（MaxOpenConns(1)），查询期间写线程短暂等待（busy_timeout 兜底），
@@ -425,7 +427,7 @@ func (s *Store) RequestArchive(month string) error {
 func (s *Store) QuerySuccessfulSSHIPs(ctx context.Context, windowDays int) ([]uint32, error) {
 	cutoff := time.Now().Unix() - int64(windowDays)*86400
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT DISTINCT src_ip FROM ssh_attempts WHERE result = ? AND ts >= ?`,
+		`SELECT DISTINCT src_ip FROM ssh_attempts WHERE result = ? AND auth_method = 'publickey' AND ts >= ?`,
 		event.ResultOK, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("查询成功登录 IP 失败: %w", err)

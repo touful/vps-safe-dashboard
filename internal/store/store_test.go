@@ -217,13 +217,14 @@ func TestQuerySuccessfulSSHIPs(t *testing.T) {
 	defer st.Close()
 
 	now := time.Now().Unix()
-	// 写入混合数据：成功/失败、窗口内/窗口外、重复 IP。
+	// 写入混合数据：成功/失败、publickey/password、窗口内/窗口外、重复 IP。
 	items := []eventItem{
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893F4, Username: "root", Result: event.ResultOK}},    // 182.136.147.244 成功（窗口内）
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 7200, SrcIP: 0xB68893F4, Username: "root", Result: event.ResultOK}},    // 同 IP 重复成功（去重）
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893A1, Username: "root", Result: event.ResultOK}},    // 182.136.147.161 成功（窗口内）
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007105, Username: "root", Result: event.ResultFail}},   // 203.0.113.5 失败（不学习）
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 31*86400, SrcIP: 0xCB007106, Username: "root", Result: event.ResultOK}}, // 203.0.113.6 成功但超窗口
+		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893F4, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},    // 182.136.147.244 publickey 成功（窗口内）
+		{kind: "ssh", v: event.SSHAttempt{TS: now - 7200, SrcIP: 0xB68893F4, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},    // 同 IP 重复成功（去重）
+		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893A1, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},    // 182.136.147.161 publickey 成功（窗口内）
+		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007105, Username: "root", AuthMethod: "password", Result: event.ResultFail}},   // 203.0.113.5 失败（不学习）
+		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007109, Username: "root", AuthMethod: "password", Result: event.ResultOK}},    // 203.0.113.9 密码成功（A-01：不学习）
+		{kind: "ssh", v: event.SSHAttempt{TS: now - 31*86400, SrcIP: 0xCB007106, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}}, // 203.0.113.6 成功但超窗口
 	}
 	if err := st.writeBatch(items); err != nil {
 		t.Fatalf("writeBatch 失败: %v", err)
@@ -233,7 +234,7 @@ func TestQuerySuccessfulSSHIPs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QuerySuccessfulSSHIPs 失败: %v", err)
 	}
-	// 期望：182.136.147.244 与 182.136.147.161（去重后 2 个；失败与超窗口不包含）。
+	// 期望：182.136.147.244 与 182.136.147.161（去重后 2 个；密码成功/失败/超窗口不包含）。
 	if len(ips) != 2 {
 		t.Fatalf("成功登录 IP 数 = %d, 期望 2（去重后）: %v", len(ips), ips)
 	}
@@ -244,8 +245,8 @@ func TestQuerySuccessfulSSHIPs(t *testing.T) {
 	if !got[0xB68893F4] || !got[0xB68893A1] {
 		t.Errorf("成功登录 IP 集合错误: %v", ips)
 	}
-	if got[0xCB007105] || got[0xCB007106] {
-		t.Errorf("失败/超窗口 IP 不应包含: %v", ips)
+	if got[0xCB007105] || got[0xCB007109] || got[0xCB007106] {
+		t.Errorf("密码成功/失败/超窗口 IP 不应包含: %v", ips)
 	}
 }
 
@@ -272,11 +273,12 @@ func TestSSHLearnerIntegration(t *testing.T) {
 	st := newTestStore(t, ch, &sync.WaitGroup{})
 	defer st.Close()
 
-	// 写入成功登录数据（182.136.147.244 成功 + 203.0.113.5 失败）。
+	// 写入成功登录数据（182.136.147.244 publickey 成功 + 203.0.113.9 密码成功 + 203.0.113.5 失败）。
 	now := time.Now().Unix()
 	items := []eventItem{
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893F4, Username: "root", Result: event.ResultOK}},
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007105, Username: "root", Result: event.ResultFail}},
+		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893F4, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},
+		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007109, Username: "root", AuthMethod: "password", Result: event.ResultOK}}, // A-01：密码成功不学习
+		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007105, Username: "root", AuthMethod: "password", Result: event.ResultFail}},
 	}
 	if err := st.writeBatch(items); err != nil {
 		t.Fatalf("writeBatch 失败: %v", err)
@@ -296,7 +298,7 @@ func TestSSHLearnerIntegration(t *testing.T) {
 		close(done)
 	}()
 
-	// 等待学习完成（白名单 1 个 IP：仅成功登录）。
+	// 等待学习完成（白名单 1 个 IP：仅 publickey 成功登录）。
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		p := filter.DynamicExcludeIPs.Load()
@@ -309,11 +311,15 @@ func TestSSHLearnerIntegration(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// ShouldDrop 判定：成功登录 IP 丢弃，失败登录 IP 保留（不学习失败）。
+	// ShouldDrop 判定：publickey 成功登录 IP 丢弃，密码成功/失败登录 IP 保留（仅密钥认证学习）。
 	evLearned := event.FirewallEvent{SrcIP: 0xB68893F4, DstIP: 0xAC110001}
+	evPwdOK := event.FirewallEvent{SrcIP: 0xCB007109, DstIP: 0xAC110001}
 	evOther := event.FirewallEvent{SrcIP: 0xCB007105, DstIP: 0xAC110001}
 	if !filter.ShouldDrop(evLearned) {
-		t.Error("成功登录 IP 应被白名单排除")
+		t.Error("publickey 成功登录 IP 应被白名单排除")
+	}
+	if filter.ShouldDrop(evPwdOK) {
+		t.Error("密码认证成功 IP 不应被学习/排除")
 	}
 	if filter.ShouldDrop(evOther) {
 		t.Error("失败登录 IP 不应被学习/排除")
