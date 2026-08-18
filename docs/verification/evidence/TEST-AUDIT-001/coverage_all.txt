@@ -1,0 +1,15 @@
+ok  	sentry-agent/internal/api	40.319s	coverage: 73.5% of statements
+ok  	sentry-agent/internal/archive	1.614s	coverage: 65.5% of statements
+ok  	sentry-agent/internal/collect	0.116s	coverage: 45.6% of statements
+ok  	sentry-agent/internal/config	0.141s	coverage: 92.7% of statements
+ok  	sentry-agent/internal/conn	68.275s	coverage: 44.4% of statements
+ok  	sentry-agent/internal/diskmon	0.447s	coverage: 61.5% of statements
+	sentry-agent/internal/diskutil		coverage: 0.0% of statements
+ok  	sentry-agent/internal/event	0.117s	coverage: 96.6% of statements
+ok  	sentry-agent/internal/f2b	0.761s	coverage: 68.9% of statements
+ok  	sentry-agent/internal/fw	0.692s	coverage: 82.7% of statements
+ok  	sentry-agent/internal/out	0.416s	coverage: 77.4% of statements
+ok  	sentry-agent/internal/ssh	0.188s	coverage: 26.5% of statements
+ok  	sentry-agent/internal/store	15.837s	coverage: 68.8% of statements
+ok  	sentry-agent/internal/web	0.196s	coverage: 0.0% of statements
+ok  	sentry-agent/cmd/sentry-agent	0.321s	coverage: 14.9% of statements

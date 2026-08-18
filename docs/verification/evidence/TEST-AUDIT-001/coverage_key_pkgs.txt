@@ -1,0 +1,3 @@
+ok  	sentry-agent/internal/config	0.091s	coverage: 92.7% of statements
+ok  	sentry-agent/internal/event	0.085s	coverage: 96.6% of statements
+ok  	sentry-agent/internal/fw	0.615s	coverage: 82.7% of statements

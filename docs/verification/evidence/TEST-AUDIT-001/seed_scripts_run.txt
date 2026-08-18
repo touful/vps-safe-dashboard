@@ -1,0 +1,30 @@
+== dev015_seed_db.py ==
+SEED OK: D:\工具开发\安全态势展示工具\scripts\..\.dev015-test\state.db
+
+== dev017_seed_noidle_db.py ==
+NOIDLE DB OK
+
+== dev017_verify_sql.py ==
+SQL 有数据桶数: 25
+  1786964400 drop= 9 accept= 1
+  1786968000 drop= 7 accept= 0
+  1786971600 drop= 12 accept= 4
+  1786975200 drop= 8 accept= 1
+  1786978800 drop= 9 accept= 4
+聚合合计 drop/accept: 225 51
+明细 COUNT drop/accept: 225 51
+一致性: PASS
+期望桶数(含当前小时): 25
+
+== DB files ==
+
+Name            Length
+----            ------
+archive         
+agent.err.log   0
+agent.out.log   0
+cfg.json        932
+state_noidle.db 36864
+state.db        192512
+
+

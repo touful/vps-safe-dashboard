@@ -1,0 +1,15 @@
+ok  	sentry-agent/internal/conn	68.103s
+ok  	sentry-agent/internal/store	14.345s
+ok  	sentry-agent/internal/config	0.077s
+ok  	sentry-agent/internal/api	40.383s
+ok  	sentry-agent/internal/f2b	1.456s
+ok  	sentry-agent/internal/fw	0.576s
+ok  	sentry-agent/internal/ssh	0.983s
+ok  	sentry-agent/internal/out	1.252s
+ok  	sentry-agent/internal/event	0.981s
+?   	sentry-agent/internal/diskutil	[no test files]
+ok  	sentry-agent/internal/diskmon	6.103s
+ok  	sentry-agent/internal/archive	2.182s
+ok  	sentry-agent/internal/collect	0.934s
+ok  	sentry-agent/internal/web	1.025s
+ok  	sentry-agent/cmd/sentry-agent	1.140s
