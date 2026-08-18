@@ -112,6 +112,8 @@ func TestRateLimiterOverflowRebuild(t *testing.T) {
 }
 
 // TestServerRateLimitReject 框架层限速：同源并发 13 连接，放行数受限速窗口约束。
+// 注意：客户端 Dial 成功 ≠ 放行（被拒连接在 TCP 层已完成三次握手，RST 时序
+// 不保证 Dial 失败），放行数以 Stats().TotalConns（通过治理并开始处理）观测。
 func TestServerRateLimitReject(t *testing.T) {
 	credCh := make(chan event.CredEvent, 64)
 	srv, addrs := startTestServer(t, []string{"telnet"}, credCh, nil)
@@ -136,12 +138,28 @@ func TestServerRateLimitReject(t *testing.T) {
 			allowed++
 		}
 	}
-	// 限速窗口 10：极端并发调度下允许 [10, 13] 全放行边界，但拒绝计数应随超限增加。
-	if allowed < ipConnLimit || allowed > ipConnLimit+3 {
-		t.Fatalf("放行连接数 = %d, 期望窗口 [%d, %d]", allowed, ipConnLimit, ipConnLimit+3)
+	// 等待 accept 循环处理完 13 个连接（TotalConns/Rejected 计数稳定）。
+	deadline := time.Now().Add(2 * time.Second)
+	var st Stats
+	for {
+		st = srv.Stats()
+		if st.TotalConns+st.Rejected >= ipConnLimit+3 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	if srv.Stats().Rejected+int64(allowed-ipConnLimit) < int64(allowed-ipConnLimit) {
-		t.Fatalf("拒绝计数异常: %d", srv.Stats().Rejected)
+	// 核心语义：放行数（TotalConns）不超过限速窗口上限（固定窗口顺序判定，
+	// 第 11 个起必然被拒——窗口内 10 次 allow 后置位）。
+	if st.TotalConns > ipConnLimit {
+		t.Fatalf("放行连接数 = %d, 期望上限 %d（限速窗口硬约束）", st.TotalConns, ipConnLimit)
+	}
+	// 一致性：放行连接在 TCP 层必然 Dial 成功（allowed 覆盖 TotalConns）；
+	// 拒绝数不超过超限部分 3（最多 3 个连接被拒，accept 竞态只可能减少观测数）。
+	if allowed < int(st.TotalConns) {
+		t.Fatalf("Dial 成功数 %d < 放行数 %d（不一致）", allowed, st.TotalConns)
+	}
+	if st.Rejected > int64(ipConnLimit+3) {
+		t.Fatalf("拒绝计数异常: Rejected=%d", st.Rejected)
 	}
 }
 

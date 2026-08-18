@@ -2,6 +2,7 @@ package honeypot
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"strings"
 	"testing"
@@ -212,8 +213,10 @@ func TestMSSQLCapture(t *testing.T) {
 	// 2. LOGIN7：固定头 36 + offset 表（5 项）+ 变长数据。
 	// 注意：offset 表须在全部 append 完成后写入（先 append 后写表，
 	// 否则 append 扩容会覆盖表内容）。
+	// 用户名按 TDS 规范 UTF-16LE 编码（R-02 整改后蜜罐按规范解码，ASCII 构造
+	// 会产生双字节乱码）。
 	host := []byte("PC1")
-	user := []byte("sa")
+	user := []byte{'s', 0, 'a', 0} // "sa" UTF-16LE
 	pass := []byte{0x01, 0xA4, 0x02, 0xA3} // TDS 混淆密码示例（XOR 0xA5 语义）
 	dataOff := 36 + 5*4
 	login := make([]byte, 0, 512)
@@ -416,7 +419,7 @@ func TestRDPCapture(t *testing.T) {
 	if !strings.Contains(ev.Extra, "admin") {
 		t.Fatalf("extra 应含 cookie: %q", ev.Extra)
 	}
-	// Connection Confirm（TPKT + 0xD0）。
+	// Connection Confirm（TPKT + X.224 CC：LI=6 + 0xD0，R-12 整改后结构）。
 	var cc [4]byte
 	if _, err := readFullN(c, cc[:]); err != nil {
 		t.Fatal(err)
@@ -428,8 +431,15 @@ func TestRDPCapture(t *testing.T) {
 	if _, err := readFullN(c, ccBody); err != nil {
 		t.Fatal(err)
 	}
-	if ccBody[0] != 0xD0 {
-		t.Fatalf("期望 X.224 CC (0xD0), got 0x%02X", ccBody[0])
+	if ccBody[0] != 0x06 {
+		t.Fatalf("期望 X.224 LI=6, got 0x%02X", ccBody[0])
+	}
+	if ccBody[1] != 0xD0 {
+		t.Fatalf("期望 X.224 CC (0xD0), got 0x%02X", ccBody[1])
+	}
+	// dst-ref 应回显客户端 src-ref（测试构造为 0）。
+	if ccBody[2] != 0 || ccBody[3] != 0 {
+		t.Fatalf("dst-ref 回显异常: % x", ccBody[2:4])
 	}
 }
 
@@ -570,4 +580,264 @@ func buildNTLMSSPAuth(user, domain string) []byte {
 	b = append(b, domainB...)
 	b = append(b, userB...)
 	return b
+}
+
+// TestMySQLStrictParse 严格解析 HandshakeV10 布局（R-01 公式核对）：
+// 按结构字段顺序推进（version 变长），验证 auth_plugin_data_len 公式、
+// 20 字节 salt、插件名、caps 无 SSL 位。
+func TestMySQLStrictParse(t *testing.T) {
+	credCh := make(chan event.CredEvent, 16)
+	_, addrs := startTestServer(t, []string{"mysql"}, credCh, nil)
+	c := dialProto(t, addrs, "mysql")
+	defer c.Close()
+
+	var ghdr [4]byte
+	if _, err := readFullN(c, ghdr[:]); err != nil {
+		t.Fatal(err)
+	}
+	gLen := int(binary.LittleEndian.Uint32(append(ghdr[:3], 0)))
+	greeting := make([]byte, gLen)
+	if _, err := readFullN(c, greeting); err != nil {
+		t.Fatal(err)
+	}
+	if greeting[0] != 10 {
+		t.Fatalf("protocol version = %d, 期望 10", greeting[0])
+	}
+	// 按结构顺序推进：version(NUL) → connection_id(4) → part1(8) → filler(1)
+	// → caps_lower(2) → charset(1) → status(2) → caps_upper(2) → data_len(1)
+	// → reserved(10) → part2 → plugin_name(NUL)。
+	pos := 1
+	vEnd := bytes.IndexByte(greeting[pos:], 0)
+	if vEnd < 0 {
+		t.Fatal("server version 缺 NUL 终止")
+	}
+	pos += vEnd + 1 // 跳过 version（含 NUL）
+	if pos+4+8+1+2+1+2+2+1+10 > len(greeting) {
+		t.Fatalf("greeting 过短（%d 字节）", len(greeting))
+	}
+	pos += 4                                     // connection_id
+	part1 := greeting[pos : pos+8]               // auth-plugin-data-part1
+	pos += 8 + 1                                 // part1 + filler
+	capsLower := binary.LittleEndian.Uint16(greeting[pos : pos+2])
+	pos += 2 + 1 + 2                             // caps_lower + charset + status
+	capsUpper := binary.LittleEndian.Uint16(greeting[pos : pos+2])
+	pos += 2
+	caps := uint32(capsLower) | uint32(capsUpper)<<16
+	if caps&0x0800 != 0 {
+		t.Fatalf("caps 含 CLIENT_SSL(0x0800): 0x%08X（置位会诱导客户端先发 SSLRequest）", caps)
+	}
+	if caps&0x0200 == 0 {
+		t.Fatalf("caps 缺 CLIENT_PROTOCOL_41(0x0200): 0x%08X", caps)
+	}
+	// auth_plugin_data_len：20 salt + 1 NUL；part2 长度公式 = max(13, len-8)-1。
+	dataLen := int(greeting[pos])
+	pos++ // data_len
+	if dataLen != 21 {
+		t.Fatalf("auth_plugin_data_len = %d, 期望 21", dataLen)
+	}
+	pos += 10 // reserved
+	part2Len := dataLen - len(part1) - 1
+	if part2Len != 12 {
+		t.Fatalf("part2 长度 = %d, 期望 12（公式 max(13, len-8)-1）", part2Len)
+	}
+	part2 := greeting[pos : pos+part2Len]
+	salt := make([]byte, 0, 20)
+	salt = append(salt, part1...)
+	salt = append(salt, part2...)
+	if len(salt) != 20 {
+		t.Fatalf("salt 长度 = %d, 期望 20", len(salt))
+	}
+	// 插件名：part2 后 NUL 终止。
+	nameStart := pos + part2Len + 1
+	nameEnd := bytes.IndexByte(greeting[nameStart:], 0)
+	if nameEnd < 0 {
+		t.Fatal("greeting 缺插件名 NUL 终止")
+	}
+	if got := string(greeting[nameStart : nameStart+nameEnd]); got != "mysql_native_password" {
+		t.Fatalf("auth 插件名 = %q, 期望 mysql_native_password", got)
+	}
+}
+
+// TestMSSQLPreloginOffsets 校验 Prelogin Response 选项表布局（R-03 reviewer 整改）：
+// 选项表 15 字节 + 1 字节对齐 = 16，数据区从偏移 16 起；ENCRYPTION 值 0x00（OFF）。
+func TestMSSQLPreloginOffsets(t *testing.T) {
+	resp := buildPreloginResponse()
+	// 总长：16（选项表+pad）+ 8（VERSION）+ 1（ENCRYPTION）+ 尾部对齐 3 = 28。
+	if len(resp) != 28 {
+		t.Fatalf("Prelogin Response 长度 = %d, 期望 28", len(resp))
+	}
+	// VERSION 项：token 0x00 @0 + offset @1 + length @3。
+	if resp[0] != 0x00 {
+		t.Fatalf("VERSION token = 0x%02X", resp[0])
+	}
+	if off := binary.BigEndian.Uint16(resp[1:3]); off != 16 {
+		t.Fatalf("VERSION 数据偏移 = %d, 期望 16（选项表 15+1 后）", off)
+	}
+	if ln := binary.BigEndian.Uint16(resp[3:5]); ln != 8 {
+		t.Fatalf("VERSION 数据长度 = %d, 期望 8", ln)
+	}
+	// ENCRYPTION 项：token 0x01 @5 + offset @6 + length @8。
+	if resp[5] != 0x01 {
+		t.Fatalf("ENCRYPTION token = 0x%02X", resp[5])
+	}
+	if off := binary.BigEndian.Uint16(resp[6:8]); off != 24 {
+		t.Fatalf("ENCRYPTION 数据偏移 = %d, 期望 24", off)
+	}
+	if ln := binary.BigEndian.Uint16(resp[8:10]); ln != 1 {
+		t.Fatalf("ENCRYPTION 数据长度 = %d, 期望 1", ln)
+	}
+	// 终止项 @10（5 字节全 0）+ pad @15。
+	for i := 10; i < 16; i++ {
+		if resp[i] != 0 {
+			t.Fatalf("选项表终止/对齐区 @%d = 0x%02X, 期望 0", i, resp[i])
+		}
+	}
+	// 数据区：VERSION 8 字节（TDS 7.4 伪版本）@16；ENCRYPTION @24 = 0x00（OFF）。
+	if resp[16] != 0x07 || resp[17] != 0x04 {
+		t.Fatalf("VERSION 数据异常: % x", resp[16:24])
+	}
+	if resp[24] != 0x00 {
+		t.Fatalf("ENCRYPTION 值 = 0x%02X, 期望 0x00（OFF，诱导客户端走明文后续流程）", resp[24])
+	}
+}
+
+// TestSMB2FragmentedFrames R-10 场景：SMB2 帧 TCP 分片发送（NEGOTIATE 分 3 段、
+// SESSION_SETUP 分 2 段），验证蜜罐按结构长度字段完整读取并捕获凭据。
+func TestSMB2FragmentedFrames(t *testing.T) {
+	credCh := make(chan event.CredEvent, 16)
+	_, addrs := startTestServer(t, []string{"smb"}, credCh, nil)
+	c := dialProto(t, addrs, "smb")
+
+	// 1. Negotiate 帧分 3 段发送。
+	neg := buildSMB2NegotiateFrame()
+	for _, seg := range splitSegments(neg, 3) {
+		if _, err := c.Write(seg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 读 Negotiate Response（验证含 NTLMSSP CHALLENGE）。
+	var rpid [4]byte
+	if _, err := readFullN(c, rpid[:]); err != nil {
+		t.Fatal(err)
+	}
+	if string(rpid[:]) != "\xfeSMB" {
+		t.Fatalf("响应 ProtocolId = %q", rpid[:])
+	}
+	rhdr := make([]byte, 60)
+	if _, err := readFullN(c, rhdr); err != nil {
+		t.Fatal(err)
+	}
+	rbody := make([]byte, 62+56) // 响应体（62 SMB 2.1 结构 + 56 NTLMSSP CHALLENGE）
+	if _, err := readFullN(c, rbody); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(rbody), "NTLMSSP") {
+		t.Fatal("Negotiate Response 缺 NTLMSSP CHALLENGE")
+	}
+
+	// 2. Session Setup 帧分 2 段发送。
+	auth := buildNTLMSSPAuth("attacker", "WORKGROUP")
+	ss := buildSMB2SessionSetupFrame(auth)
+	for _, seg := range splitSegments(ss, 2) {
+		if _, err := c.Write(seg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ev := recvCred(t, credCh)
+	if ev.Proto != "smb" || ev.Username != "WORKGROUP\\attacker" {
+		t.Fatalf("凭据事件 = %+v", ev)
+	}
+	if !strings.Contains(ev.Extra, "NTLMv2") {
+		t.Fatalf("extra 应注明 NTLMv2: %q", ev.Extra)
+	}
+	// 读 STATUS_LOGON_FAILURE 响应。
+	var shdr [8]byte
+	if _, err := readFullN(c, shdr[:]); err != nil {
+		t.Fatal(err)
+	}
+	if string(shdr[:4]) != "\xfeSMB" {
+		t.Fatalf("响应 ProtocolId = %q", shdr[:4])
+	}
+	rest := make([]byte, 60)
+	if _, err := readFullN(c, rest); err != nil {
+		t.Fatal(err)
+	}
+	if status := binary.LittleEndian.Uint32(rest[0:4]); status != 0xC000006D {
+		t.Fatalf("Status = 0x%08X, 期望 STATUS_LOGON_FAILURE", status)
+	}
+}
+
+// buildSMB2NegotiateFrame 构造 SMB2 Negotiate 请求帧（SMB 2.1，单 dialect）。
+func buildSMB2NegotiateFrame() []byte {
+	neg := make([]byte, 0, 64+30)
+	neg = append(neg, []byte("\xfeSMB")...)
+	neg = append(neg, 64, 0) // StructureSize
+	neg = append(neg, 0, 0)  // CreditCharge
+	neg = append(neg, 0, 0, 0, 0) // Status
+	neg = append(neg, 0x00, 0x00) // Command = NEGOTIATE
+	neg = append(neg, 1, 0)       // Credit
+	neg = append(neg, 0, 0, 0, 0) // Flags
+	neg = append(neg, 0, 0, 0, 0) // NextCommand
+	neg = append(neg, 1, 0, 0, 0, 0, 0, 0, 0) // MessageId = 1
+	neg = append(neg, 0, 0, 0, 0, 0, 0, 0, 0) // Reserved + TreeId
+	neg = append(neg, 0, 0, 0, 0, 0, 0, 0, 0) // SessionId
+	neg = append(neg, make([]byte, 16)...)     // Signature
+	neg = append(neg, 36, 0)      // StructureSize（声明值，固定实际 28）
+	neg = append(neg, 1, 0)       // DialectCount
+	neg = append(neg, 1, 0)       // SecurityMode
+	neg = append(neg, 0, 0)       // Reserved
+	neg = append(neg, 0, 0, 0, 0) // Capabilities
+	neg = append(neg, make([]byte, 16)...) // ClientGuid
+	neg = append(neg, 0x10, 0x02) // Dialect SMB 2.1
+	return neg
+}
+
+// buildSMB2SessionSetupFrame 构造 SMB2 Session Setup 请求帧（含 NTLMSSP AUTH 缓冲）。
+func buildSMB2SessionSetupFrame(auth []byte) []byte {
+	ss := make([]byte, 0, 64+24+len(auth))
+	ss = append(ss, []byte("\xfeSMB")...)
+	ss = append(ss, 64, 0) // StructureSize
+	ss = append(ss, 0, 0)  // CreditCharge
+	ss = append(ss, 0, 0, 0, 0) // Status
+	ss = append(ss, 0x01, 0x00) // Command = SESSION_SETUP
+	ss = append(ss, 1, 0)       // Credit
+	ss = append(ss, 0, 0, 0, 0) // Flags
+	ss = append(ss, 0, 0, 0, 0) // NextCommand
+	ss = append(ss, 2, 0, 0, 0, 0, 0, 0, 0) // MessageId = 2
+	ss = append(ss, 0, 0, 0, 0)             // Reserved
+	ss = append(ss, 0, 0, 0, 0)             // TreeId
+	ss = append(ss, 0, 0, 0, 0, 0, 0, 0, 0) // SessionId
+	ss = append(ss, make([]byte, 16)...)    // Signature
+	ss = append(ss, 25, 0) // StructureSize（声明值，固定实际 24）
+	ss = append(ss, 0)     // Flags
+	ss = append(ss, 1)     // SecurityMode
+	ss = append(ss, 0, 0, 0, 0) // Capabilities
+	ss = append(ss, 0, 0, 0, 0) // Channel
+	var sbo [2]byte
+	binary.LittleEndian.PutUint16(sbo[:], uint16(64+24))
+	ss = append(ss, sbo[:]...)
+	var sbl [2]byte
+	binary.LittleEndian.PutUint16(sbl[:], uint16(len(auth)))
+	ss = append(ss, sbl[:]...)
+	ss = append(ss, 0, 0, 0, 0, 0, 0, 0, 0) // PreviousSessionId
+	ss = append(ss, auth...)
+	return ss
+}
+
+// splitSegments 将数据切分为 n 段（前 n-1 段等长，末段含余量）——模拟 TCP 分片。
+func splitSegments(b []byte, n int) [][]byte {
+	if n <= 1 {
+		return [][]byte{b}
+	}
+	chunk := (len(b) + n - 1) / n
+	var out [][]byte
+	for len(b) > 0 {
+		if len(b) <= chunk {
+			out = append(out, b)
+			break
+		}
+		out = append(out, b[:chunk])
+		b = b[chunk:]
+	}
+	return out
 }
