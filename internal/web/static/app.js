@@ -26,8 +26,10 @@
   var MAX_TABLE_PAGE = 200;
   // DEV-FE-002 竞态缓解：connections 端点不支持 range 参数，用其原生 since 参数实现范围过滤
   var RANGE_SEC = { '1h': 3600, '24h': 86400, '7d': 604800, '30d': 2592000 };
-  // DEV-GEO-001：ISO 3166-1 alpha-2 → world.json 英文名映射（johan/world.geo.json 派生，
-  // 名称与 geojson properties.name 精确一致；未列出的 code 无地图形状，列表仍展示）。
+  // DEV-GEO-001：ISO 3166-1 alpha-2 → world.json 英文名映射（名称与 geojson
+  // properties.name 精确一致；未列出的 code 无地图形状，列表仍展示）。
+  // world.json 来源：johan/world.geo.json（Apache-2.0，https://github.com/johan/world.geo.json），
+  // 已本地化嵌入（internal/web/static/world.json）并按 Apache-2.0 保留归属声明。
   // MaxMind 名称（zh-CN/en）仅用于列表/导出；地图上色依赖本映射。
   var GEO_CODE_NAME = {
     AF: 'Afghanistan', AL: 'Albania', DZ: 'Algeria', AO: 'Angola', AQ: 'Antarctica', AR: 'Argentina',
@@ -1393,7 +1395,7 @@
     }, function () { state.fwTimeline = null; state.attackDataFailed = true; noteFailure(); renderAttackTrend(); renderSituation(); renderRisk(); });
     // 全球攻击地图数据（DEV-GEO-001；SSH 失败按来源 IP 聚合，country/min 前端本地过滤。
     // 30d 视图随 pollAttack 降频自动降频；失败时地图置空态、列表置失败行）
-    fetchJSON('/api/v1/attacks/geo?limit=1000&' + rangeQS(), function (d) {
+    fetchJSON('/api/v1/attacks/geo?' + rangeQS(), function (d) {
       state.geo.rows = d.rows || [];
       state.geo.mmdbOk = !!d.mmdb_ok;
       renderGeo();

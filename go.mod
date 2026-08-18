@@ -5,6 +5,7 @@ go 1.26.2
 require (
 	github.com/florianl/go-conntrack v0.7.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/oschwald/maxminddb-golang v1.13.1
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.56.0
 )
@@ -18,7 +19,6 @@ require (
 	github.com/mdlayher/netlink v1.6.2 // indirect
 	github.com/mdlayher/socket v0.2.3 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
-	github.com/oschwald/maxminddb-golang v1.13.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	golang.org/x/net v0.0.0-20220923203811-8be639271d50 // indirect
 	golang.org/x/sync v0.21.0 // indirect

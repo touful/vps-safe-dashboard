@@ -82,8 +82,12 @@ fi
 
 echo "--- 原子替换（旧库备份 .bak）---"
 mkdir -p "$(dirname "$DB_PATH")"
+# R-04（reviewer）：临时文件必须与目标同分区（/tmp 为 tmpfs 时 mv 退化为 copy+unlink
+# 非原子，中断会损坏库文件）——先复制到目标同目录再 rename（同分区 rename 原子）。
+STAGE="$DB_PATH.stage"
+cp -f "$MMDB" "$STAGE" || { echo "[FAIL] 临时文件复制失败"; exit 1; }
 [ -f "$DB_PATH" ] && mv -f "$DB_PATH" "$DB_PATH.bak"
-mv -f "$MMDB" "$DB_PATH"
+mv -f "$STAGE" "$DB_PATH"
 chmod 644 "$DB_PATH"
 
 echo "[OK] GeoLite2-Country.mmdb 已就位：$DB_PATH（$(du -h "$DB_PATH" | cut -f1)）"

@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -255,7 +256,8 @@ func rangeSeconds(r *http.Request) int64 {
 	}
 }
 
-// parseUintParam 解析无符号整数参数（非法/缺失返回默认值）。
+// parseUintParam 解析无符号整数参数（非法/缺失返回默认值；≥20 位数字溢出回绕
+// 也返回默认值——R-01（reviewer）：防 min_count 等过滤参数经回绕绕过阈值语义）。
 func parseUintParam(r *http.Request, key string, def uint64) uint64 {
 	v := r.URL.Query().Get(key)
 	if v == "" {
@@ -265,6 +267,9 @@ func parseUintParam(r *http.Request, key string, def uint64) uint64 {
 	for _, c := range v {
 		if c < '0' || c > '9' {
 			return def
+		}
+		if n > (math.MaxUint64-uint64(c-'0'))/10 {
+			return def // 乘法前检测溢出
 		}
 		n = n*10 + uint64(c-'0')
 	}

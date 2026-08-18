@@ -58,11 +58,12 @@ func (r *Reader) OK() bool {
 // country 字段缺失时回退 registered_country（MaxMind GeoLite2-Country 语义：
 // 未分配位置属性的 IP（如 anycast DNS）仅有注册国——如 1.1.1.1 → AU）。
 // ok=false 表示未配置/未命中/查询失败；code/name 为空。
+// 并发安全：整个查询持读锁（R-02（reviewer）：db.Lookup 须在 RLock 内执行，
+// 否则与 ReplaceFrom 的 Close 存在 TOCTOU——查询仅 µs 级，替换阻塞可忽略）。
 func (r *Reader) Lookup(ip net.IP) (code, name string, ok bool) {
 	r.mu.RLock()
-	db := r.db
-	r.mu.RUnlock()
-	if db == nil {
+	defer r.mu.RUnlock()
+	if r.db == nil {
 		return "", "", false
 	}
 	var rec struct {
@@ -75,7 +76,7 @@ func (r *Reader) Lookup(ip net.IP) (code, name string, ok bool) {
 			Names   map[string]string `maxminddb:"names"`
 		} `maxminddb:"registered_country"`
 	}
-	if err := db.Lookup(ip, &rec); err != nil {
+	if err := r.db.Lookup(ip, &rec); err != nil {
 		return "", "", false
 	}
 	code = rec.Country.ISOCode

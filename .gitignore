@@ -103,6 +103,7 @@ data/
 *.mmdb
 *.mmdb.state
 *.mmdb.tmp
+*.mmdb.stage
 # 注（DEV-005）：archive/ 曾为裸规则误伤 internal/archive/ 源码目录；
 # 运行时归档目录由配置 db.archive_dir 指定（默认 /var/lib/sentry-agent/archive，
 # 不在仓库内），故删除该规则，不做根级保留。

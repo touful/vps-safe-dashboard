@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -68,6 +69,61 @@ func TestLookupNotLoaded(t *testing.T) {
 	r := NewReader(filepath.Join(t.TempDir(), "never.mmdb"))
 	if code, name, ok := r.Lookup(net.ParseIP("1.2.3.4")); ok || code != "" || name != "" {
 		t.Errorf("未加载 Lookup 应未命中（got %q %q %v）", code, name, ok)
+	}
+}
+
+// TestReaderConcurrentReplace（门控 GEOIP_TEST_MMDB，本地验证用）：查询与原子替换并发——
+// 验证 R-02（reviewer）修复后无 TOCTOU（Lookup 全程持读锁）。Windows 无 C 编译器无法
+// 执行 -race，以结构并发替代：4 goroutine 连续 Lookup + 5 轮 ReplaceFrom，最终查询正常。
+func TestReaderConcurrentReplace(t *testing.T) {
+	p := os.Getenv("GEOIP_TEST_MMDB")
+	if p == "" {
+		t.Skip("未设置 GEOIP_TEST_MMDB，跳过并发替换验证")
+	}
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "GeoLite2-Country.mmdb")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dbPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := NewReader(dbPath)
+	if err := r.Load(); err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				_, _, _ = r.Lookup(net.ParseIP("8.8.8.8"))
+			}
+		}()
+	}
+	for i := 0; i < 5; i++ { // 5 轮原子替换（同分区 rename + 重开）
+		tmp := filepath.Join(dir, "GeoLite2-Country.mmdb.tmp")
+		if err := os.WriteFile(tmp, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.ReplaceFrom(tmp); err != nil {
+			t.Fatalf("第 %d 轮替换失败: %v", i+1, err)
+		}
+	}
+	close(stop)
+	wg.Wait()
+	code, name, ok := r.Lookup(net.ParseIP("8.8.8.8"))
+	if !ok || code != "US" || name != "美国" {
+		t.Errorf("并发后查询 = %q %q ok=%v, 期望 US 美国", code, name, ok)
 	}
 }
 

@@ -152,6 +152,23 @@ func TestGeoAttacksRangeEcho(t *testing.T) {
 	}
 }
 
+// TestParseUintParamOverflow（R-01 reviewer 整改）：超长数字溢出回绕必须回退默认值，
+// 防止 min_count 等过滤参数经回绕绕过阈值语义（如 2^64 回绕为 0 → 不过滤）。
+func TestParseUintParamOverflow(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/x?min_count=18446744073709551616", nil)
+	if got := parseUintParam(r, "min_count", 0); got != 0 {
+		t.Errorf("2^64 应回退默认值 0, got %d", got)
+	}
+	r2 := httptest.NewRequest(http.MethodGet, "/api/v1/x?min_count=99999999999999999999", nil)
+	if got := parseUintParam(r2, "min_count", 7); got != 7 {
+		t.Errorf("20 位数字应回退默认值 7, got %d", got)
+	}
+	r3 := httptest.NewRequest(http.MethodGet, "/api/v1/x?min_count=18446744073709551615", nil)
+	if got := parseUintParam(r3, "min_count", 0); got != 18446744073709551615 {
+		t.Errorf("MaxUint64 本身应正常解析, got %d", got)
+	}
+}
+
 // TestExportAttacksCSV：无表头三列（IP,国家或地区,累计攻击次数）+ 响应头 + 逗号转义。
 func TestExportAttacksCSV(t *testing.T) {
 	srv, _ := newTestServer(t)
