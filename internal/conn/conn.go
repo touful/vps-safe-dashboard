@@ -108,7 +108,7 @@ func RunConntrackListener(ctx context.Context, cfg config.ConntrackCfg, sink cha
 	bufSize := cfg.BufferSizeKB * 1024
 	// B.4.3（评审整改）：启动失败连续计数，达阈值放弃主通道——
 	// 修复"前置检查通过但 Open/Register 失败（如 NET_ADMIN 缺失）→ 无限重启空转、
-	// B5 降级永不触发"的现状缺陷（conn.go 原 55-74）。once 注入便于单测 mock。
+	// B5 降级永不触发"的现状缺陷。once 注入便于单测 mock。
 	return runConntrackLoop(ctx, cfg, bufSize, sink, overrun, sys, counter, runConntrackOnce)
 }
 
