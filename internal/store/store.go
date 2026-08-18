@@ -1,5 +1,5 @@
 // Package store 实现 M-06 存储模块（方案 3.6）。
-// 单写线程消费 out.Channels 各采集通道，批量事务写入 SQLite（WAL）。
+// 单写线程消费 event.Channels 各采集通道，批量事务写入 SQLite（WAL）。
 // 关闭语义（auditor M-02 / 方案 3.6"排空后关闭"）：ctx 取消后先等待全部生产者退出，
 // 再排空通道在途事件，最后提交末批——零丢失。
 package store
@@ -18,7 +18,6 @@ import (
 
 	"sentry-agent/internal/archive"
 	"sentry-agent/internal/event"
-	"sentry-agent/internal/out"
 )
 
 // schema 建库 DDL（方案 4.2 全量；含 PRAGMA 与索引）。
@@ -122,7 +121,7 @@ CREATE TABLE IF NOT EXISTS meta (
 type Store struct {
 	db         *sql.DB
 	dbPath     string // 主库路径（VS-01：Run 首次写后补收 WAL/SHM，见 flush）
-	ch         *out.Channels
+	ch         *event.Channels
 	producers  *sync.WaitGroup
 	batchEvery time.Duration
 	batchSize  int
@@ -144,7 +143,7 @@ type Store struct {
 // 用户/被攻破的低权限服务账号不可读安全数据（SSH 指纹/用户名/防火墙 raw）。
 // 目录权限为 Linux 语义：Windows 上 mode 参数被忽略（无权限位模型），功能不回归。
 // DEV-031 优化⑤：新增 retentionDays（<=0 禁用清理）与 copyAfterDays（归档空洞 warn 检测）。
-func NewStore(dbPath, archiveDir string, batchIntervalMS, batchSize, gzipLevel, retentionDays, copyAfterDays int, archiveCriticalPct float64, ch *out.Channels, producers *sync.WaitGroup) (*Store, error) {
+func NewStore(dbPath, archiveDir string, batchIntervalMS, batchSize, gzipLevel, retentionDays, copyAfterDays int, archiveCriticalPct float64, ch *event.Channels, producers *sync.WaitGroup) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return nil, fmt.Errorf("创建主库目录失败: %w", err)
 	}

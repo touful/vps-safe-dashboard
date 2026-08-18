@@ -136,7 +136,7 @@ func TestTsOf(t *testing.T) {
 // TestRunDrainNoLoss 验证两阶段排空协议：ctx 取消瞬间生产者仍未退出（wg 未释放）时，
 // 在途事件不丢失（consume 先等 producers.Wait() 再 drain）。
 func TestRunDrainNoLoss(t *testing.T) {
-	ch := NewChannels(16)
+	ch := event.NewChannels(16)
 	var producers sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
 	var buf bytes.Buffer
@@ -176,7 +176,7 @@ func TestRunDrainNoLoss(t *testing.T) {
 
 // TestRunNormalFlow 常规消费路径：ctx 取消前事件正常输出。
 func TestRunNormalFlow(t *testing.T) {
-	ch := NewChannels(16)
+	ch := event.NewChannels(16)
 	var producers sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
 	var buf bytes.Buffer

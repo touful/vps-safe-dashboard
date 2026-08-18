@@ -170,6 +170,32 @@ func MicrosToUnix(s string) (int64, bool) {
 	return micro / 1_000_000, true
 }
 
+// Channels 聚合各采集通道（采集→存储/输出共享的公共类型）。
+// DEV-AUDIT-001 P2-1：自 out 包迁入——out 是退役 stdout 输出器，Channels 为
+// 采集/存储共享类型，语义归 event 包（事件类型 + 事件通道）。
+type Channels struct {
+	Resource chan ResourceSample
+	Conn     chan ConnEvent
+	Overrun  chan OverrunInfo
+	SSH      chan SSHAttempt
+	FW       chan FirewallEvent
+	F2B      chan BanEvent
+	System   chan SystemEvent
+}
+
+// NewChannels 创建有界 channel 集合（方案 2.3.3：默认容量 4096）。
+func NewChannels(buf int) *Channels {
+	return &Channels{
+		Resource: make(chan ResourceSample, buf),
+		Conn:     make(chan ConnEvent, buf),
+		Overrun:  make(chan OverrunInfo, buf),
+		SSH:      make(chan SSHAttempt, buf),
+		FW:       make(chan FirewallEvent, buf),
+		F2B:      make(chan BanEvent, buf),
+		System:   make(chan SystemEvent, buf),
+	}
+}
+
 // ReportSys 非阻塞上报 system_event（通道满时丢弃，避免阻塞采集主路径）。
 // 所有采集模块的告警/降级/溢出留痕统一经此函数出口。
 func ReportSys(sys chan<- SystemEvent, source, level, message string) {

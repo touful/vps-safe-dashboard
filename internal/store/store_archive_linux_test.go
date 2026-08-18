@@ -11,14 +11,13 @@ import (
 	"time"
 
 	"sentry-agent/internal/event"
-	"sentry-agent/internal/out"
 )
 
 // TestExecArchiveSystemEvents（A-02 实测）：execArchive 前后 system_event 留痕。
 // 场景：构造含数据月份 → 调 execArchive → 断言 system 通道收到 archiver 留痕事件。
 // 依赖 DiskUsagePercent（linux），Windows 跳过（build tag）。
 func TestExecArchiveSystemEvents(t *testing.T) {
-	ch := out.NewChannels(64)
+	ch := event.NewChannels(64)
 	st := newTestStore(t, ch, &sync.WaitGroup{})
 	defer st.Close()
 

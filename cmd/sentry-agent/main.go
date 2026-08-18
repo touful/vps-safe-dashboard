@@ -69,7 +69,7 @@ func main() {
 	}
 
 	// 有界 channel（方案 2.3.3：容量 4096，背压传导）。
-	ch := out.NewChannels(4096)
+	ch := event.NewChannels(4096)
 
 	// DEV-042：fw 采集 producer 创建 FwFilter 后投递到该通道（cap 1），
 	// SSH 成功登录学习器等待其就绪后开始更新动态白名单。
@@ -284,7 +284,7 @@ func main() {
 // runConnChannel 启动连接采集通道（M-02，DEV-031 优化④）。
 // 决策：conntrack.mode=fallback → 跳过主通道尝试直接走 B5 降级（消除预期降级告警噪音）；
 // auto → 尝试主通道，失败（含连续 3 次启动失败，见 conn.connStartTracker）切换 B5 降级。
-func runConnChannel(ctx context.Context, cfg *config.Config, ch *out.Channels, counter *atomic.Uint64) {
+func runConnChannel(ctx context.Context, cfg *config.Config, ch *event.Channels, counter *atomic.Uint64) {
 	if cfg.Conntrack.Mode == "fallback" {
 		event.ReportSys(ch.System, "conntrack", "info",
 			"conntrack.mode=fallback：跳过主通道尝试，直接使用 B5 ss 快照 diff 降级模式")

@@ -10,12 +10,11 @@ import (
 
 	"sentry-agent/internal/event"
 	"sentry-agent/internal/fw"
-	"sentry-agent/internal/out"
 )
 
 // newTestStore 创建临时目录上的 Store（不启动 Run）。
 // DEV-031 优化⑤：NewStore 新增 retentionDays/copyAfterDays 参数（7/60 默认组合）。
-func newTestStore(t *testing.T, ch *out.Channels, producers *sync.WaitGroup) *Store {
+func newTestStore(t *testing.T, ch *event.Channels, producers *sync.WaitGroup) *Store {
 	t.Helper()
 	dir := t.TempDir()
 	st, err := NewStore(filepath.Join(dir, "state.db"), filepath.Join(dir, "archive"),
@@ -28,7 +27,7 @@ func newTestStore(t *testing.T, ch *out.Channels, producers *sync.WaitGroup) *St
 
 // TestStoreSchema 建库后表结构齐全（方案 4.2 DDL）。
 func TestStoreSchema(t *testing.T) {
-	ch := out.NewChannels(16)
+	ch := event.NewChannels(16)
 	st := newTestStore(t, ch, &sync.WaitGroup{})
 	defer st.Close()
 
@@ -51,7 +50,7 @@ func TestStoreSchema(t *testing.T) {
 
 // TestWriteBatch 各事件类型批量写入正确。
 func TestWriteBatch(t *testing.T) {
-	ch := out.NewChannels(16)
+	ch := event.NewChannels(16)
 	st := newTestStore(t, ch, &sync.WaitGroup{})
 	defer st.Close()
 
@@ -92,7 +91,7 @@ func TestWriteBatch(t *testing.T) {
 
 // TestWriteBatchIPv6 IPv6 连接落库（方案 4.1：IPv6 存 TEXT）。
 func TestWriteBatchIPv6(t *testing.T) {
-	ch := out.NewChannels(16)
+	ch := event.NewChannels(16)
 	st := newTestStore(t, ch, &sync.WaitGroup{})
 	defer st.Close()
 	items := []eventItem{
@@ -113,7 +112,7 @@ func TestWriteBatchIPv6(t *testing.T) {
 
 // TestStoreRunDrainNoLoss 端到端：Run 消费 + 两阶段关闭，落库行数与发送数一致（零丢失）。
 func TestStoreRunDrainNoLoss(t *testing.T) {
-	ch := out.NewChannels(64)
+	ch := event.NewChannels(64)
 	var producers sync.WaitGroup
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "state.db")
@@ -167,7 +166,7 @@ func TestStoreRunDrainNoLoss(t *testing.T) {
 
 // TestRequestArchiveQueue 归档请求队列投递。
 func TestRequestArchiveQueue(t *testing.T) {
-	ch := out.NewChannels(16)
+	ch := event.NewChannels(16)
 	st := newTestStore(t, ch, &sync.WaitGroup{})
 	defer st.Close()
 	if err := st.RequestArchive("2026-07"); err != nil {
@@ -180,7 +179,7 @@ func TestRequestArchiveQueue(t *testing.T) {
 
 // TestBatchLatency 千行批量写入延迟（V3 目标：<50ms/批，方案 4.5/11.2）。
 func TestBatchLatency(t *testing.T) {
-	ch := out.NewChannels(16)
+	ch := event.NewChannels(16)
 	st := newTestStore(t, ch, &sync.WaitGroup{})
 	defer st.Close()
 
@@ -212,7 +211,7 @@ func TestBatchLatency(t *testing.T) {
 
 // TestQuerySuccessfulSSHIPs（DEV-042）：查询近 N 天成功登录 IP（去重、窗口过滤、result 过滤）。
 func TestQuerySuccessfulSSHIPs(t *testing.T) {
-	ch := out.NewChannels(16)
+	ch := event.NewChannels(16)
 	st := newTestStore(t, ch, &sync.WaitGroup{})
 	defer st.Close()
 
@@ -252,7 +251,7 @@ func TestQuerySuccessfulSSHIPs(t *testing.T) {
 
 // TestQuerySuccessfulSSHIPsEmpty 无成功登录记录时返回空列表（不报错）。
 func TestQuerySuccessfulSSHIPsEmpty(t *testing.T) {
-	ch := out.NewChannels(16)
+	ch := event.NewChannels(16)
 	st := newTestStore(t, ch, &sync.WaitGroup{})
 	defer st.Close()
 
@@ -269,7 +268,7 @@ func TestQuerySuccessfulSSHIPsEmpty(t *testing.T) {
 // FwFilter 动态白名单 → ShouldDrop 判定。验证端到端：成功登录 IP 被学习并排除，
 // 失败登录 IP 不被学习。
 func TestSSHLearnerIntegration(t *testing.T) {
-	ch := out.NewChannels(16)
+	ch := event.NewChannels(16)
 	st := newTestStore(t, ch, &sync.WaitGroup{})
 	defer st.Close()
 

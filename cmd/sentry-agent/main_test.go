@@ -13,7 +13,6 @@ import (
 
 	"sentry-agent/internal/config"
 	"sentry-agent/internal/event"
-	"sentry-agent/internal/out"
 )
 
 // TestIsLoopbackListen（R-01）：空 host/非回环/回环判定。
@@ -44,7 +43,7 @@ func TestIsLoopbackListen(t *testing.T) {
 func TestRunConnChannelFallbackMode(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	ch := out.NewChannels(16)
+	ch := event.NewChannels(16)
 	cfg := config.Defaults()
 	cfg.Conntrack.Mode = "fallback"
 	cfg.Conntrack.FallbackIntervalS = 5

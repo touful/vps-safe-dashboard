@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"sentry-agent/internal/event"
-	"sentry-agent/internal/out"
 )
 
 // waitRetentionDone 轮询 meta.last_retention_ts（独立只读连接，避免与 Run 写线程竞争）。
@@ -38,18 +37,20 @@ func waitRetentionDone(t *testing.T, dbPath string, timeout time.Duration) {
 
 // TestRunRetentionStartupConcurrentWrites（AUDIT-005 A-01 集成测试）：
 // 大库启动（25 万行超期数据）+ 并发写（模拟高流量）场景，验证：
-//   ① 启动期清理不阻塞写路径——清理完成时已有事件落库（旧实现 select 前同步清理
-//      期间 0 落库，通道积压满后 conntrack hook 阻塞 → netlink 缓冲积压 → ENOBUFS
-//      溢出丢事件）；
-//   ② 全部发送事件零丢失落库；
-//   ③ 超期存量全部清理。
+//
+//	① 启动期清理不阻塞写路径——清理完成时已有事件落库（旧实现 select 前同步清理
+//	   期间 0 落库，通道积压满后 conntrack hook 阻塞 → netlink 缓冲积压 → ENOBUFS
+//	   溢出丢事件）；
+//	② 全部发送事件零丢失落库；
+//	③ 超期存量全部清理。
+//
 // 区分新旧行为的真实机制：生产者发送带超时（sendErr）——旧实现清理期间通道满，
 // 生产者阻塞超过超时即失败；断言①（清理完成时已落库）为辅助观测。已知边界：
 // 极快机器上清理耗时可能 < 超时值，旧实现可能通过全部断言（测试有效性边界，记录）。
 func TestRunRetentionStartupConcurrentWrites(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "state.db")
-	ch := out.NewChannels(64) // 小容量模拟真实 4096 满场景（更易暴露阻塞）
+	ch := event.NewChannels(64) // 小容量模拟真实 4096 满场景（更易暴露阻塞）
 	var producers sync.WaitGroup
 	st, err := NewStore(dbPath, filepath.Join(dir, "archive"),
 		200, 50, 6, 7, 60, 90, ch, &producers)

@@ -15,29 +15,8 @@ import (
 	"sentry-agent/internal/event"
 )
 
-// Channels 聚合各采集通道（与方案 3.6 Store 的入队接口一一对应）。
-type Channels struct {
-	Resource chan event.ResourceSample
-	Conn     chan event.ConnEvent
-	Overrun  chan event.OverrunInfo
-	SSH      chan event.SSHAttempt
-	FW       chan event.FirewallEvent
-	F2B      chan event.BanEvent
-	System   chan event.SystemEvent
-}
-
-// NewChannels 创建有界 channel 集合（方案 2.3.3：默认容量 4096）。
-func NewChannels(buf int) *Channels {
-	return &Channels{
-		Resource: make(chan event.ResourceSample, buf),
-		Conn:     make(chan event.ConnEvent, buf),
-		Overrun:  make(chan event.OverrunInfo, buf),
-		SSH:      make(chan event.SSHAttempt, buf),
-		FW:       make(chan event.FirewallEvent, buf),
-		F2B:      make(chan event.BanEvent, buf),
-		System:   make(chan event.SystemEvent, buf),
-	}
-}
+// SnapshotFn 返回最新 ss 快照的（时间戳, 连接数）；可为 nil。
+type SnapshotFn func() (int64, int)
 
 // line 单行输出结构（JSON 序列化）。
 type line struct {
@@ -67,14 +46,11 @@ type counters struct {
 	resource, conn, overrun, ssh, fw, f2b, system atomic.Int64
 }
 
-// SnapshotFn 返回最新 ss 快照的（时间戳, 连接数）；可为 nil。
-type SnapshotFn func() (int64, int)
-
 // Run 启动 stdout 输出器：消费全部采集 channel，输出 JSON 行；每 60s 输出统计行。
 // producers 为全部采集协程的 WaitGroup——两阶段排空协议（auditor M-02 修复）：
 // ctx 取消后先等待所有生产者退出（不再有新的 send），再排空 channel 中在途事件，
 // 消除"ctx 取消瞬间生产者最后 send 落在排空完成后"的丢失竞态。
-func Run(ctx context.Context, w io.Writer, ch *Channels, producers *sync.WaitGroup, snapshotFn SnapshotFn) error {
+func Run(ctx context.Context, w io.Writer, ch *event.Channels, producers *sync.WaitGroup, snapshotFn SnapshotFn) error {
 	var mu sync.Mutex
 	bw := bufio.NewWriterSize(w, 64*1024)
 	write := func(v any) {

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"sentry-agent/internal/out"
+	"sentry-agent/internal/event"
 )
 
 // nowSec 当前 Unix 秒。
@@ -18,7 +18,7 @@ func nowSec() int64 { return time.Now().Unix() }
 
 // TestCleanupTable 构造 ts 分布（现在/6 天前/8 天前/0 值）→ 清理后仅保留期内行 + 0 值行。
 func TestCleanupTable(t *testing.T) {
-	st := newTestStore(t, out.NewChannels(16), &sync.WaitGroup{})
+	st := newTestStore(t, event.NewChannels(16), &sync.WaitGroup{})
 	defer st.Close()
 	db := st.db
 
@@ -63,7 +63,7 @@ func TestCleanupTable(t *testing.T) {
 
 // TestCleanupTableBatchBoundary 超过单批上限（10000）的行分批正确清空。
 func TestCleanupTableBatchBoundary(t *testing.T) {
-	st := newTestStore(t, out.NewChannels(16), &sync.WaitGroup{})
+	st := newTestStore(t, event.NewChannels(16), &sync.WaitGroup{})
 	defer st.Close()
 	db := st.db
 
@@ -94,7 +94,7 @@ func TestCleanupTableBatchBoundary(t *testing.T) {
 
 // TestCleanupTableCtxCancel ctx 取消时返回已清理行数 + ctx.Err()（幂等中断语义）。
 func TestCleanupTableCtxCancel(t *testing.T) {
-	st := newTestStore(t, out.NewChannels(16), &sync.WaitGroup{})
+	st := newTestStore(t, event.NewChannels(16), &sync.WaitGroup{})
 	defer st.Close()
 	db := st.db
 
@@ -143,7 +143,7 @@ func TestNextRetentionTime(t *testing.T) {
 func TestRunRetentionOnce(t *testing.T) {
 	dir := t.TempDir()
 	st, err := NewStore(filepath.Join(dir, "state.db"), filepath.Join(dir, "archive"),
-		1000, 500, 6, 7, 60, 90, out.NewChannels(16), &sync.WaitGroup{})
+		1000, 500, 6, 7, 60, 90, event.NewChannels(16), &sync.WaitGroup{})
 	if err != nil {
 		t.Fatalf("NewStore 失败: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestRunRetentionOnce(t *testing.T) {
 // 直接构造 Store 结构体（不经 NewStore，避免数据文件权限 warn 噪音）。
 func TestWarnRetentionArchiveGap(t *testing.T) {
 	// retention=7, copy_after=60 → 7 < 90 → warn。
-	ch := out.NewChannels(16)
+	ch := event.NewChannels(16)
 	st := &Store{retentionDays: 7, copyAfterDays: 60, ch: ch}
 	st.warnRetentionArchiveGap()
 	select {
@@ -197,7 +197,7 @@ func TestWarnRetentionArchiveGap(t *testing.T) {
 	}
 
 	// retention=90 >= 60+30 → 不 warn。
-	ch2 := out.NewChannels(16)
+	ch2 := event.NewChannels(16)
 	st2 := &Store{retentionDays: 90, copyAfterDays: 60, ch: ch2}
 	st2.warnRetentionArchiveGap()
 	select {
@@ -206,7 +206,7 @@ func TestWarnRetentionArchiveGap(t *testing.T) {
 	default:
 	}
 	// retention<=0 → 不 warn。
-	ch3 := out.NewChannels(16)
+	ch3 := event.NewChannels(16)
 	st3 := &Store{retentionDays: 0, copyAfterDays: 60, ch: ch3}
 	st3.warnRetentionArchiveGap()
 	select {
