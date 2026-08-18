@@ -90,4 +90,5 @@ go run ./cmd/sentry-agent -config scripts/test_m1_b5_config.json
 - 主库永久保留（归档压缩仅副本，不清理主库）；`db.archive_dir` 归档目录默认 `/var/lib/sentry-agent/archive`。
 - 防火墙模式 B（D-05 用户裁定）：DROP 规则前插 LOG，防火墙日志为限速采样视图（默认 5 包/s，面板已显著标注）。
 - 数据不出 VPS（单机部署），无多机集中管理。
+- `config.exclude_ips` 为操作方自身 IP 白名单（运维配置），**不做脱敏处理**（用户裁定，2026-08-18）。
 
