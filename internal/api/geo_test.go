@@ -128,8 +128,15 @@ func TestGeoAttacksFilters(t *testing.T) {
 		{"&country=US&min_count=4", 0},
 	}
 	for _, c := range cases {
-		_, out := doGetGeo(t, srv, "/api/v1/attacks/geo?range=24h"+c.q)
-		if n := len(out["rows"].([]any)); n != c.want {
+		// heavy 桶 burst 固定 6（SetLimits 忽略 burst 参数）：快速连续请求会触发 429，
+		// 每轮 sleep 5ms 让 1000 rps 补充令牌（与 TestExportCSVParams 同模式）。
+		time.Sleep(5 * time.Millisecond)
+		code, out := doGetGeo(t, srv, "/api/v1/attacks/geo?range=24h"+c.q)
+		if code != http.StatusOK {
+			t.Fatalf("q=%s 状态码 = %d", c.q, code)
+		}
+		rows, _ := out["rows"].([]any)
+		if n := len(rows); n != c.want {
 			t.Errorf("q=%s 行数 = %d, 期望 %d", c.q, n, c.want)
 		}
 	}
