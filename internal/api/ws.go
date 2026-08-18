@@ -10,13 +10,14 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// upgrader WS 升级器（Origin 校验在 CheckOrigin 内完成，方案 8.2/D-04）。
+// upgrader WS 升级器。Origin 白名单校验在 hWS 内完成（需 Server 上下文，
+// 见 hWS 注释），此处 CheckOrigin 无条件放行，校验逻辑不入 CheckOrigin。
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 4096,
-	// CheckOrigin：仅允许白名单 Origin（方案 3.7：http://127.0.0.1:8080）。
-	// 防恶意网页跨站连接本地端口（D-04 验收项）。
-	CheckOrigin: func(r *http.Request) bool { return true }, // 实际校验在 hWS 内（需 Server 上下文）
+	// Origin 白名单策略（方案 3.7/8.2：仅允许白名单 Origin，防恶意网页跨站
+	// 连接本地端口，D-04 验收项）：校验在 hWS 内实现，此处无条件放行。
+	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
 // wsClient 单个 WS 连接。
