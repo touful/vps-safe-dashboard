@@ -27,7 +27,7 @@ func TestIsLoopbackListen(t *testing.T) {
 		{"0.0.0.0:8080", false},
 		{"[::]:8080", false},
 		{":8080", false}, // 空 host = 监听全部接口（R-01 修复点）
-		{"<LAN_IP>:8080", false},
+		{"198.51.100.8:8080", false}, // 合法非回环 IP（RFC 5737 保留段）
 		{"bad", false}, // 非法输入保守判非回环
 		{"", false},
 	}

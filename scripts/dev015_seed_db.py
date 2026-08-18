@@ -1,7 +1,7 @@
 # DEV-015 自测：构造前端验证用测试数据库（schema 与 store.go 一致，IP 为 uint32 大端序）。
 # 用法：python scripts/dev015_seed_db.py
 # 输出：.dev015-test/state.db（仓库相对路径，目录被 .gitignore 忽略；可用 DEV015_DB 环境变量覆盖）。
-import sqlite3, os, time, random
+import sqlite3, os, time, random, string
 
 DB = os.environ.get("DEV015_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".dev015-test", "state.db"))
 os.makedirs(os.path.dirname(DB), exist_ok=True)
@@ -112,7 +112,7 @@ for i in range(250):
     result = 0 if src in ATTACKERS else 1
     user = random.choice(['root', 'root', 'admin', 'ubuntu', 'postgres', 'oracle']) if result == 0 else 'deploy'
     meth = random.choice(['password', 'password', 'publickey', 'keyboard-interactive'])
-    fp = '' if meth != 'publickey' else 'SHA256:' + ''.join(random.choice('abcdef0<WSL_ROOT_PASSWORD>789') for _ in range(43))
+    fp = '' if meth != 'publickey' else 'SHA256:' + ''.join(random.choice(string.hexdigits[:16]) for _ in range(43))
     det = 'Failed password for invalid user ' + user if result == 0 else 'Accepted password for ' + user
     cur.execute("INSERT INTO ssh_attempts(ts,src_ip,username,auth_method,result,fingerprint,detail) VALUES(?,?,?,?,?,?,?)",
                 (ts, src, user, meth, result, fp, det))
