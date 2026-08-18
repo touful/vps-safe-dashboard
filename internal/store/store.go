@@ -111,6 +111,22 @@ CREATE TABLE IF NOT EXISTS system_events (
 );
 CREATE INDEX IF NOT EXISTS idx_se_ts ON system_events(ts);
 
+-- DEV-HONEY-001：蜜罐凭据捕获（明文协议为攻击者提交的明文密码；
+-- 加密/哈希协议为不可逆摘要，extra 注明 hash 类型；rdp/memcached 无认证捕获能力）。
+-- 敏感信息：本表存攻击者尝试凭据，仅本地单机展示，禁止导出/外传。
+CREATE TABLE IF NOT EXISTS cred_events (
+    id       INTEGER PRIMARY KEY,
+    ts       INTEGER NOT NULL,
+    proto    TEXT    NOT NULL,
+    src_ip   INTEGER NOT NULL,
+    username TEXT    NOT NULL DEFAULT '',
+    password TEXT    NOT NULL DEFAULT '',
+    extra    TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_cred_ts    ON cred_events(ts);
+CREATE INDEX IF NOT EXISTS idx_cred_src   ON cred_events(src_ip);
+CREATE INDEX IF NOT EXISTS idx_cred_proto ON cred_events(proto);
+
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -349,6 +365,8 @@ func (s *Store) Run(ctx context.Context) error {
 			enqueue(&pending, &nInBatch, "fw", v)
 		case v := <-s.ch.F2B:
 			enqueue(&pending, &nInBatch, "f2b", v)
+		case v := <-s.ch.Cred:
+			enqueue(&pending, &nInBatch, "cred", v)
 		case v := <-s.ch.System:
 			// 高优先：system 事件立即提交（方案 3.6"立即批"，防丢失）。
 			if err := s.writeBatch([]eventItem{{kind: "system", v: v}}); err != nil {
@@ -379,6 +397,8 @@ func (s *Store) drainInto(pending *[]eventItem, n *int) {
 			enqueue(pending, n, "fw", v)
 		case v := <-s.ch.F2B:
 			enqueue(pending, n, "f2b", v)
+		case v := <-s.ch.Cred:
+			enqueue(pending, n, "cred", v)
 		case v := <-s.ch.System:
 			enqueue(pending, n, "system", v)
 		default:

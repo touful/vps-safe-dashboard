@@ -37,6 +37,8 @@ var insertStmts = map[string]string{
 	"system": `INSERT INTO system_events (ts, source, level, message) VALUES (?,?,?,?)`,
 	// overrun（R-10 溢出）落 system_events 留痕（source=conntrack, level=warn）。
 	"overrun": `INSERT INTO system_events (ts, source, level, message) VALUES (?,?,?,?)`,
+	// DEV-HONEY-001：蜜罐凭据捕获。
+	"cred": `INSERT INTO cred_events (ts, proto, src_ip, username, password, extra) VALUES (?,?,?,?,?,?)`,
 }
 
 // writeBatch 将一批事件写入主库（单事务，BEGIN IMMEDIATE，方案 4.5）。
@@ -125,6 +127,13 @@ func itemArgs(it eventItem) ([]any, error) {
 		}
 		msg := fmt.Sprintf("netlink 缓冲溢出，丢弃 %d 条事件（R-10 留痕）", v.Dropped)
 		return []any{v.TS, "conntrack", "warn", msg}, nil
+	case "cred":
+		// DEV-HONEY-001：蜜罐凭据捕获（敏感信息：明文密码仅落本地 SQLite，禁止日志）。
+		v, ok := it.v.(event.CredEvent)
+		if !ok {
+			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
+		}
+		return []any{v.TS, v.Proto, int(v.SrcIP), v.Username, v.Password, v.Extra}, nil
 	}
 	return nil, fmt.Errorf("未知事件类型: %s", it.kind)
 }

@@ -24,6 +24,7 @@ type Config struct {
 	Disk      DiskCfg      `json:"disk"`
 	Log       LogCfg       `json:"log"`
 	GeoIP     GeoIPCfg     `json:"geoip"`
+	Honeypot  HoneypotCfg  `json:"honeypot"`
 }
 
 // CollectCfg 资源采集（M-01）。
@@ -179,6 +180,31 @@ type GeoIPCfg struct {
 	UpdateMinute int `json:"update_minute"`
 }
 
+// HoneypotCfg 蜜罐假服务（DEV-HONEY-001，方案 M-B）。
+// 对标准端口提供最小认证握手模拟，捕获攻击者尝试登录的用户名/密码；
+// 蜜罐不执行任何命令、不返回真实系统信息；凭据仅本地存储。
+// Enabled 默认 false（保守：防误开占用标准端口；部署时在 deploy/config.json 显式启用）。
+// Listen 为 协议→监听地址 映射（10 协议：mysql/redis/memcached/mssql/mongodb/postgres/
+// rdp/smb/telnet/ftp）；值为空字符串 = 禁用该协议；端口可改。
+type HoneypotCfg struct {
+	Enabled bool              `json:"enabled"`
+	Listen  map[string]string `json:"listen"`
+}
+
+// honeypotDefaultListen 蜜罐默认监听（标准端口，任务书定稿）。
+var honeypotDefaultListen = map[string]string{
+	"mysql":     "0.0.0.0:3306",
+	"redis":     "0.0.0.0:6379",
+	"memcached": "0.0.0.0:11211",
+	"mssql":     "0.0.0.0:1433",
+	"mongodb":   "0.0.0.0:27017",
+	"postgres":  "0.0.0.0:5432",
+	"rdp":       "0.0.0.0:3389",
+	"smb":       "0.0.0.0:445",
+	"telnet":    "0.0.0.0:23",
+	"ftp":       "0.0.0.0:21",
+}
+
 // Defaults 返回全部配置项默认值（与方案 6.6 一致）。
 func Defaults() *Config {
 	return &Config{
@@ -206,6 +232,11 @@ func Defaults() *Config {
 		Disk:    DiskCfg{WarnPercent: 80, CriticalPercent: 90, EmergencyPercent: 95},
 		Log:     LogCfg{Level: "info"},
 		GeoIP:   GeoIPCfg{DBPath: "/var/lib/sentry-agent/GeoLite2-Country.mmdb", UpdateEnabled: true, UpdateHour: 2, UpdateMinute: 30},
+		Honeypot: HoneypotCfg{
+			// DEV-HONEY-001：默认关闭——蜜罐占用标准端口，须部署时显式启用（防误开）。
+			Enabled: false,
+			Listen:  honeypotDefaultListen,
+		},
 	}
 }
 
@@ -263,6 +294,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := c.validateGeoIP(); err != nil {
+		return err
+	}
+	if err := c.validateHoneypot(); err != nil {
 		return err
 	}
 	return nil
@@ -446,6 +480,36 @@ func (c *Config) validateGeoIP() error {
 		return fmt.Errorf("geoip.update_minute=%d 超出范围 0-59", c.GeoIP.UpdateMinute)
 	}
 	return nil
+}
+
+// validateHoneypot 校验蜜罐段（DEV-HONEY-001）。
+// enabled=false 且未配置 listen 时跳过（保守：未启用不校验端口占用相关配置）。
+// 校验点：协议名合法性（10 种已知协议）+ 监听地址 host:port 格式。
+func (c *Config) validateHoneypot() error {
+	if !c.Honeypot.Enabled && len(c.Honeypot.Listen) == 0 {
+		return nil
+	}
+	for proto, addr := range c.Honeypot.Listen {
+		if !knownHoneypotProto(proto) {
+			return fmt.Errorf("honeypot.listen 含未知协议 %q（支持：mysql/redis/memcached/mssql/mongodb/postgres/rdp/smb/telnet/ftp）", proto)
+		}
+		if addr == "" {
+			continue // 空串 = 禁用该协议
+		}
+		if _, _, err := net.SplitHostPort(addr); err != nil {
+			return fmt.Errorf("honeypot.listen[%s]=%q 非法监听地址（须 host:port）: %w", proto, addr, err)
+		}
+	}
+	return nil
+}
+
+// knownHoneypotProto 判断是否为蜜罐支持的协议名。
+func knownHoneypotProto(proto string) bool {
+	switch proto {
+	case "mysql", "redis", "memcached", "mssql", "mongodb", "postgres", "rdp", "smb", "telnet", "ftp":
+		return true
+	}
+	return false
 }
 
 // parseHourMinute 解析 "HH:MM" 时刻（归档执行时刻校验用）。

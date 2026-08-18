@@ -26,6 +26,7 @@ import (
 	"sentry-agent/internal/f2b"
 	"sentry-agent/internal/fw"
 	"sentry-agent/internal/geoip"
+	"sentry-agent/internal/honeypot"
 	"sentry-agent/internal/out"
 	"sentry-agent/internal/ssh"
 	"sentry-agent/internal/store"
@@ -216,6 +217,18 @@ func main() {
 		startService(func() {
 			_ = diskmon.RunDiskMonitor(ctx, 5*time.Minute, cfg.DB.ArchiveDir,
 				cfg.Disk.WarnPercent, cfg.Disk.CriticalPercent, cfg.Disk.EmergencyPercent, ch.System)
+		})
+	}
+
+	// DEV-HONEY-001：蜜罐假服务（仅落库模式；凭据事件经 Cred 通道落 cred_events 表）。
+	// 默认关闭（config honeypot.enabled=false 保守）；启用时每个协议独立监听 goroutine，
+	// 单协议监听失败仅留痕不崩溃（其余协议继续）。
+	if cfg.Honeypot.Enabled {
+		startProducer(func() {
+			hp := honeypot.NewServer(cfg.Honeypot.Listen, ch.Cred, ch.System)
+			if err := hp.Run(ctx); err != nil {
+				event.ReportSys(ch.System, "honeypot", "error", "蜜罐服务退出: "+err.Error())
+			}
 		})
 	}
 
