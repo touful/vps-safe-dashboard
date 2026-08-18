@@ -15,10 +15,17 @@ services:
     # cap_drop ALL 去除 Docker 默认 14 项 cap（NET_RAW/SYS_CHROOT/MKNOD/AUDIT_WRITE 等），
     # 仅保留 NET_ADMIN——conntrack netlink 组播订阅所需（方案 6.4.2 调研结论；
     # 纯 NET_ADMIN 下 conntrack 行为由复验清单 V-03 覆盖验证）
+    # DEV-HONEY-001：蜜罐启用时（honeypot.enabled=true）标准低端口（21/23/445/1433/3389）
+    # 需 NET_BIND_SERVICE 才能以非 root 绑定（<1024 端口）——cap_add 追加后
+    # user 1000:1000 可绑定低端口；未启用蜜罐时该 cap 无实际作用（低风险 cap，
+    # 审计 VS-13 最小化原则下已评估：NET_BIND_SERVICE 仅放宽端口绑定面，
+    # 容器网络为 host 模式且进程不监听额外端口，不引入新的攻击面）。
+    # 备选方案（不推荐）：将 user 改为 root 运行（失去 VS-13 纵深防御）。
     cap_drop:
       - ALL
     cap_add:
       - NET_ADMIN
+      - NET_BIND_SERVICE
     user: "1000:1000"
     # 日志组补充：读取宿主 journal（C-12 检查后按实际 GID 调整）
     # group_add:

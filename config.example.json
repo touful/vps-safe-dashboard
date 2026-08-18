@@ -67,6 +67,22 @@
     "update_hour": 2,
     "update_minute": 30
   },
+  "honeypot": {
+    "_comment": "DEV-HONEY-001：蜜罐假服务（默认关闭，部署时显式启用；listen 为 协议→监听地址 映射，空字符串=禁用该协议，端口可改；蜜罐对标准端口提供最小认证握手模拟并捕获攻击者尝试的用户名/密码，凭据仅本地存储，不执行任何命令；VPS 上对应端口不得运行真实服务，启用前用 setup_firewall.sh 放行蜜罐端口；低端口（21/23/445/1433/3389）在 Docker 场景需 NET_BIND_SERVICE 或 root，见 docker-compose.yml 注释）",
+    "enabled": false,
+    "listen": {
+      "mysql": "0.0.0.0:3306",
+      "redis": "0.0.0.0:6379",
+      "memcached": "0.0.0.0:11211",
+      "mssql": "0.0.0.0:1433",
+      "mongodb": "0.0.0.0:27017",
+      "postgres": "0.0.0.0:5432",
+      "rdp": "0.0.0.0:3389",
+      "smb": "0.0.0.0:445",
+      "telnet": "0.0.0.0:23",
+      "ftp": "0.0.0.0:21"
+    }
+  },
   "log": {
     "level": "info"
   }

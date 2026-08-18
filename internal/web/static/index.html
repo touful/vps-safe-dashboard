@@ -235,6 +235,10 @@ th .sort-arrow { color: var(--accent); font-size: 10px; margin-left: 3px; }
 }
 .geo-toolbar .export-btn { margin-left: auto; padding: 4px 16px; font-size: 12px; }
 #geo-mmdb-note { color: var(--warn); }
+/* DEV-HONEY-001：蜜罐凭据密码遮蔽（弱化色 + 遮蔽态间距；点击切换在 app.js） */
+.hp-pw { color: var(--text-dim); font-family: var(--font-num); }
+.hp-pw.masked { color: var(--text-faint); letter-spacing: 1.5px; }
+#hp-total { margin-left: auto; }
 /* ===== DEV-017 精修基线保留并升级 ===== */
 
 /* 字体层级：时间戳列 12px 等宽次级色（tabular-nums 对齐） */
@@ -704,7 +708,32 @@ tr.row-warn { color: var(--warn); }
           <div id="zero-geo-badge" class="zero-line" style="display:none;">✓ 所选范围无 SSH 失败记录</div>
         </div>
         <ul id="geo-sources-list" class="mini-top"></ul>
-        <!-- 蜜罐凭据区（M-B 独立任务预留插入位） -->
+      </div>
+      <!-- DEV-HONEY-001（M-B）：协议凭据捕获卡（蜜罐假服务）——独立全宽卡，位于地图与 SSH 表之间 -->
+      <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger">协议凭据捕获（蜜罐）
+        <span class="risk-note">蜜罐对标准端口提供最小认证握手模拟，捕获攻击者尝试的登录凭据；【凭据数据仅本地存储】密码默认遮蔽，点击显示</span>
+        <select id="hp-proto-filter" class="table-filter" title="按协议过滤">
+          <option value="">全部协议</option>
+          <option value="mysql">mysql</option>
+          <option value="redis">redis</option>
+          <option value="memcached">memcached</option>
+          <option value="mssql">mssql</option>
+          <option value="mongodb">mongodb</option>
+          <option value="postgres">postgres</option>
+          <option value="rdp">rdp</option>
+          <option value="smb">smb</option>
+          <option value="telnet">telnet</option>
+          <option value="ftp">ftp</option>
+        </select>
+        <span id="hp-total" class="fold-hint"></span></h3>
+        <div class="scroll">
+          <table id="hp-table"><caption class="sr-only">蜜罐捕获的协议登录凭据</caption>
+            <thead><tr>
+              <th>时间</th><th>协议</th><th>源 IP</th><th>用户名</th><th>密码</th><th>备注</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
       <div class="card" style="grid-column: 1 / -1;"><h3>SSH 登录尝试（失败红色，点击时间列排序）
         <select id="ssh-result-filter" class="table-filter" title="按结果过滤">

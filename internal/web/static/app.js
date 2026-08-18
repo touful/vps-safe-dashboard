@@ -76,6 +76,9 @@
     // DEV-GEO-001：全球攻击地图状态（rows 全量缓存，country/min 前端本地过滤——交互零延迟、
     // 不消耗 heavy 限流桶；导出请求携带过滤参数走后端同口径）
     geo: { rows: null, country: '', min: 0, mmdbOk: false },
+    // DEV-HONEY-001：蜜罐凭据捕获状态（rows 全量缓存，proto 前端筛选走后端参数；
+    // revealed 密码显示集合按 ts|proto|src 键记忆——行对象每轮重建，须独立持久化）
+    hp: { rows: null, proto: '', revealed: {} },
     worldLoaded: false,      // world.json 已注册标志（一次性 fetch/registerMap）
     attackDataFailed: false, // 攻击数据源失败标志——每轮 pollAttack 开头重置，成功回调不覆盖
     sshTimelineOk: true,     // ssh/timeline 独立就绪标志（fwTimeline 成功不覆盖它）
@@ -1211,6 +1214,49 @@
     });
   }
   // 封禁记录表已随 DEV-GEO-001 移除（renderBans/gotoBanIp 删除；后端 /api/v1/bans 保留不动）
+  // DEV-HONEY-001：蜜罐凭据表渲染（三态 + 行级 diff + 密码遮蔽点击切换 + 捕获小计）。
+  function renderHoneypot() {
+    if (!vis('attack')) { return; }
+    var tb = tbody('hp-table');
+    if (!tb) return;
+    var rows = state.hp.rows;
+    if (!rows) { setTableState('hp-table', 'loading-row', '加载中…'); return; }
+    if (!rows.length) { setTableState('hp-table', 'empty-row', '暂无蜜罐捕获记录'); return; }
+    var totalEl = document.getElementById('hp-total');
+    if (totalEl) { totalEl.textContent = '捕获 ' + rows.length + ' 条'; }
+    var s = state.sort['hp-table'];
+    rows = sortRows(rows, s && s.key, s && s.dir);
+    rows = rows.slice(0, tablePage['hp-table'] || TABLE_PAGE);
+    var seen = {};
+    rows.forEach(function (r) {
+      var base = r.ts + '|' + r.proto + '|' + r.src_ip + '|' + r.username + '|' + (r.password || '').slice(0, 8);
+      seen[base] = (seen[base] || 0) + 1;
+      r.__k = base + '#' + seen[base];
+    });
+    renderTableDiff(tb, rows, function (r) {
+      // 密码遮蔽：默认 ••••，点击切换（revealed 集合独立持久化，行对象每轮重建）。
+      var k = r.ts + '|' + r.proto + '|' + r.src_ip;
+      var masked = !state.hp.revealed[k];
+      return {
+        key: r.__k,
+        cells: [
+          { text: fmtTimeFull(r.ts), cls: 'ts-cell' },
+          { text: r.proto, cls: 'num' },
+          { text: r.src_ip, cls: 'num' },
+          { text: r.username },
+          { text: masked ? '••••（点击显示）' : (r.password || '(空)'),
+            cls: (masked ? 'hp-pw masked ' : 'hp-pw ') + 'clickable',
+            title: masked ? '点击显示密码（本地敏感数据）' : '点击遮蔽',
+            click: function (row) {
+              var rk = row.ts + '|' + row.proto + '|' + row.src_ip;
+              state.hp.revealed[rk] = !state.hp.revealed[rk];
+              renderHoneypot();
+            } },
+          { text: r.extra, cls: 'raw-cell', title: r.extra }
+        ]
+      };
+    });
+  }
   function renderSnap() {
     if (!vis('conn')) { return; }
     var tb = tbody('snap-table');
@@ -1416,6 +1462,13 @@
       renderSSH();
       renderEventStream();
     }, function () { noteFailure(); setTableState('ssh-table', 'error-row', '加载失败，请稍后重试'); });
+    // 蜜罐凭据捕获（DEV-HONEY-001；跟随 range + proto 下拉过滤；失败置三态错误行）
+    var hpQS = '/api/v1/honeypot/events?limit=200&' + rangeQS();
+    if (state.hp.proto !== '') { hpQS += '&proto=' + state.hp.proto; }
+    fetchJSON(hpQS, function (d) {
+      state.hp.rows = d.rows || [];
+      renderHoneypot();
+    }, function () { noteFailure(); setTableState('hp-table', 'error-row', '加载失败，请稍后重试'); });
     // 防火墙明细（跟随 range + dst_port/src_ip 联动过滤 + action 下拉）
     var fwQS = '/api/v1/firewall?limit=200&' + rangeQS();
     if (state.filter && state.filter.type === 'port') { fwQS += '&dst_port=' + state.filter.value; }
@@ -1500,6 +1553,7 @@
     state.fwTimeline = null;
     state.summary = null;
     state.geo.rows = null;   // 地图数据随范围重置（country/min 过滤保持，交互状态不丢）
+    state.hp.rows = null;    // 蜜罐凭据随范围重置（proto/revealed 保持，交互状态不丢）
     state.topPorts = [];
     state.resourceData = null;
     state.eventExpanded = false; // 范围切换后事件流恢复默认 3 条
@@ -1716,6 +1770,7 @@
       renderFW();
       renderGeo();
       renderGeoSources();
+      renderHoneypot(); // DEV-HONEY-001：蜜罐凭据表（缓存于 state.hp，切回补渲染）
     } else if (name === 'export') {
       // DEV-EXPORT-001：导出页为纯交互页——不注册任何轮询/拉取（可见性门控：无数据拉取），
       // 切页激活时不触发任何 render；数据由用户点击"导出 CSV"时按需 fetch。
@@ -1831,12 +1886,14 @@
   bindScrollLoad('fw-table', renderFW);
   bindScrollLoad('conn-table', renderConns);
   bindScrollLoad('snap-table', renderSnap);
+  bindScrollLoad('hp-table', renderHoneypot); // DEV-HONEY-001
 
   // 列头排序绑定（keys 与表头列一一对应；null 列不可排）
   bindSort('snap-table', [null, null, 'src_port', 'dst_port', 'pid'], renderSnap);
   bindSort('conn-table', [null, null, null, null, null, 'packets'], renderConns);
   bindSort('ssh-table', ['ts', null, null, null, null, null, null], renderSSH);
   bindSort('fw-table', ['ts', null, null, null, null, null, null], renderFW);
+  bindSort('hp-table', ['ts', null, null, null, null, null], renderHoneypot); // DEV-HONEY-001
 
   // 表内过滤下拉：SSH 结果 / 防火墙动作。
   // N-1（reviewer R-01）：下拉变更同样存在旧响应迟到覆盖——与 setRange/applyFilter 共用
@@ -1858,6 +1915,18 @@
       state.reqSeq++;
       resetTablePages();
       state.fwRows = null;
+      pollAttack();
+    });
+  }
+  // DEV-HONEY-001：蜜罐协议筛选下拉（与 SSH 结果/防火墙动作下拉同模式：
+  // reqSeq 自增防旧响应覆盖 + 重置分页 + 清缓存防闪回）
+  var hpF = document.getElementById('hp-proto-filter');
+  if (hpF) {
+    hpF.addEventListener('change', function () {
+      state.hp.proto = hpF.value;
+      state.reqSeq++;
+      resetTablePages();
+      state.hp.rows = null;
       pollAttack();
     });
   }

@@ -3,6 +3,9 @@
 # 不改变包流向；SENTRY_FW 前缀；限速 5/s 突发 10）
 # DEV-040 扩展：新增 filter FORWARD 链防护规则（DNAT 后保护 NPM 容器 172.19.0.2：
 # 允许 80/443 对外，拒绝外部访问 81 管理端口，允许同网桥/已建立连接；SENTRY_PROTECT 前缀）
+# DEV-HONEY-001 扩展：蜜罐端口入站放行（SENTRY_HONEYPOT：从 DROP 改为 ACCEPT 仍保留
+# raw PREROUTING LOG 入站记录——蜜罐流量继续进入防火墙事件；配置驱动：读
+# /etc/sentry-agent/config.json 的 honeypot.listen，未启用蜜罐时保持原 DROP 行为）
 # 用法：sudo bash setup_firewall.sh [--rollback]
 # 依赖：check_env.sh 的 C-07 判定（FW_BACKEND）；C-07b 盘点在脚本内执行
 set -u
@@ -38,13 +41,16 @@ if [ "${1:-}" = "--rollback" ]; then
       if echo "$line" | grep -qE '^\s*chain [A-Za-z0-9_-]+ \{'; then
         CUR_CHAIN=$(echo "$line" | sed -E 's/^\s*chain ([A-Za-z0-9_-]+) \{.*/\1/'); continue
       fi
-      # DEV-040：同时匹配 SENTRY_FW（LOG 规则）与 SENTRY_PROTECT（防护规则）
-      if echo "$line" | grep -qE 'SENTRY_FW|SENTRY_PROTECT' && echo "$line" | grep -q 'handle [0-9]'; then
+      # DEV-040/DEV-HONEY-001：同时匹配 SENTRY_FW（LOG）、SENTRY_PROTECT（防护）与
+      # SENTRY_HONEYPOT（蜜罐放行）规则
+      if echo "$line" | grep -qE 'SENTRY_FW|SENTRY_PROTECT|SENTRY_HONEYPOT' && echo "$line" | grep -q 'handle [0-9]'; then
         handle=$(echo "$line" | grep -oE 'handle [0-9]+' | awk '{print $2}')
         if [ -n "$handle" ] && [ -n "$CUR_FAMILY" ] && [ -n "$CUR_TABLE" ] && [ -n "$CUR_CHAIN" ]; then
           if nft delete rule "$CUR_FAMILY" "$CUR_TABLE" "$CUR_CHAIN" handle "$handle" 2>/dev/null; then
-            # DEV-040：区分 LOG 规则与防护规则的删除文案
-            if echo "$line" | grep -q 'SENTRY_PROTECT'; then RULE_KIND="SENTRY_PROTECT 防护规则"; else RULE_KIND="SENTRY_FW LOG 规则"; fi
+            # DEV-040/DEV-HONEY-001：区分规则类型文案
+            if echo "$line" | grep -q 'SENTRY_PROTECT'; then RULE_KIND="SENTRY_PROTECT 防护规则"
+            elif echo "$line" | grep -q 'SENTRY_HONEYPOT'; then RULE_KIND="SENTRY_HONEYPOT 蜜罐放行规则"
+            else RULE_KIND="SENTRY_FW LOG 规则"; fi
             echo "已删除 $RULE_KIND（$CUR_FAMILY $CUR_TABLE/$CUR_CHAIN handle $handle）"
             DELETED=$((DELETED+1))
           else
@@ -56,9 +62,9 @@ if [ "${1:-}" = "--rollback" ]; then
       fi
     done < /tmp/sentry_nft_rules.txt
     echo "回滚删除规则数: $DELETED，删除失败: $FAILED"
-    [ "$FAILED" -gt 0 ] && echo "[警告] 存在未删除的 SENTRY_FW/SENTRY_PROTECT 规则，请人工核对：nft -a list ruleset | grep -E 'SENTRY_FW|SENTRY_PROTECT'"
+    [ "$FAILED" -gt 0 ] && echo "[警告] 存在未删除的 SENTRY_FW/SENTRY_PROTECT/SENTRY_HONEYPOT 规则，请人工核对：nft -a list ruleset | grep -E 'SENTRY_FW|SENTRY_PROTECT|SENTRY_HONEYPOT'"
   else
-    iptables-save | grep -E 'SENTRY_FW' | sed 's/^-A/-D/' | while read -r rule; do
+    iptables-save | grep -E 'SENTRY_FW|SENTRY_HONEYPOT' | sed 's/^-A/-D/' | while read -r rule; do
       if iptables $rule 2>/dev/null; then
         echo "已删除: $rule"
       else
@@ -66,7 +72,7 @@ if [ "${1:-}" = "--rollback" ]; then
       fi
     done
   fi
-  echo "回滚完成"
+  echo "回滚完成（蜜罐放行已移除——恢复原 DROP 行为；蜜罐端口暴露面需人工确认）"
   exit 0
 fi
 
@@ -117,6 +123,60 @@ if [ "$BACKEND" = "nft" ]; then
     fi
   }
 
+  # ===== DEV-HONEY-001：蜜罐端口入站放行（配置驱动） =====
+  # 背景：蜜罐监听标准端口（21/23/445/1433/3389 等），若被既有 INPUT DROP 规则拦截
+  # 则攻击者无法触达蜜罐（连接被静默丢弃）。本段将蜜罐端口从 DROP 改为 ACCEPT——
+  # 注意语义：raw PREROUTING 入站 LOG（DEV-042）在 conntrack 之前无条件记录，
+  # 放行后蜜罐流量仍进入 firewall_events（入站观察语义不丢）。
+  # 配置驱动：读 /etc/sentry-agent/config.json 的 honeypot.listen（enabled=true 时生效）；
+  # 未启用蜜罐或未配置时保持原 DROP 行为（幂等跳过）。
+  # 回滚：--rollback 已覆盖 SENTRY_HONEYPOT 规则删除（恢复原 DROP 行为）。
+  insert_honeypot_accept() {
+    local cfg="${HONEYPOT_CONFIG:-/etc/sentry-agent/config.json}"
+    local block ports portlist
+    if [ ! -f "$cfg" ]; then
+      echo "[提示] 未找到 $cfg——蜜罐放行跳过（保持原 DROP 行为；部署后重跑本脚本）"
+      return
+    fi
+    block=$(sed -n '/"honeypot"/,/^[[:space:]]*}/p' "$cfg")
+    if ! echo "$block" | grep -q '"enabled"[[:space:]]*:[[:space:]]*true'; then
+      echo "[提示] 蜜罐未启用（honeypot.enabled != true）——保持原 DROP 行为"
+      return
+    fi
+    ports=$(echo "$block" | grep -oE ':[0-9]{1,5}' | grep -oE '[0-9]{1,5}' | sort -un)
+    if [ -z "$ports" ]; then
+      echo "[提示] 蜜罐启用但未解析到监听端口——保持原 DROP 行为（人工核对 honeypot.listen 配置）"
+      return
+    fi
+    portlist=$(echo $ports | tr '\n' ',')
+    echo "--- 蜜罐端口入站放行（SENTRY_HONEYPOT，从 DROP 改为 ACCEPT 仍保留 LOG 记录）---"
+    echo "蜜罐端口: $portlist"
+    if [ "$BACKEND" = "nft" ]; then
+      if nft list chain ip filter INPUT 2>/dev/null | grep -q 'SENTRY_HONEYPOT'; then
+        echo "[提示] INPUT 链已含 SENTRY_HONEYPOT 规则（幂等：跳过插入）"
+      else
+        nft add table ip filter 2>/dev/null || true
+        nft add chain ip filter INPUT '{ type filter hook input priority 0 ; policy accept ; }' 2>/dev/null || true
+        # insert 到链首（先于既有 DROP）；raw PREROUTING LOG 不受影响（hook 更早）
+        if nft insert rule ip filter INPUT tcp dport { $portlist } accept comment \"SENTRY_HONEYPOT:accept\" 2>/dev/null; then
+          echo "已插入: 放行蜜罐端口（$portlist）"
+        else
+          echo "[警告] 插入失败: 蜜罐端口放行（人工核对 nft list chain ip filter INPUT）"
+        fi
+      fi
+    else
+      if iptables -S INPUT | grep -q 'SENTRY_HONEYPOT'; then
+        echo "[提示] INPUT 链已含 SENTRY_HONEYPOT 规则（幂等：跳过插入）"
+      else
+        if iptables -I INPUT -p tcp -m multiport --dports "$portlist" -j ACCEPT -m comment --comment "SENTRY_HONEYPOT:accept" 2>/dev/null; then
+          echo "已插入: 放行蜜罐端口（$portlist）"
+        else
+          echo "[警告] 插入失败: 蜜罐端口放行（人工核对 iptables -S INPUT）"
+        fi
+      fi
+    fi
+  }
+
   # ===== DEV-042：raw PREROUTING 入站 LOG（记录所有入站流量） =====
   # 背景：DOCKER/f2b-sshd 链 LOG 只记录 drop/reject，而 drop/reject counter 全 0，
   # 导致 firewall_events 几乎无数据（"外部威胁"不可见）。本段在 raw PREROUTING
@@ -156,6 +216,8 @@ if [ "$BACKEND" = "nft" ]; then
     nft list ruleset | grep -v 'SENTRY_FW:PREROUTING:inbound' | grep -c 'SENTRY_FW' | xargs echo "现有 SENTRY_FW 规则数（不含 raw 入站 LOG）:"
     # DEV-040（reviewer R-01 整改）：LOG 已存在时仍检查/补插防护规则
     insert_protect_rules
+    # DEV-HONEY-001：蜜罐放行独立幂等检查（LOG 已存在时仍补插）
+    insert_honeypot_accept
     exit 0
   fi
   nft -a list ruleset > /tmp/sentry_nft_rules.txt
@@ -210,12 +272,17 @@ if [ "$BACKEND" = "nft" ]; then
 
   # DEV-040：filter FORWARD 防护规则（幂等插入）
   insert_protect_rules
+
+  # DEV-HONEY-001：蜜罐端口放行（幂等；配置驱动）
+  insert_honeypot_accept
 else
   echo "--- iptables：在 INPUT 链 DROP 规则前插入限速 LOG ---"
   # F-01（DEV-009）：幂等保护
   if iptables -S INPUT | grep -q 'SENTRY_FW'; then
     echo "[提示] INPUT 链已含 SENTRY_FW LOG 规则（幂等：跳过插入）"
     iptables -S INPUT | grep -c 'SENTRY_FW' | xargs echo "现有 SENTRY_FW 规则数:"
+    # DEV-HONEY-001：蜜罐放行独立幂等检查（LOG 已存在时仍补插）
+    insert_honeypot_accept
     exit 0
   fi
   # M4B-02（DEV-009，auditor Major）：`iptables -S INPUT` 首行为 `-P INPUT <policy>`，
@@ -239,6 +306,8 @@ else
   if [ "$INSERTED" -eq 0 ]; then
     echo "[提示] 未发现任何 drop/reject 规则（C-07b）：防火墙通道数据将稀疏，攻击统计依赖 conntrack + fail2ban 日志"
   fi
+  # DEV-HONEY-001：蜜罐端口放行（iptables 后端；幂等；配置驱动）
+  insert_honeypot_accept
   echo "--- 回读校验 ---"
   iptables -S INPUT | grep -c 'SENTRY_FW' | xargs echo "SENTRY_FW 规则数:"
 fi
