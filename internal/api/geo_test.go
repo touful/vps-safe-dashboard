@@ -120,10 +120,11 @@ func TestGeoAttacksFilters(t *testing.T) {
 	}{
 		{"", 2},
 		{"&country=US", 1},
-		{"&country=CN", 0},           // 未命中国家 → 空
-		{"&country=Unknown", 0},       // 全部命中 geo → 无 Unknown 行
-		{"&min_count=5", 0},           // 最大 count=3 < 5
-		{"&min_count=3", 1},           // 203.0.113.5 count=3
+		{"&country=CN", 0},     // 未命中国家 → 空
+		{"&country=Unknown", 1}, // G-01：fixture 含 1 行 Unknown（0xCB007106 未命中 geo），
+		// 参数经 ToUpper 为 "UNKNOWN"——大小写不敏感比较后应命中该行
+		{"&min_count=5", 0}, // 最大 count=3 < 5
+		{"&min_count=3", 1}, // 203.0.113.5 count=3
 		{"&country=US&min_count=3", 1},
 		{"&country=US&min_count=4", 0},
 	}

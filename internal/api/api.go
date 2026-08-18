@@ -143,6 +143,8 @@ func (s *Server) routes() {
 	mux.HandleFunc("/api/v1/bans", s.limitAPI(s.hBans))
 	mux.HandleFunc("/api/v1/archive", s.limitAPI(s.hArchive))
 	mux.HandleFunc("/api/v1/snapshot", s.limitAPI(s.hSnapshot))
+	// DEV-HONEY-001：蜜罐凭据捕获查询（range/proto/limit；只读，普通限流档）。
+	mux.HandleFunc("/api/v1/honeypot/events", s.limitAPI(s.hHoneypotEvents))
 	mux.HandleFunc("/ws", s.hWS)
 	// 静态前端（embed，见 internal/web）。
 	mux.Handle("/", web.Handler())

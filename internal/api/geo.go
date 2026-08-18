@@ -66,10 +66,13 @@ func (s *Server) queryGeoRows(ctx context.Context, from int64, limit int) ([]geo
 
 // filterGeoRows 应用 country（ISO code 精确匹配，含 Unknown）与 min_count 过滤。
 // 过滤在 Go 侧进行（SQL 无法处理 mmdb 查询后的国家归属）。
+// G-01（M-A 审计遗留，DEV-HONEY-001 顺手修复）：country 参数在 hGeoAttacks/
+// hExportAttacksCSV 已 ToUpper（如 "unknown"→"UNKNOWN"），与 unknownCountry 占位值
+// "Unknown"（混合大小写）直接比较会漏匹配——此处按大小写不敏感比较（EqualFold）。
 func filterGeoRows(rows []geoRow, country string, minCount uint64) []geoRow {
 	out := rows[:0]
 	for _, row := range rows {
-		if country != "" && row.CountryCode != country {
+		if country != "" && !strings.EqualFold(row.CountryCode, country) {
 			continue
 		}
 		if minCount > 0 && uint64(row.Count) < minCount {
