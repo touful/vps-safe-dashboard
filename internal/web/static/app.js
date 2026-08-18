@@ -77,7 +77,7 @@
     // 不消耗 heavy 限流桶；导出请求携带过滤参数走后端同口径）
     geo: { rows: null, country: '', min: 0, mmdbOk: false },
     // DEV-HONEY-001：蜜罐凭据捕获状态（rows 全量缓存，proto 前端筛选走后端参数；
-    // revealed 密码显示集合按 ts|proto|src 键记忆——行对象每轮重建，须独立持久化）
+    // revealed 密码显示集合按 ts|proto|src|user 键记忆——行对象每轮重建，须独立持久化）
     hp: { rows: null, proto: '', revealed: {} },
     worldLoaded: false,      // world.json 已注册标志（一次性 fetch/registerMap）
     attackDataFailed: false, // 攻击数据源失败标志——每轮 pollAttack 开头重置，成功回调不覆盖
@@ -1234,8 +1234,9 @@
       r.__k = base + '#' + seen[base];
     });
     renderTableDiff(tb, rows, function (r) {
-      // 密码遮蔽：默认 ••••，点击切换（revealed 集合独立持久化，行对象每轮重建）。
-      var k = r.ts + '|' + r.proto + '|' + r.src_ip;
+      // 密码遮蔽：默认 ••••，点击切换（revealed 集合独立持久化，行对象每轮重建；
+      // 键含 username——同一 src_ip 多账号各自独立记忆，R-14 整改）。
+      var k = r.ts + '|' + r.proto + '|' + r.src_ip + '|' + r.username;
       var masked = !state.hp.revealed[k];
       return {
         key: r.__k,
@@ -1248,7 +1249,7 @@
             cls: (masked ? 'hp-pw masked ' : 'hp-pw ') + 'clickable',
             title: masked ? '点击显示密码（本地敏感数据）' : '点击遮蔽',
             click: function (row) {
-              var rk = row.ts + '|' + row.proto + '|' + row.src_ip;
+              var rk = row.ts + '|' + row.proto + '|' + row.src_ip + '|' + row.username;
               state.hp.revealed[rk] = !state.hp.revealed[rk];
               renderHoneypot();
             } },
