@@ -88,7 +88,7 @@ func TestHandleLineFilterNilStats(t *testing.T) {
 	}
 }
 
-// TestHandleLineFilterExcludeIPs 接线层排除指定来源 IP（DEV-039 用户需求2）：
+// TestHandleLineFilterExcludeIPs 接线层排除指定来源 IP（用户需求2）：
 // 操作方 IP 行丢弃、其他公网行入队、过滤计数留痕。
 func TestHandleLineFilterExcludeIPs(t *testing.T) {
 	ctx := context.Background()

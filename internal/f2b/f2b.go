@@ -78,7 +78,7 @@ func (e *BannedQueryError) Error() string { return e.Msg }
 func (e *BannedQueryError) Unwrap() error { return e.Err }
 
 // readonlyRecoveryCode SQLITE_READONLY_RECOVERY 扩展错误码（SQLITE_READONLY | (1<<8) = 264）：
-// hot journal（进程崩溃/断电残留未恢复日志）场景只读打开可能触发（DEV-032 现场核查结论 5；
+// hot journal（进程崩溃/断电残留未恢复日志）场景只读打开可能触发（现场核查结论 5；
 // 实测 modernc v1.56.0 Windows/Linux 均不触发、直接读主库，此处防御驱动/版本/环境差异）。
 const readonlyRecoveryCode = 264
 

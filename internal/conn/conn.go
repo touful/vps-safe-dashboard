@@ -269,7 +269,7 @@ func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 
 // checkFreshness 新鲜度自检：事件计数未推进时结合 conntrack 表连接数
 // 变化判级——表在动但事件无 → 订阅失效高置信（warn）；表无变化 → 低流量或失效（info）。
-// 状态（evts 计数、lastEvts/lastCnt）由调用方持有，本函数无状态（DEV-AUDIT-001 P1-4 提取）。
+// 状态（evts 计数、lastEvts/lastCnt）由调用方持有，本函数无状态。
 func checkFreshness(sys chan<- event.SystemEvent, evts *atomic.Uint64, lastEvts *uint64, lastCnt *int64, staleRep, staleWarnRep *event.RateLimiter) {
 	curEvts := evts.Load()
 	if curEvts == *lastEvts {
@@ -290,7 +290,7 @@ func checkFreshness(sys chan<- event.SystemEvent, evts *atomic.Uint64, lastEvts 
 // checkOverrun 溢出监控（R-10）：检查本进程 netfilter 套接字 Drops 累计差值，
 // 有溢出时留痕 + 累加共享计数 + 投递 overrun 通道（store 单消费者）+ 动态扩容（上限 8MB）。
 // 返回 false 表示 ctx 取消（调用方应结束监听循环）；其余情况返回 true（continue 语义）。
-// 状态（lastDrops/first/bufSize）由调用方持有，本函数无状态（DEV-AUDIT-001 P1-4 提取）。
+// 状态（lastDrops/first/bufSize）由调用方持有，本函数无状态。
 func checkOverrun(ctx context.Context, sys chan<- event.SystemEvent, nfct *conntrack.Nfct, bufSize *int, overrun chan<- event.OverrunInfo, counter *atomic.Uint64, lastDrops *uint64, first *bool) bool {
 	drops, err := netlinkDrops()
 	if err != nil {

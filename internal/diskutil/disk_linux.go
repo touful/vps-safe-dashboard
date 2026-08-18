@@ -1,5 +1,5 @@
 // Package diskutil 提供磁盘使用率/空间统计（statfs 封装）。
-// DEV-AUDIT-001 P1-5：api/archive/collect 三包重复的 statfs 实现统一收敛于此；
+// api/archive/collect 三包重复的 statfs 实现统一收敛于此；
 // 纯叶子包，不依赖其他内部包。
 package diskutil
 

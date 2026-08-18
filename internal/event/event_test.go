@@ -139,7 +139,7 @@ func TestReportSysFullChannel(t *testing.T) {
 	}
 }
 
-// TestMicrosToUnix 微秒时间戳解析（DEV-AUDIT-001 P1-5：ssh/fw 共用解析合并后
+// TestMicrosToUnix 微秒时间戳解析（ssh/fw 共用解析合并后
 // 语义保持：纯数字串 → 微秒/1e6；空串/非数字 → ok=false，回退由调用方决定）。
 func TestMicrosToUnix(t *testing.T) {
 	cases := []struct {

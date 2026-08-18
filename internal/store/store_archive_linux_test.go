@@ -61,7 +61,7 @@ collect:
 		}
 	}
 
-	// 断言（reviewer R-04 增强）：开始/完成两条 info、完成事件含耗时、副本文件存在。
+	// 断言（增强）：开始/完成两条 info、完成事件含耗时、副本文件存在。
 	var startEv, doneEv *event.SystemEvent
 	for i := range got {
 		ev := got[i]

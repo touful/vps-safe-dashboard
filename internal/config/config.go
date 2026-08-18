@@ -207,7 +207,7 @@ func Load(path string) (*Config, error) {
 }
 
 // Validate 校验配置合法性（R-03：轮询间隔仅提供 >=5s 校验，禁止调小）。
-// 校验链按配置段拆分为 validate* 方法（DEV-AUDIT-001 P1-4：纯搬移，顺序与错误消息不变）。
+// 校验链按配置段拆分为 validate* 方法（纯搬移，顺序与错误消息不变）。
 func (c *Config) Validate() error {
 	if err := c.validateCollect(); err != nil {
 		return err

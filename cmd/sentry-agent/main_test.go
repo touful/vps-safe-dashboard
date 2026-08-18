@@ -38,7 +38,7 @@ func TestIsLoopbackListen(t *testing.T) {
 	}
 }
 
-// TestRunConnChannelFallbackMode（DEV-031 B.4.5）：conntrack.mode=fallback 时不尝试
+// TestRunConnChannelFallbackMode（B.4.5）：conntrack.mode=fallback 时不尝试
 // 主通道，直接走降级并留痕 info（不出现"通道不可用"warn——预期降级噪音消除）。
 func TestRunConnChannelFallbackMode(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -58,7 +58,7 @@ func TestRunConnChannelFallbackMode(t *testing.T) {
 	for {
 		select {
 		case ev := <-ch.System:
-			// 盲区修复（reviewer R-N1）：收到 fallback 留痕前若出现任何 conntrack warn
+			// 盲区修复：收到 fallback 留痕前若出现任何 conntrack warn
 			// （如"通道不可用"），说明实现回归为先尝试主通道——立即失败。
 			if ev.Source == "conntrack" && ev.Level == "warn" {
 				t.Errorf("fallback 模式不应产生 conntrack warn（预期降级噪音消除），实际: %s", ev.Message)
@@ -84,7 +84,7 @@ func TestRunConnChannelFallbackMode(t *testing.T) {
 	}
 }
 
-// TestRefreshBannedImmediate（DEV-031 B.1.5）：启动后立即查询一次（不等 60s ticker）。
+// TestRefreshBannedImmediate（B.1.5）：启动后立即查询一次（不等 60s ticker）。
 func TestRefreshBannedImmediate(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "fail2ban.sqlite3")

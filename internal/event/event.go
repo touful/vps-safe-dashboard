@@ -154,7 +154,7 @@ func Uint32ToIPv4(v uint32) string {
 }
 
 // MicrosToUnix 解析微秒时间戳字符串为 Unix 秒（journald __REALTIME_TIMESTAMP /
-// _SOURCE_REALTIME_TIMESTAMP 格式，DEV-AUDIT-001 P1-5：ssh/fw 两包共用合并）。
+// _SOURCE_REALTIME_TIMESTAMP 格式，ssh/fw 两包共用）。
 // 空串或含非数字字符返回 ok=false（调用方决定回退策略）。
 func MicrosToUnix(s string) (int64, bool) {
 	if s == "" {
@@ -171,7 +171,7 @@ func MicrosToUnix(s string) (int64, bool) {
 }
 
 // Channels 聚合各采集通道（采集→存储/输出共享的公共类型）。
-// DEV-AUDIT-001 P2-1：自 out 包迁入——out 是退役 stdout 输出器，Channels 为
+// 自 out 包迁入：out 是退役 stdout 输出器，Channels 为
 // 采集/存储共享类型，语义归 event 包（事件类型 + 事件通道）。
 type Channels struct {
 	Resource chan ResourceSample

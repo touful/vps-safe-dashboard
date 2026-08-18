@@ -71,7 +71,7 @@ func main() {
 	// 有界 channel（方案 2.3.3：容量 4096，背压传导）。
 	ch := event.NewChannels(4096)
 
-	// DEV-042：fw 采集 producer 创建 FwFilter 后投递到该通道（cap 1），
+	// fw 采集 producer 创建 FwFilter 后投递到该通道（cap 1），
 	// SSH 成功登录学习器等待其就绪后开始更新动态白名单。
 	fwFilterReady := make(chan *fw.FwFilter, 1)
 

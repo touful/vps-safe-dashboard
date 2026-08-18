@@ -79,7 +79,7 @@ func NewServer(dbPath, archiveDir, wsOrigin string, allowNoOrigin bool, snapshot
 
 // SetLimits 注入 VS-03/VS-04 限制参数（config 加载后调用一次；运行期不热更新）。
 // 注意：须在 Serve 之前调用——内部直接替换 apiLimiter/heavyLimiter 指针，
-// Serve 启动后并发读与指针替换构成数据竞争（DEV-AUDIT-001 P1-8 时序约束说明）。
+// Serve 启动后并发读与指针替换构成数据竞争（时序约束）。
 func (s *Server) SetLimits(rateRPS, rateBurst, heavyRPS, wsMaxConns int) {
 	if rateRPS >= 1 && rateBurst >= 1 {
 		s.apiLimiter = newTokenBucket(float64(rateRPS), float64(rateBurst))
@@ -264,7 +264,7 @@ func parseUintParam(r *http.Request, key string, def uint64) uint64 {
 }
 
 // eqConds 为指定查询参数生成 "key = ?" 等值条件与对应参数（缺失参数跳过）。
-// 参数名与表列名一致时使用（hConnections/hSSH/hFirewall 共用，DEV-AUDIT-001 P2-2）。
+// 参数名与表列名一致时使用（hConnections/hSSH/hFirewall 共用）。
 func eqConds(q url.Values, keys []string) ([]string, []any) {
 	var conds []string
 	var args []any

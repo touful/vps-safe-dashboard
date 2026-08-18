@@ -17,7 +17,7 @@ import (
 // （方案 3.1 允许的路径：/proc/self/mountinfo + statfs）。
 // 注意：statfs 必须作用于挂载点路径（如 "/"），不能作用于挂载源设备文件
 // （对 /dev/sdX 这类设备文件 statfs 返回 devtmpfs 的统计，数据无意义）。
-// DEV-AUDIT-001 P1-5：statfs 实现统一收敛至 diskutil（错误消息与语义不变）。
+// statfs 实现统一收敛至 diskutil（错误消息与语义不变）。
 func diskUsage() (usedMB float64, percent float64, err error) {
 	data, err := os.ReadFile("/proc/self/mountinfo")
 	if err != nil {

@@ -1,4 +1,4 @@
-// AUDIT-005 A-04 静态核对测试：前端 range 选择器显示数据保留提示
+// 静态核对测试：前端 range 选择器显示数据保留提示
 // （index.html 含 retention-note 元素 + app.js 从 health 读取 retention_days 更新）。
 package web
 
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestRetentionNoteStatic（AUDIT-005 A-04）：静态核对前端数据保留提示已落地。
+// TestRetentionNoteStatic：静态核对前端数据保留提示已落地。
 func TestRetentionNoteStatic(t *testing.T) {
 	idx, err := staticFS.ReadFile("static/index.html")
 	if err != nil {
@@ -33,7 +33,7 @@ func TestRetentionNoteStatic(t *testing.T) {
 	}
 }
 
-// TestSampleNoteTerminology（AUDIT-005 A-05）：sample-note 用户可见文案无"防火墙"术语残留
+// TestSampleNoteTerminology：sample-note 用户可见文案无"防火墙"术语残留
 // （与"外部威胁事件"术语统一）。
 func TestSampleNoteTerminology(t *testing.T) {
 	idx, err := staticFS.ReadFile("static/index.html")

@@ -243,8 +243,8 @@ type topHit struct {
 	Hits int64
 }
 
-// topHits 查询防火墙事件表指定列 TOP 计数（hTopPorts/hTopSources 公共查询，
-// DEV-AUDIT-001 P2-2 收敛）。col 仅来自本文件常量调用点，无用户输入面。
+// topHits 查询防火墙事件表指定列 TOP 计数（hTopPorts/hTopSources 公共查询）。
+// col 仅来自本文件常量调用点，无用户输入面。
 // 与原 handler 行为一致：不检查迭代错误（ctx 超时场景返回部分结果，200）。
 func (s *Server) topHits(ctx context.Context, from int64, top uint64, col string) ([]topHit, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+col+`, COUNT(*) AS hits FROM firewall_events

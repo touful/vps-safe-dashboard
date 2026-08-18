@@ -13,7 +13,7 @@ type eventItem struct {
 }
 
 // enqueue 将一条事件追加到待写批次（kind 与 insertStmts 键对应；Run 主循环与
-// drainInto 共用，DEV-AUDIT-001 P1-4 去重）。
+// drainInto 共用去重）。
 func enqueue(pending *[]eventItem, n *int, kind string, v any) {
 	*pending = append(*pending, eventItem{kind: kind, v: v})
 	*n++
@@ -78,7 +78,7 @@ func (s *Store) writeBatch(items []eventItem) error {
 }
 
 // itemArgs 将事件转换为 INSERT 参数（时间戳口径见 event 包注释：统一 Unix 秒）。
-// kind 与事件类型不匹配时返回错误（DEV-AUDIT-001 P1-6：原裸类型断言在类型失配时
+// kind 与事件类型不匹配时返回错误（原裸类型断言在类型失配时
 // panic，改为带 ok 断言防御——当前调用方 kind/类型严格配对，属防御性缺口封堵）。
 func itemArgs(it eventItem) ([]any, error) {
 	switch it.kind {

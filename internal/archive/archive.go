@@ -311,7 +311,8 @@ func CleanStaleTmp(archiveDir string) error {
 	return nil
 }
 
-// RunArchiver 定时检查协程（方案 2.3.2 archiver）：// 每日检查是否"每月 1 日且已到 monthly_hour"，满足则对超过 copy_after_days 的月份
+// RunArchiver 定时检查协程（方案 2.3.2 archiver）：
+// 每日检查是否"每月 1 日且已到 monthly_hour"，满足则对超过 copy_after_days 的月份
 // 逐个投递 request（store.RequestArchive，写线程内同步执行）。
 // checkInterval 可配置（演练用短间隔）；每月 1 日当天只执行一次（meta 幂等兜底）。
 func RunArchiver(ctx context.Context, checkInterval time.Duration, monthlyHour string, copyAfterDays int, request func(month string) error) error {
