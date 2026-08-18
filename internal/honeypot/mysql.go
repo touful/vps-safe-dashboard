@@ -41,7 +41,9 @@ func handleMySQL(ctx context.Context, conn net.Conn, srcIP uint32, rec func(even
 	greeting = append(greeting, 0x00, 0xF7) // caps_lower（LE 0xF700，不含 SSL 位 0x0800）
 	greeting = append(greeting, 45)         // charset: utf8mb4_general_ci
 	greeting = append(greeting, 0x02, 0x00) // status flags: SERVER_STATUS_AUTOCOMMIT
-	greeting = append(greeting, 0x77, 0x77) // caps_upper（LE 0x7777：含 PLUGIN_AUTH(0x80000) 等高位）
+	greeting = append(greeting, 0x77, 0x77) // caps_upper（LE 0x7777：置位 bit16/17/18/20/21/22/24/25/26/28/29/30，
+	// 含 CLIENT_CONNECT_ATTRS(0x100000) 等高位；bit19 PLUGIN_AUTH 未置——插件名已由
+	// auth_plugin_name 字段声明，客户端不依赖该位）
 	greeting = append(greeting, 21)         // auth_plugin_data_len = 21（20 salt + 1 NUL）
 	greeting = append(greeting, make([]byte, 10)...) // reserved
 	greeting = append(greeting, salt[8:]...)         // auth_plugin_data_part2（12 字节）
