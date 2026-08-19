@@ -278,14 +278,6 @@ func TestCleanStaleTmp(t *testing.T) {
 	}
 }
 
-// TestArchiveMonthOf MonthOf 边界。
-func TestArchiveMonthOf(t *testing.T) {
-	jan := time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC).Unix()
-	if MonthOf(jan) != "2026-01" {
-		t.Errorf("MonthOf = %s, 期望 2026-01", MonthOf(jan))
-	}
-}
-
 // TestSqliteQuote：SQLite 字面量单引号双写转义。
 func TestSqliteQuote(t *testing.T) {
 	cases := []struct{ in, want string }{

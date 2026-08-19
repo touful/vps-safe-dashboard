@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"sentry-agent/internal/config"
 )
 
 // ArchivedTables 返回归档导出表清单（方案 4.4 示例；meta 不导出）。
@@ -327,8 +329,11 @@ func RunArchiver(ctx context.Context, checkInterval time.Duration, monthlyHour s
 			if now.Day() != 1 {
 				continue
 			}
-			var hh, mm int
-			if _, err := fmt.Sscanf(monthlyHour, "%02d:%02d", &hh, &mm); err != nil {
+			// DEV-ARCH-002 D8：HH:MM 解析统一复用 config.ParseHourMinute
+			// （monthlyHour 已由 config.Validate 校验为合法 HH:MM，此处失败仅理论路径，
+			// 与旧 fmt.Sscanf 宽松解析在配置已校验前提下行为一致）。
+			hh, mm, err := config.ParseHourMinute(monthlyHour)
+			if err != nil {
 				continue
 			}
 			deadline := time.Date(now.Year(), now.Month(), 1, hh, mm, 0, 0, time.Local)
@@ -351,11 +356,6 @@ func RunArchiver(ctx context.Context, checkInterval time.Duration, monthlyHour s
 	}
 }
 
-// DefaultCriticalUsagePct 磁盘 critical 水位默认值（方案 7.3：warn 80 / critical 90 / emergency 95）。
-// 归档在 critical 及以上时跳过（方案 3.9"critical 时跳过归档并告警"）。
-// 实际阈值由配置 disk.critical_percent 传入（与 diskmon 共用配置，见 ShouldSkipArchive 签名）。
-const DefaultCriticalUsagePct = 90.0
-
 // ShouldSkipArchive 判定磁盘水位是否阻止归档（纯函数，可单测）：
 // 使用率 >= criticalPercent（配置阈值）时跳过；statfs 失败时保守跳过（无法确认空间充足）。
 func ShouldSkipArchive(usagePercent float64, statfsOK bool, criticalPercent float64) bool {
@@ -369,10 +369,4 @@ func ShouldSkipArchive(usagePercent float64, statfsOK bool, criticalPercent floa
 // 与 SQLite 字面量语义一致；Go 的 %q 转义（\x 风格）在 SQLite 中不生效。
 func sqliteQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
-}
-
-// MonthOf 返回 ts 对应的月份标识 "YYYY-MM"。
-func MonthOf(ts int64) string {
-	t := time.Unix(ts, 0)
-	return fmt.Sprintf("%04d-%02d", t.Year(), t.Month())
 }
