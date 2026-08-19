@@ -1,0 +1,8 @@
+ok  	sentry-agent/internal/store	13.469s
+ok  	sentry-agent/internal/honeypot	3.638s
+ok  	sentry-agent/internal/config	0.099s
+ok  	sentry-agent/internal/archive	1.078s
+ok  	sentry-agent/internal/f2b	0.449s
+ok  	sentry-agent/internal/fw	0.608s
+ok  	sentry-agent/internal/ssh	0.090s
+ok  	sentry-agent/internal/dbdsn	0.065s

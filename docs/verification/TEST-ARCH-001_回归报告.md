@@ -69,7 +69,7 @@
 | :--- | :--- |
 | `go build ./...` / `go vet ./...` | exit 0 |
 | `go test ./...` | **17 包 ok + 2 包无测试文件**（internal/diskutil、tools/archive-trigger；输出落盘 gotest_all.txt，全量缓存命中——Go 内容寻址缓存，代码未变时有效） |
-| 重点包 -count=1 非缓存 | api 40.7s / store 16.4s / honeypot 3.7s / config / archive / f2b / fw / ssh / dbdsn 全绿（非缓存重跑） |
+| 重点包 -count=1 非缓存 | api 40.7s / store 13.5s / honeypot 3.6s / config / archive / f2b / fw / ssh / dbdsn 全绿（非缓存重跑，输出落盘 keypackages_nocache.txt） |
 | Linux amd64 交叉编译 | exit 0 |
 
 **D 收敛专项（diskmon 直连 diskutil）**：diskmon.go:49-52（D11 直连 diskutil.UsagePercent，原 archive.DiskUsagePercent）+ api/disk_linux.go:12 + collect/disk_linux.go:30 三处统一 diskutil（代码确认）；diskmon 包测试全绿（0.329s）
@@ -105,7 +105,7 @@
 - 已观察：无
 - 推断：无
 - 未验证：见 §4
-- **证据提交**：git c64f9ac（报告+证据首版）+ c6d9b0d（reviewer R1 整改）+ 本修订提交
+- **证据提交**：git c64f9ac（报告+证据首版）+ c6d9b0d（reviewer R1 整改）+ 588145a（reviewer R2 残留整改）+ 本修订提交
 
 ## 7. 复现步骤
 
