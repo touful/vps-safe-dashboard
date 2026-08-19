@@ -316,7 +316,8 @@ func writeSMB2Error(conn net.Conn, command uint16, status uint32) error {
 	out = append(out, 0)    // ErrorContextCount
 	out = append(out, 0)    // Reserved
 	out = append(out, 0, 0, 0, 0) // ByteCount
-	// writeAll2 已由标准库 io.Copy 取代（DEV-ARCH-002 A2）。
+	// writeAll2 已由标准库 io.Copy 取代（DEV-ARCH-002 A2：短写返回
+	// io.ErrShortWrite → 响应路径断开，net.Conn 短写概率极低）。
 	_, err := io.Copy(conn, bytes.NewReader(out))
 	return err
 }

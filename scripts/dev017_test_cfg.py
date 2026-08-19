@@ -18,7 +18,6 @@ cfg = {
     "archive": {"monthly_hour": "02:00", "gzip_level": 6, "copy_after_days": 60},
     "web": {"listen": "127.0.0.1:%d" % port, "ws_origin_allow": "http://127.0.0.1:%d" % port},
     "disk": {"warn_percent": 80, "critical_percent": 90, "emergency_percent": 95},
-    "log": {"level": "info"},
 }
 os.makedirs(os.path.join(os.path.dirname(db), "archive"), exist_ok=True)
 out = os.path.join(os.path.dirname(db), "cfg.json")

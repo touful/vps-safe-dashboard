@@ -100,6 +100,31 @@ func TestValidateOK(t *testing.T) {
 	}
 }
 
+// TestParseHourMinute（DEV-ARCH-002 R-05）：HH:MM 解析合法/非法边界。
+// ParseHourMinute 为导出函数（archive.RunArchiver 复用），补直接契约测试。
+func TestParseHourMinute(t *testing.T) {
+	valid := []struct {
+		in   string
+		h, m int
+	}{
+		{"00:00", 0, 0},
+		{"23:59", 23, 59},
+		{"02:30", 2, 30},
+	}
+	for _, c := range valid {
+		h, m, err := ParseHourMinute(c.in)
+		if err != nil || h != c.h || m != c.m {
+			t.Errorf("ParseHourMinute(%q) = (%d,%d,%v), 期望 (%d,%d,nil)", c.in, h, m, err, c.h, c.m)
+		}
+	}
+	invalid := []string{"", "2:00", "0200", "24:00", "23:60", "ab:cd", "12:3"}
+	for _, in := range invalid {
+		if _, _, err := ParseHourMinute(in); err == nil {
+			t.Errorf("ParseHourMinute(%q) 应失败", in)
+		}
+	}
+}
+
 // TestValidateRetentionDays：retention_days 任意值合法（<=0 禁用，无范围上限）。
 func TestValidateRetentionDays(t *testing.T) {
 	for _, v := range []int{7, 0, -1, 30, 365} {

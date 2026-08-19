@@ -567,6 +567,20 @@ func TestHealthDBDown(t *testing.T) {
 	}
 }
 
+// TestSummaryDBDown（DEV-ARCH-002 C6）：DB 不可用时 summary 返回 500。
+// 原实现三个 COUNT 查询静默吞错（_ = ...Scan），DB 故障时返回"零攻击"假象；
+// 修复后任一查询失败 → 500（与 health/hFirewallTimeline 一致）。
+func TestSummaryDBDown(t *testing.T) {
+	srv, _ := newTestServer(t)
+	srv.db.Close()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/summary", nil)
+	rec := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("DB 故障时 summary 状态码 = %d, 期望 500", rec.Code)
+	}
+}
+
 // newTestServerWithNoOrigin 允许无 Origin 的 Server（M-02 测试用）。
 func newTestServerWithNoOrigin(t *testing.T) *Server {
 	t.Helper()

@@ -327,7 +327,8 @@ func writeMongoMsg(conn net.Conn, msg []byte, reqID uint32) error {
 	out = append(out, 0)            // section kind 0 = body
 	out = append(out, msg[16:]...)  // BSON doc
 	// writeAll2 已由标准库 io.Copy 取代（DEV-ARCH-002 A2：bytes.Reader 实现
-	// WriteTo，io.Copy 直连 conn.Write 循环，与手写全量写入语义一致）。
+	// WriteTo，io.Copy 直连 conn.Write 循环；短写返回 io.ErrShortWrite → 蜜罐
+	// 响应路径断开——net.Conn 短写概率极低，失败路径方向与旧实现一致）。
 	_, err := io.Copy(conn, bytes.NewReader(out))
 	return err
 }

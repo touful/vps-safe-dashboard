@@ -38,6 +38,26 @@ func TestIsLoopbackListen(t *testing.T) {
 	}
 }
 
+// TestShouldStartHoneypot（DEV-ARCH-002 C7）：stdout 模式不启动蜜罐。
+// 判定逻辑：仅落库模式（非 stdout debug）且配置启用时启动。
+func TestShouldStartHoneypot(t *testing.T) {
+	cases := []struct {
+		stdoutMode bool
+		enabled    bool
+		want       bool
+	}{
+		{false, true, true},   // 落库模式 + 启用 → 启动
+		{false, false, false}, // 落库模式 + 禁用 → 不启动
+		{true, true, false},   // stdout 模式 + 启用 → 不启动（C7 修复点）
+		{true, false, false},  // stdout 模式 + 禁用 → 不启动
+	}
+	for _, c := range cases {
+		if got := shouldStartHoneypot(c.stdoutMode, c.enabled); got != c.want {
+			t.Errorf("shouldStartHoneypot(%v, %v) = %v, 期望 %v", c.stdoutMode, c.enabled, got, c.want)
+		}
+	}
+}
+
 // TestRunConnChannelFallbackMode（B.4.5）：conntrack.mode=fallback 时不尝试
 // 主通道，直接走降级并留痕 info（不出现"通道不可用"warn——预期降级噪音消除）。
 func TestRunConnChannelFallbackMode(t *testing.T) {

@@ -225,7 +225,7 @@ func main() {
 	// 单协议监听失败仅留痕不崩溃（其余协议继续）。
 	// DEV-ARCH-002 C7：stdout 模式（-stdout debug）不启动蜜罐——out 输出器不消费
 	// Cred 通道，启动会导致凭据事件无消费者（通道满后丢弃）；与"仅落库模式"注释一致。
-	if !*stdoutMode && cfg.Honeypot.Enabled {
+	if shouldStartHoneypot(*stdoutMode, cfg.Honeypot.Enabled) {
 		startProducer(func() {
 			hp := honeypot.NewServer(cfg.Honeypot.Listen, ch.Cred, ch.System)
 			if err := hp.Run(ctx); err != nil {
@@ -389,4 +389,11 @@ func isLoopbackListen(listen string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// shouldStartHoneypot 判定是否启动蜜罐（DEV-ARCH-002 C7）：
+// 仅落库模式（非 stdout debug）且配置启用时启动——stdout 模式 out 输出器
+// 不消费 Cred 通道，启动会导致凭据事件无消费者（通道满后丢弃）。
+func shouldStartHoneypot(stdoutMode bool, enabled bool) bool {
+	return !stdoutMode && enabled
 }
