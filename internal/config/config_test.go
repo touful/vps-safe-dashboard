@@ -82,7 +82,6 @@ func TestValidate(t *testing.T) {
 		{"ws_origin_allow 非 http 前缀", func(c *Config) { c.Web.WSOriginAllow = "ws://127.0.0.1:8080" }},
 		{"disk 阈值越界", func(c *Config) { c.Disk.WarnPercent = 101 }},
 		{"disk 阈值序错", func(c *Config) { c.Disk.WarnPercent = 95 }}, // warn>=critical
-		{"log.level 非法", func(c *Config) { c.Log.Level = "verbose" }},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

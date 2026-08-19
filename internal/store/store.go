@@ -8,7 +8,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -17,6 +16,7 @@ import (
 	_ "modernc.org/sqlite" // 纯 Go 驱动（CGO_ENABLED=0 兼容，方案 6.4.1）
 
 	"sentry-agent/internal/archive"
+	"sentry-agent/internal/dbdsn"
 	"sentry-agent/internal/event"
 )
 
@@ -207,9 +207,9 @@ func NewStore(dbPath, archiveDir string, batchIntervalMS, batchSize, gzipLevel, 
 }
 
 // openDB 打开（不存在则创建）SQLite 主库。
-// DSN 路径 URL 编码（同规则：路径含 '?'/'#' 等特殊字符须 PathEscape）。
+// DSN 构造统一收敛至 dbdsn.ReadWrite（DEV-ARCH-002 D9；路径 URL 编码规则一致）。
 func openDB(path string) (*sql.DB, error) {
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)", url.PathEscape(path))
+	dsn := dbdsn.ReadWrite(path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err

@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	_ "modernc.org/sqlite"
 
+	"sentry-agent/internal/dbdsn"
 	"sentry-agent/internal/event"
 )
 
@@ -718,8 +719,8 @@ func TestReadOnlyConnection(t *testing.T) {
 	if _, err := wdb.Exec(`CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
-	// 只读连接（API 形态）。
-	rdb, err := sql.Open("sqlite", "file:"+urlPathEscape(dbPath)+"?mode=ro&_pragma=busy_timeout(5000)")
+	// 只读连接（API 形态；DEV-ARCH-002 D9 收敛为 dbdsn.ReadOnly）。
+	rdb, err := sql.Open("sqlite", dbdsn.ReadOnly(dbPath))
 	if err != nil {
 		t.Fatal(err)
 	}

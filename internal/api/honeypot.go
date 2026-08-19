@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"sentry-agent/internal/event"
@@ -40,7 +41,7 @@ func (s *Server) hHoneypotEvents(w http.ResponseWriter, r *http.Request) {
 		args = append(args, proto)
 	}
 	query := `SELECT ts, proto, src_ip, username, password, extra FROM cred_events
-		WHERE ` + joinConds(conds) + ` ORDER BY ts DESC LIMIT ?`
+		WHERE ` + strings.Join(conds, " AND ") + ` ORDER BY ts DESC LIMIT ?`
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -65,16 +66,4 @@ func (s *Server) hHoneypotEvents(w http.ResponseWriter, r *http.Request) {
 		rng = "24h"
 	}
 	writeJSON(w, 200, map[string]any{"range": rng, "rows": out})
-}
-
-// joinConds 拼接 WHERE 条件（与查询构造分离的小工具；conds 非空）。
-func joinConds(conds []string) string {
-	out := ""
-	for i, c := range conds {
-		if i > 0 {
-			out += " AND "
-		}
-		out += c
-	}
-	return out
 }

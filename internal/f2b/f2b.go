@@ -9,12 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/url"
 	"os/exec"
 	"time"
 
 	_ "modernc.org/sqlite" // 纯 Go 驱动（与主库一致，CGO_ENABLED=0 兼容）
 
+	"sentry-agent/internal/dbdsn"
 	"sentry-agent/internal/event"
 )
 
@@ -105,7 +105,7 @@ const bipsActiveWhere = `bantime = -1 OR bantime IS NULL OR timeofban IS NULL OR
 // 错误按根因分类（BannedQueryError.Kind），调用方告警携带分类与修复指引。
 // 已知限制：IPv6 封禁地址跳过（BanEvent.IP 为 uint32，M2 记录）。
 func QueryBanned(ctx context.Context, dbPath string) ([]uint32, error) {
-	db, err := sql.Open("sqlite", readOnlyDSN(dbPath))
+	db, err := sql.Open("sqlite", dbdsn.ReadOnly(dbPath))
 	if err != nil {
 		return nil, &BannedQueryError{Kind: "unreadable", Msg: fmt.Sprintf("打开 fail2ban 库失败: %v", err), Err: err}
 	}
@@ -263,11 +263,4 @@ func containsStr(cols []string, want string) bool {
 		}
 	}
 	return false
-}
-
-// readOnlyDSN 构造只读 DSN：路径 URL 编码（PathEscape 保留 '/'，转义 '?'/'#' 等），
-// 追加 mode=ro + busy_timeout=5000（缓解 fail2ban 写库瞬间 SQLITE_BUSY）。
-// URI 解析由 modernc 驱动自动启用（file: 前缀即触发；实证：只读写拒绝、busy_timeout 生效）。
-func readOnlyDSN(path string) string {
-	return "file:" + url.PathEscape(path) + "?mode=ro&_pragma=busy_timeout(5000)"
 }

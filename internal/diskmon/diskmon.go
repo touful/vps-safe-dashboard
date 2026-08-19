@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"time"
 
-	"sentry-agent/internal/archive"
+	"sentry-agent/internal/diskutil"
 	"sentry-agent/internal/event"
 )
 
@@ -46,8 +46,10 @@ func Classify(usagePercent float64, warn, critical, emergency int) Level {
 // 首轮 checkOnce 返回 level 并同步 lastLevel/lastReport，
 // 避免首轮告警后第一个 ticker 周期重复报同级别告警。
 func RunDiskMonitor(ctx context.Context, interval time.Duration, dir string, warn, critical, emergency int, sys chan<- event.SystemEvent) error {
+	// DEV-ARCH-002 D11：直连 diskutil.UsagePercent（原经 archive.DiskUsagePercent
+	// 间接转发，消除不必要依赖链）。
 	return RunDiskMonitorWithUsage(ctx, interval, func() (float64, error) {
-		return archive.DiskUsagePercent(dir)
+		return diskutil.UsagePercent(dir)
 	}, warn, critical, emergency, sys)
 }
 

@@ -23,7 +23,6 @@ type Config struct {
 	Archive   ArchiveCfg   `json:"archive"`
 	Web       WebCfg       `json:"web"`
 	Disk      DiskCfg      `json:"disk"`
-	Log       LogCfg       `json:"log"`
 	GeoIP     GeoIPCfg     `json:"geoip"`
 	Honeypot  HoneypotCfg  `json:"honeypot"`
 }
@@ -61,6 +60,8 @@ type SSHCfg struct {
 	// Source 日志源：journald（默认，journalctl 流式）| rsyslog（tail -F auth.log）。
 	Source string `json:"source"`
 	// VerboseFingerprint 是否要求 LogLevel VERBOSE 取公钥指纹（默认 true）。
+	// 【文档性字段】代码不读取（解析器不因该配置改变行为）；语义对应
+	// deploy/setup_system.sh 写入的 sshd LogLevel VERBOSE 设置（部署脚本硬编码行为）。
 	VerboseFingerprint bool `json:"verbose_fingerprint"`
 }
 
@@ -70,7 +71,8 @@ type FWCfg struct {
 	Source string `json:"source"`
 	// Prefix 防火墙日志前缀，仅解析此前缀行（默认 SENTRY_FW:）。
 	Prefix string `json:"prefix"`
-	// RateLimitPktS 内核限速（包/秒），默认 5（采样性质，R-09；此值仅注释用，规则由部署脚本写入）。
+	// RateLimitPktS 内核限速（包/秒），默认 5（采样性质，R-09）。
+	// 【文档性字段】代码不读取；规则由部署脚本写入 iptables/nftables（setup_firewall.sh）。
 	RateLimitPktS int `json:"rate_limit_pkt_s"`
 	// ExcludeInternal 是否排除内网/自身来源事件（默认 true；关掉恢复全量记录）。
 	ExcludeInternal bool `json:"exclude_internal"`
@@ -158,11 +160,6 @@ type DiskCfg struct {
 	EmergencyPercent int `json:"emergency_percent"`
 }
 
-// LogCfg 日志级别。
-type LogCfg struct {
-	Level string `json:"level"`
-}
-
 // GeoIPCfg GeoIP 离线库（DEV-GEO-001）：查询 + 每日更新。
 // 凭据安全：account_id/license_key 仅部署时填入 deploy/config.json（gitignore 保护），
 // 代码与 config.example.json 均不得写入真实值。
@@ -231,7 +228,6 @@ func Defaults() *Config {
 		Archive: ArchiveCfg{MonthlyHour: "02:00", GzipLevel: 6, CopyAfterDays: 60},
 		Web:     WebCfg{Listen: "127.0.0.1:8080", WSOriginAllow: "http://127.0.0.1:8080", WSMaxConns: 100, RateLimitRPS: 10, RateLimitBurst: 20, HeavyLimitRPS: 1},
 		Disk:    DiskCfg{WarnPercent: 80, CriticalPercent: 90, EmergencyPercent: 95},
-		Log:     LogCfg{Level: "info"},
 		GeoIP:   GeoIPCfg{DBPath: "/var/lib/sentry-agent/GeoLite2-Country.mmdb", UpdateEnabled: true, UpdateHour: 2, UpdateMinute: 30},
 		Honeypot: HoneypotCfg{
 			// DEV-HONEY-001：默认关闭——蜜罐占用标准端口，须部署时显式启用（防误开）。
@@ -289,9 +285,6 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := c.validateDisk(); err != nil {
-		return err
-	}
-	if err := c.validateLog(); err != nil {
 		return err
 	}
 	if err := c.validateGeoIP(); err != nil {
@@ -414,7 +407,7 @@ func (c *Config) validateArchive() error {
 	if c.Archive.CopyAfterDays < 1 {
 		return fmt.Errorf("archive.copy_after_days=%d 小于下限 1", c.Archive.CopyAfterDays)
 	}
-	if _, _, err := parseHourMinute(c.Archive.MonthlyHour); err != nil {
+	if _, _, err := ParseHourMinute(c.Archive.MonthlyHour); err != nil {
 		return fmt.Errorf("archive.monthly_hour=%q 非法: %w", c.Archive.MonthlyHour, err)
 	}
 	return nil
@@ -457,14 +450,6 @@ func (c *Config) validateDisk() error {
 	}
 	if c.Disk.WarnPercent >= c.Disk.CriticalPercent || c.Disk.CriticalPercent >= c.Disk.EmergencyPercent {
 		return fmt.Errorf("disk 阈值须满足 warn < critical < emergency")
-	}
-	return nil
-}
-
-// validateLog 校验日志级别段。
-func (c *Config) validateLog() error {
-	if c.Log.Level != "info" && c.Log.Level != "debug" && c.Log.Level != "warn" && c.Log.Level != "error" {
-		return fmt.Errorf("log.level=%q 非法，仅支持 info|debug|warn|error", c.Log.Level)
 	}
 	return nil
 }
@@ -519,8 +504,9 @@ func knownHoneypotProto(proto string) bool {
 	return false
 }
 
-// parseHourMinute 解析 "HH:MM" 时刻（归档执行时刻校验用）。
-func parseHourMinute(s string) (int, int, error) {
+// ParseHourMinute 解析 "HH:MM" 时刻（归档执行时刻校验用；DEV-ARCH-002 D8 导出，
+// archive.RunArchiver 复用——统一 HH:MM 解析口径，消除 fmt.Sscanf 宽松解析差异）。
+func ParseHourMinute(s string) (int, int, error) {
 	if len(s) != 5 || s[2] != ':' {
 		return 0, 0, fmt.Errorf("格式应为 HH:MM")
 	}

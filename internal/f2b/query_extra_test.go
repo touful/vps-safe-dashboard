@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"sentry-agent/internal/dbdsn"
 )
 
 // TestQueryBannedBipsNoTimeColsFallback：bips 存在但缺 timeofban/bantime（未知版本）
@@ -217,7 +219,7 @@ func TestReadOnlyDSNRejectsWrite(t *testing.T) {
 	}
 	db.Close()
 
-	ro, err := sql.Open("sqlite", readOnlyDSN(dbPath))
+	ro, err := sql.Open("sqlite", dbdsn.ReadOnly(dbPath))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +294,7 @@ func TestQueryBannedNonTextIPSkipped(t *testing.T) {
 
 // TestReadOnlyDSNBusyTimeout：只读 DSN 追加 busy_timeout=5000。
 func TestReadOnlyDSNBusyTimeout(t *testing.T) {
-	dsn := readOnlyDSN("/var/lib/fail2ban/fail2ban.sqlite3")
+	dsn := dbdsn.ReadOnly("/var/lib/fail2ban/fail2ban.sqlite3")
 	if !strings.Contains(dsn, "mode=ro") {
 		t.Errorf("DSN 应含 mode=ro: %s", dsn)
 	}

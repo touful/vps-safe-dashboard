@@ -4,6 +4,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"sentry-agent/internal/dbdsn"
 )
 
 // TestRangeSeconds range 参数解析（TEST-004：补齐 §2.2 纳入函数直接单测）。
@@ -58,23 +60,24 @@ func TestParseUintParam(t *testing.T) {
 	}
 }
 
-// TestURLPathEscape 路径 URL 编码（url.PathEscape：整路径转义，含斜杠；DSN 特殊字符转义）。
-func TestURLPathEscape(t *testing.T) {
+// TestReadOnlyDSNEscape 只读 DSN 路径 URL 编码（url.PathEscape：整路径转义，
+// 含斜杠；DSN 特殊字符转义；DEV-ARCH-002 D9 收敛后测 dbdsn.ReadOnly）。
+func TestReadOnlyDSNEscape(t *testing.T) {
 	cases := []struct {
 		in   string
 		want string
 	}{
-		{"plain.db", "plain.db"},
-		{"a b.db", "a%20b.db"},
-		{"q?.db", "q%3F.db"},
-		{"h#.db", "h%23.db"},
-		{"p%.db", "p%25.db"},
-		{"a&b=c.db", "a&b=c.db"}, // & 与 = 非 path 保留字符，url.PathEscape 不转义（正确语义）
-		{"ab.db", "ab.db"},
+		{"plain.db", "file:plain.db?mode=ro&_pragma=busy_timeout(5000)"},
+		{"a b.db", "file:a%20b.db?mode=ro&_pragma=busy_timeout(5000)"},
+		{"q?.db", "file:q%3F.db?mode=ro&_pragma=busy_timeout(5000)"},
+		{"h#.db", "file:h%23.db?mode=ro&_pragma=busy_timeout(5000)"},
+		{"p%.db", "file:p%25.db?mode=ro&_pragma=busy_timeout(5000)"},
+		{"a&b=c.db", "file:a&b=c.db?mode=ro&_pragma=busy_timeout(5000)"}, // & 与 = 非 path 保留字符，不转义（正确语义）
+		{"ab.db", "file:ab.db?mode=ro&_pragma=busy_timeout(5000)"},
 	}
 	for _, c := range cases {
-		if got := urlPathEscape(c.in); got != c.want {
-			t.Errorf("urlPathEscape(%q) = %q, 期望 %q", c.in, got, c.want)
+		if got := dbdsn.ReadOnly(c.in); got != c.want {
+			t.Errorf("dbdsn.ReadOnly(%q) = %q, 期望 %q", c.in, got, c.want)
 		}
 	}
 }
