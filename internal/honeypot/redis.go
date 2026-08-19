@@ -3,6 +3,7 @@ package honeypot
 import (
 	"bufio"
 	"context"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -145,21 +146,10 @@ func readRESPBulk(br *bufio.Reader) (string, error) {
 		return "", nil // 超限：截断（畸形输入防御）
 	}
 	buf := make([]byte, n+2) // +2 覆盖 \r\n
-	if _, err := readFull(br, buf); err != nil {
+	if _, err := io.ReadFull(br, buf); err != nil {
 		return "", err
 	}
 	return string(buf[:n]), nil
 }
 
-// readFull 读取固定长度数据（bufio.Reader 封装）。
-func readFull(br *bufio.Reader, buf []byte) (int, error) {
-	total := 0
-	for total < len(buf) {
-		n, err := br.Read(buf[total:])
-		total += n
-		if err != nil {
-			return total, err
-		}
-	}
-	return total, nil
-}
+

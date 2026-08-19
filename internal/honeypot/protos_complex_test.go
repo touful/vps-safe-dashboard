@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"io"
 	"net"
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"sentry-agent/internal/event"
 )
@@ -19,12 +21,12 @@ func TestMySQLCapture(t *testing.T) {
 
 	// 读 HandshakeV10：4 头（3 字节 len + 1 序号）+ payload（protocol 10 + version NUL + ...）。
 	var ghdr [4]byte
-	if _, err := readFullN(c, ghdr[:]); err != nil {
+	if _, err := io.ReadFull(c, ghdr[:]); err != nil {
 		t.Fatal(err)
 	}
 	gLen := int(binary.LittleEndian.Uint32(append(ghdr[:3], 0)))
 	greeting := make([]byte, gLen)
-	if _, err := readFullN(c, greeting); err != nil {
+	if _, err := io.ReadFull(c, greeting); err != nil {
 		t.Fatal(err)
 	}
 	if greeting[0] != 10 {
@@ -68,12 +70,12 @@ func TestMySQLCapture(t *testing.T) {
 	}
 	// ERR 1045 响应。
 	var ehdr [4]byte
-	if _, err := readFullN(c, ehdr[:]); err != nil {
+	if _, err := io.ReadFull(c, ehdr[:]); err != nil {
 		t.Fatal(err)
 	}
 	eLen := int(binary.LittleEndian.Uint32(append(ehdr[:3], 0)))
 	ebody := make([]byte, eLen)
-	if _, err := readFullN(c, ebody); err != nil {
+	if _, err := io.ReadFull(c, ebody); err != nil {
 		t.Fatal(err)
 	}
 	if ebody[0] != 0xFF {
@@ -134,7 +136,7 @@ func TestMongoDBCapture(t *testing.T) {
 	}
 	// 读 OP_MSG 响应（ok:0）。
 	var rhdr [16]byte
-	if _, err := readFullN(c, rhdr[:]); err != nil {
+	if _, err := io.ReadFull(c, rhdr[:]); err != nil {
 		t.Fatal(err)
 	}
 	if binary.LittleEndian.Uint32(rhdr[12:16]) != 2013 {
@@ -142,7 +144,7 @@ func TestMongoDBCapture(t *testing.T) {
 	}
 	rLen := int(binary.LittleEndian.Uint32(rhdr[:4]))
 	rbody := make([]byte, rLen-16)
-	if _, err := readFullN(c, rbody); err != nil {
+	if _, err := io.ReadFull(c, rbody); err != nil {
 		t.Fatal(err)
 	}
 	if len(rbody) < 5 || rbody[4] != 0 {
@@ -306,18 +308,18 @@ func TestSMB2Capture(t *testing.T) {
 	}
 	// 读 Negotiate Response（验证含 NTLMSSP CHALLENGE）。
 	var rpid [4]byte
-	if _, err := readFullN(c, rpid[:]); err != nil {
+	if _, err := io.ReadFull(c, rpid[:]); err != nil {
 		t.Fatal(err)
 	}
 	if string(rpid[:]) != "\xfeSMB" {
 		t.Fatalf("响应 ProtocolId = %q", rpid[:])
 	}
 	rhdr := make([]byte, 60)
-	if _, err := readFullN(c, rhdr); err != nil {
+	if _, err := io.ReadFull(c, rhdr); err != nil {
 		t.Fatal(err)
 	}
 	rbody := make([]byte, 62+56) // 响应体（62 SMB 2.1 结构 + 56 NTLMSSP CHALLENGE）
-	if _, err := readFullN(c, rbody); err != nil {
+	if _, err := io.ReadFull(c, rbody); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(rbody), "NTLMSSP") {
@@ -377,19 +379,50 @@ func TestSMB2Capture(t *testing.T) {
 	}
 	// 读 STATUS_LOGON_FAILURE 响应。
 	var shdr [8]byte
-	if _, err := readFullN(c, shdr[:]); err != nil {
+	if _, err := io.ReadFull(c, shdr[:]); err != nil {
 		t.Fatal(err)
 	}
 	if string(shdr[:4]) != "\xfeSMB" {
 		t.Fatalf("响应 ProtocolId = %q", shdr[:4])
 	}
 	rest := make([]byte, 60)
-	if _, err := readFullN(c, rest); err != nil {
+	if _, err := io.ReadFull(c, rest); err != nil {
 		t.Fatal(err)
 	}
 	status := binary.LittleEndian.Uint32(rest[0:4])
 	if status != 0xC000006D {
 		t.Fatalf("Status = 0x%08X, 期望 STATUS_LOGON_FAILURE", status)
+	}
+}
+
+// TestSMB2CaptureEmoji DEV-ARCH-002 A3：UTF-16 代理对（非 BMP 字符）正确解码。
+// 旧实现 utf16leToString 按 code unit 直映（rune(u16)），emoji 等非 BMP 字符失真；
+// 改用 unicode/utf16.Decode 后代理对正确合并为单个 rune。
+func TestSMB2CaptureEmoji(t *testing.T) {
+	credCh := make(chan event.CredEvent, 16)
+	_, addrs := startTestServer(t, []string{"smb"}, credCh, nil)
+	c := dialProto(t, addrs, "smb")
+	defer c.Close()
+
+	// 1. Negotiate 请求 → 读 Negotiate Response（64 头 + 62 体 + 56 NTLMSSP CHALLENGE）。
+	if _, err := c.Write(buildSMB2NegotiateFrame()); err != nil {
+		t.Fatal(err)
+	}
+	rbuf := make([]byte, 64+62+56)
+	if _, err := io.ReadFull(c, rbuf); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Session Setup + NTLMSSP AUTH（用户名含 emoji 代理对 U+1F600）。
+	auth := buildNTLMSSPAuth("😀attacker", "WORKGROUP")
+	if _, err := c.Write(buildSMB2SessionSetupFrame(auth)); err != nil {
+		t.Fatal(err)
+	}
+
+	ev := recvCred(t, credCh)
+	want := "WORKGROUP\\😀attacker"
+	if ev.Username != want {
+		t.Fatalf("用户名解码 = %q, 期望 %q（代理对应正确合并为单个 rune）", ev.Username, want)
 	}
 }
 
@@ -428,14 +461,14 @@ func TestRDPCapture(t *testing.T) {
 	}
 	// Connection Confirm（TPKT + X.224 CC：LI=6 + 0xD0，R-12 整改后结构）。
 	var cc [4]byte
-	if _, err := readFullN(c, cc[:]); err != nil {
+	if _, err := io.ReadFull(c, cc[:]); err != nil {
 		t.Fatal(err)
 	}
 	if cc[0] != 3 || cc[3] < 7 {
 		t.Fatalf("CC 头异常: % x", cc)
 	}
 	ccBody := make([]byte, int(cc[3])-4)
-	if _, err := readFullN(c, ccBody); err != nil {
+	if _, err := io.ReadFull(c, ccBody); err != nil {
 		t.Fatal(err)
 	}
 	if ccBody[0] != 0x06 {
@@ -538,11 +571,13 @@ func buildBSONDoc(elems ...[]byte) []byte {
 
 // buildNTLMSSPAuth 构造 NTLMSSP AUTH 消息（type 3，UTF-16LE 字段 + 伪 NTLMv2 Response）。
 func buildNTLMSSPAuth(user, domain string) []byte {
+	// DEV-ARCH-002 A3：utf16.Encode 正确编码代理对（与 utf16leToString 解码对称；
+	// 旧实现 uint16(r) 直映对非 BMP 字符失真）。
 	u16 := func(s string) []byte {
 		var b []byte
-		for _, r := range s {
+		for _, u := range utf16.Encode([]rune(s)) {
 			var tmp [2]byte
-			binary.LittleEndian.PutUint16(tmp[:], uint16(r))
+			binary.LittleEndian.PutUint16(tmp[:], u)
 			b = append(b, tmp[:]...)
 		}
 		return b
@@ -599,12 +634,12 @@ func TestMySQLStrictParse(t *testing.T) {
 	defer c.Close()
 
 	var ghdr [4]byte
-	if _, err := readFullN(c, ghdr[:]); err != nil {
+	if _, err := io.ReadFull(c, ghdr[:]); err != nil {
 		t.Fatal(err)
 	}
 	gLen := int(binary.LittleEndian.Uint32(append(ghdr[:3], 0)))
 	greeting := make([]byte, gLen)
-	if _, err := readFullN(c, greeting); err != nil {
+	if _, err := io.ReadFull(c, greeting); err != nil {
 		t.Fatal(err)
 	}
 	if greeting[0] != 10 {
@@ -732,18 +767,18 @@ func TestSMB2FragmentedFrames(t *testing.T) {
 	}
 	// 读 Negotiate Response（验证含 NTLMSSP CHALLENGE）。
 	var rpid [4]byte
-	if _, err := readFullN(c, rpid[:]); err != nil {
+	if _, err := io.ReadFull(c, rpid[:]); err != nil {
 		t.Fatal(err)
 	}
 	if string(rpid[:]) != "\xfeSMB" {
 		t.Fatalf("响应 ProtocolId = %q", rpid[:])
 	}
 	rhdr := make([]byte, 60)
-	if _, err := readFullN(c, rhdr); err != nil {
+	if _, err := io.ReadFull(c, rhdr); err != nil {
 		t.Fatal(err)
 	}
 	rbody := make([]byte, 62+56) // 响应体（62 SMB 2.1 结构 + 56 NTLMSSP CHALLENGE）
-	if _, err := readFullN(c, rbody); err != nil {
+	if _, err := io.ReadFull(c, rbody); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(rbody), "NTLMSSP") {
@@ -767,14 +802,14 @@ func TestSMB2FragmentedFrames(t *testing.T) {
 	}
 	// 读 STATUS_LOGON_FAILURE 响应。
 	var shdr [8]byte
-	if _, err := readFullN(c, shdr[:]); err != nil {
+	if _, err := io.ReadFull(c, shdr[:]); err != nil {
 		t.Fatal(err)
 	}
 	if string(shdr[:4]) != "\xfeSMB" {
 		t.Fatalf("响应 ProtocolId = %q", shdr[:4])
 	}
 	rest := make([]byte, 60)
-	if _, err := readFullN(c, rest); err != nil {
+	if _, err := io.ReadFull(c, rest); err != nil {
 		t.Fatal(err)
 	}
 	if status := binary.LittleEndian.Uint32(rest[0:4]); status != 0xC000006D {
@@ -869,7 +904,7 @@ func TestMSSQLUserNameClamp(t *testing.T) {
 		_ = c1.Close()
 	}()
 	hdr := make([]byte, 8)
-	if _, err := readFullN(c2, hdr); err != nil {
+	if _, err := io.ReadFull(c2, hdr); err != nil {
 		t.Fatal(err)
 	}
 	plen := int(binary.BigEndian.Uint16(hdr[2:4]))
@@ -877,7 +912,7 @@ func TestMSSQLUserNameClamp(t *testing.T) {
 		t.Fatalf("TDS 包长异常: %d", plen)
 	}
 	payload := make([]byte, plen-8)
-	if _, err := readFullN(c2, payload); err != nil {
+	if _, err := io.ReadFull(c2, payload); err != nil {
 		t.Fatal(err)
 	}
 	// token 布局：0xAA(1) + length(2) + number(4) + state(1) + class(1) + msg。

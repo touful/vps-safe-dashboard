@@ -1,8 +1,10 @@
 package honeypot
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"io"
 	"net"
 
 	"sentry-agent/internal/event"
@@ -20,7 +22,7 @@ func handleMongoDB(ctx context.Context, conn net.Conn, srcIP uint32, rec func(ev
 	for {
 		// 消息头：messageLength(4) + requestID(4) + responseTo(4) + opCode(4)。
 		var hdr [16]byte
-		if _, err := readFullN(conn, hdr[:]); err != nil {
+		if _, err := io.ReadFull(conn, hdr[:]); err != nil {
 			return
 		}
 		msgLen := int(binary.LittleEndian.Uint32(hdr[:4]))
@@ -30,7 +32,7 @@ func handleMongoDB(ctx context.Context, conn net.Conn, srcIP uint32, rec func(ev
 			return // 畸形长度（防御）
 		}
 		body := make([]byte, msgLen-16)
-		if _, err := readFullN(conn, body); err != nil {
+		if _, err := io.ReadFull(conn, body); err != nil {
 			return
 		}
 
@@ -324,18 +326,8 @@ func writeMongoMsg(conn net.Conn, msg []byte, reqID uint32) error {
 	out = append(out, 0, 0, 0, 0)   // flags
 	out = append(out, 0)            // section kind 0 = body
 	out = append(out, msg[16:]...)  // BSON doc
-	return writeAll2(conn, out)
-}
-
-// writeAll2 全量写入（忽略已关闭连接错误——蜜罐侧写失败无需上报）。
-func writeAll2(conn net.Conn, b []byte) error {
-	total := 0
-	for total < len(b) {
-		n, err := conn.Write(b[total:])
-		total += n
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	// writeAll2 已由标准库 io.Copy 取代（DEV-ARCH-002 A2：bytes.Reader 实现
+	// WriteTo，io.Copy 直连 conn.Write 循环，与手写全量写入语义一致）。
+	_, err := io.Copy(conn, bytes.NewReader(out))
+	return err
 }

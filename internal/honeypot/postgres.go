@@ -3,6 +3,7 @@ package honeypot
 import (
 	"context"
 	"encoding/binary"
+	"io"
 	"net"
 
 	"sentry-agent/internal/event"
@@ -22,7 +23,7 @@ import (
 func handlePostgres(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.CredEvent)) {
 	// 1. StartupMessage：长度（含自身 4 字节）+ 协议版本 + 参数对 + 终止 0。
 	var hdr [8]byte
-	if _, err := readFullN(conn, hdr[:4]); err != nil {
+	if _, err := io.ReadFull(conn, hdr[:4]); err != nil {
 		return
 	}
 	msgLen := int(binary.BigEndian.Uint32(hdr[:4]))
@@ -30,7 +31,7 @@ func handlePostgres(ctx context.Context, conn net.Conn, srcIP uint32, rec func(e
 		return // 畸形长度（防御）
 	}
 	body := make([]byte, msgLen-4)
-	if _, err := readFullN(conn, body); err != nil {
+	if _, err := io.ReadFull(conn, body); err != nil {
 		return
 	}
 	protoVer := binary.BigEndian.Uint32(body[:4])
@@ -50,7 +51,7 @@ func handlePostgres(ctx context.Context, conn net.Conn, srcIP uint32, rec func(e
 
 	// 3. PasswordMessage（p 消息：type 'p' + len + password\0）。
 	var phdr [5]byte
-	if _, err := readFullN(conn, phdr[:5]); err != nil {
+	if _, err := io.ReadFull(conn, phdr[:5]); err != nil {
 		return
 	}
 	if phdr[0] != 'p' {
@@ -61,7 +62,7 @@ func handlePostgres(ctx context.Context, conn net.Conn, srcIP uint32, rec func(e
 		return
 	}
 	pbuf := make([]byte, pLen)
-	if _, err := readFullN(conn, pbuf); err != nil {
+	if _, err := io.ReadFull(conn, pbuf); err != nil {
 		return
 	}
 	pass := string(pbuf[:len(pbuf)-1]) // 末尾 \0 剥离
@@ -124,15 +125,4 @@ func buildPGError(severity, message string) []byte {
 	return b
 }
 
-// readFullN 从连接读取固定长度字节（与 bufio 版 readFull 区分：直读 conn）。
-func readFullN(conn net.Conn, buf []byte) (int, error) {
-	total := 0
-	for total < len(buf) {
-		n, err := conn.Read(buf[total:])
-		total += n
-		if err != nil {
-			return total, err
-		}
-	}
-	return total, nil
-}
+

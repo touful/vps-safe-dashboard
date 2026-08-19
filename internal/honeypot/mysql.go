@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"io"
 	"net"
 
 	"sentry-agent/internal/event"
@@ -56,7 +57,7 @@ func handleMySQL(ctx context.Context, conn net.Conn, srcIP uint32, rec func(even
 
 	// 2. HandshakeResponse41（报文头 4 字节：3 字节长度 + 1 序号）。
 	hdr := make([]byte, 4)
-	if _, err := readFullN(conn, hdr); err != nil {
+	if _, err := io.ReadFull(conn, hdr); err != nil {
 		return
 	}
 	pktLen := int(hdr[0]) | int(hdr[1])<<8 | int(hdr[2])<<16 // 3 字节小端长度
@@ -64,7 +65,7 @@ func handleMySQL(ctx context.Context, conn net.Conn, srcIP uint32, rec func(even
 		return // 畸形长度（防御）
 	}
 	payload := make([]byte, pktLen)
-	if _, err := readFullN(conn, payload); err != nil {
+	if _, err := io.ReadFull(conn, payload); err != nil {
 		return
 	}
 	// 解析：capabilities(4) + max_packet(4) + charset(1) + reserved(23) →

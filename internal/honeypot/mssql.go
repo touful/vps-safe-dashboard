@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"io"
 	"net"
 
 	"sentry-agent/internal/event"
@@ -60,7 +61,7 @@ func handleMSSQL(ctx context.Context, conn net.Conn, srcIP uint32, rec func(even
 // 多包消息（status 0x01 表示还有后续包）由调用方决定——LOGIN7 单包场景足够。
 func readTDSPacket(conn net.Conn) ([]byte, error) {
 	var hdr [8]byte
-	if _, err := readFullN(conn, hdr[:]); err != nil {
+	if _, err := io.ReadFull(conn, hdr[:]); err != nil {
 		return nil, err
 	}
 	length := int(binary.BigEndian.Uint16(hdr[2:4]))
@@ -68,7 +69,7 @@ func readTDSPacket(conn net.Conn) ([]byte, error) {
 		return nil, nil // 畸形长度（防御）
 	}
 	payload := make([]byte, length-8)
-	if _, err := readFullN(conn, payload); err != nil {
+	if _, err := io.ReadFull(conn, payload); err != nil {
 		return nil, err
 	}
 	// 返回 type 前缀（调用方按 pkt[0] 分支）。

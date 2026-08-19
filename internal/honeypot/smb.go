@@ -1,10 +1,13 @@
 package honeypot
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"io"
 	"net"
+	"unicode/utf16"
 
 	"sentry-agent/internal/event"
 )
@@ -22,14 +25,14 @@ func handleSMB(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.
 	for {
 		// SMB2 头：ProtocolId 4 字节 "\xfeSMB"。
 		var pid [4]byte
-		if _, err := readFullN(conn, pid[:]); err != nil {
+		if _, err := io.ReadFull(conn, pid[:]); err != nil {
 			return
 		}
 		if string(pid[:]) != "\xfeSMB" {
 			return // 非 SMB2（SMB1 或畸形）：不处理
 		}
 		hdr := make([]byte, 60) // 剩余头（共 64 字节）
-		if _, err := readFullN(conn, hdr); err != nil {
+		if _, err := io.ReadFull(conn, hdr); err != nil {
 			return
 		}
 		// 头布局（hdr 从 StructureSize 起，即完整头偏移 4 处）：
@@ -48,7 +51,7 @@ func handleSMB(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.
 			}
 			// 回 Negotiate Response（NTLMSSP CHALLENGE）。
 			resp := buildSMB2NegotiateResponse(msgID)
-			if err := writeAll2(conn, resp); err != nil {
+			if _, err := io.Copy(conn, bytes.NewReader(resp)); err != nil {
 				return
 			}
 		case 0x0001: // SMB2 SESSION_SETUP
@@ -110,7 +113,7 @@ func readSMB2Body(conn net.Conn, hdr []byte) ([]byte, bool) {
 	switch cmd {
 	case 0x0000: // NEGOTIATE：28 字节固定 + dialects（DialectCount×2）。
 		body := make([]byte, 28)
-		if _, err := readFullN(conn, body); err != nil {
+		if _, err := io.ReadFull(conn, body); err != nil {
 			return nil, false
 		}
 		count := int(binary.LittleEndian.Uint16(body[2:4]))
@@ -118,13 +121,13 @@ func readSMB2Body(conn net.Conn, hdr []byte) ([]byte, bool) {
 			return nil, false // 畸形 DialectCount（防御）
 		}
 		dialects := make([]byte, count*2)
-		if _, err := readFullN(conn, dialects); err != nil {
+		if _, err := io.ReadFull(conn, dialects); err != nil {
 			return nil, false
 		}
 		return body, true
 	case 0x0001: // SESSION_SETUP：24 字节固定 + 安全缓冲（变长）。
 		fixed := make([]byte, 24)
-		if _, err := readFullN(conn, fixed); err != nil {
+		if _, err := io.ReadFull(conn, fixed); err != nil {
 			return nil, false
 		}
 		sbl := int(binary.LittleEndian.Uint16(fixed[14:16]))
@@ -132,7 +135,7 @@ func readSMB2Body(conn net.Conn, hdr []byte) ([]byte, bool) {
 			return nil, false // 畸形长度（防御）
 		}
 		extra := make([]byte, sbl)
-		if _, err := readFullN(conn, extra); err != nil {
+		if _, err := io.ReadFull(conn, extra); err != nil {
 			return nil, false
 		}
 		return append(fixed, extra...), true
@@ -270,22 +273,22 @@ func parseNTLMSSPAuth(b []byte) (string, string, string, bool) {
 }
 
 // utf16leToString 将消息内 UTF-16LE 字段转为字符串（截断 NUL）。
-// 注意（H-09）：按 code unit 直映（rune(u16)），未做代理对（surrogate pair）/
-// 组合字符合并等完整 Unicode 解码——蜜罐场景凭据用户名几乎为 BMP 字符，
-// 直映可接受；完整解码（utf16.Decode）留待有非 BMP 用户名捕获需求时。
+// 实现（DEV-ARCH-002 A3）：小端字节组合为 []uint16 → unicode/utf16.Decode——
+// 修复 H-09：代理对（surrogate pair）正确解码，非 BMP 字符（如 emoji）不再失真；
+// 孤立代理对由 utf16.Decode 替换为 U+FFFD（replacement char，符合 Unicode 语义）。
 func utf16leToString(b []byte, off, ln int) string {
 	if off < 0 || ln < 0 || off+ln > len(b) || ln%2 != 0 {
 		return ""
 	}
-	runes := make([]rune, 0, ln/2)
+	u16 := make([]uint16, 0, ln/2)
 	for i := 0; i+1 < ln; i += 2 {
 		u := binary.LittleEndian.Uint16(b[off+i : off+i+2])
 		if u == 0 {
-			break
+			break // 截断 NUL（与旧实现一致）
 		}
-		runes = append(runes, rune(u))
+		u16 = append(u16, u)
 	}
-	return string(runes)
+	return string(utf16.Decode(u16))
 }
 
 // writeSMB2Error 发送 SMB2 Error Response（SMB2_ERROR_RESPONSE：
@@ -313,5 +316,7 @@ func writeSMB2Error(conn net.Conn, command uint16, status uint32) error {
 	out = append(out, 0)    // ErrorContextCount
 	out = append(out, 0)    // Reserved
 	out = append(out, 0, 0, 0, 0) // ByteCount
-	return writeAll2(conn, out)
+	// writeAll2 已由标准库 io.Copy 取代（DEV-ARCH-002 A2）。
+	_, err := io.Copy(conn, bytes.NewReader(out))
+	return err
 }

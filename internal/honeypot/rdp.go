@@ -3,6 +3,7 @@ package honeypot
 import (
 	"context"
 	"encoding/binary"
+	"io"
 	"net"
 	"strings"
 
@@ -19,7 +20,7 @@ func handleRDP(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.
 	// X.224 Connection Request：TPKT 头（3 字节 len + 1 字节 0）+ X.224 CR。
 	// TPKT 头：version(1)=3 + reserved(1)=0 + length(2)。
 	var tpkt [4]byte
-	if _, err := readFullN(conn, tpkt[:]); err != nil {
+	if _, err := io.ReadFull(conn, tpkt[:]); err != nil {
 		return
 	}
 	if tpkt[0] != 3 {
@@ -30,7 +31,7 @@ func handleRDP(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.
 		return
 	}
 	cr := make([]byte, tpktLen-4)
-	if _, err := readFullN(conn, cr); err != nil {
+	if _, err := io.ReadFull(conn, cr); err != nil {
 		return
 	}
 	// X.224 CR 结构（MS-RDPBCGR 2.2.1.1）：

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"io"
 	"net"
 	"strings"
 	"testing"
@@ -236,7 +237,7 @@ func TestPostgresCapture(t *testing.T) {
 
 	// 读 R 消息（AuthenticationCleartextPassword：R + len 8 + code 3）。
 	var rbuf [9]byte
-	if _, err := readFullN(c, rbuf[:]); err != nil {
+	if _, err := io.ReadFull(c, rbuf[:]); err != nil {
 		t.Fatal(err)
 	}
 	if rbuf[0] != 'R' || binary.BigEndian.Uint32(rbuf[5:9]) != 3 {
@@ -259,7 +260,7 @@ func TestPostgresCapture(t *testing.T) {
 	// ErrorResponse：E 消息（FATAL）。PG 协议 length 字段从自身开始计数，
 	// body 长度 = elen - 4。
 	var ehdr [5]byte
-	if _, err := readFullN(c, ehdr[:]); err != nil {
+	if _, err := io.ReadFull(c, ehdr[:]); err != nil {
 		t.Fatal(err)
 	}
 	if ehdr[0] != 'E' {
@@ -267,7 +268,7 @@ func TestPostgresCapture(t *testing.T) {
 	}
 	elen := int(binary.BigEndian.Uint32(ehdr[1:5]))
 	ebody := make([]byte, elen-4)
-	if _, err := readFullN(c, ebody); err != nil {
+	if _, err := io.ReadFull(c, ebody); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(string(ebody), "SFATAL\x00M") {
