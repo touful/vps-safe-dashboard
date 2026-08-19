@@ -1,0 +1,12 @@
+[OK] telnet -> user='admin' pass='secr3t'
+[OK] ftp -> user='anonymous' pass='guest@x.com'
+[OK] redis -> user='user' pass='pass1234'
+[OK] postgres -> user='postgres' pass='cleartext1'
+[OK] mysql -> user='root' pass='303132333435363738394142434445464748494a'
+[OK] mongodb -> user='admin' pass=''
+[OK] mssql -> user='sa' pass='01a402a3'
+[OK] smb -> user='WORKGROUP\\attacker' pass='000102030405060708090a0b0c0d0e0f'
+[OK] rdp -> user='' pass=''
+[OK] memcached -> user='' pass=''
+API rows: 35
+RESULT: ALL_MATCH

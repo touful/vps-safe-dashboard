@@ -1,0 +1,51 @@
+=== 畸形输入 v2（独立源 IP 绕过限速，共 46 用例；等待类用例 35s 兜底复核）===
+[CLOSED_30S] telnet IAC 截断 #0 src=127.0.0.2 banner=20 30s
+[CLOSED_30S] telnet IAC 截断 #1 src=127.0.0.3 banner=20 30s
+[CLOSED_30S] telnet IAC 截断 #2 src=127.0.0.4 banner=27 30s
+[CLOSED_30S] telnet IAC 截断 #3 src=127.0.0.5 banner=20 30s
+[CLOSED_30S] telnet IAC 截断 #4 src=127.0.0.6 banner=20 30s
+[CLOSED_30S] telnet IAC 截断 #5 src=127.0.0.7 banner=20 30s
+[CLOSED_30S] ftp 半包/超长 #0 src=127.0.0.8 banner=22 30s
+[CLOSED_30S] ftp 半包/超长 #1 src=127.0.0.9 banner=22 30s
+[CLOSED_30S] ftp 半包/超长 #2 src=127.0.0.10 banner=22 30s
+[CLOSED_30S] ftp 半包/超长 #3 src=127.0.0.11 banner=22 30s
+[CLOSED_30S] ftp 半包/超长 #4 src=127.0.0.12 banner=22 30s
+[CLOSED_30S] ftp 半包/超长 #5 src=127.0.0.13 banner=22 30s
+[CLOSED_30S] redis RESP 畸形 #0 src=127.0.0.14 banner=0 28s
+[CLOSED_30S] redis RESP 畸形 #1 src=127.0.0.15 banner=0 28s
+[CLOSED_30S] redis RESP 畸形 #2 src=127.0.0.16 banner=0 28s
+[CLOSED_30S] redis RESP 畸形 #3 src=127.0.0.17 banner=0 28s
+[CLOSED_30S] redis RESP 畸形 #4 src=127.0.0.18 banner=0 28s
+[CLOSED_30S] redis RESP 畸形 #5 src=127.0.0.19 banner=0 28s
+[CLOSED_30S] redis RESP 畸形 #6 src=127.0.0.20 banner=0 28s
+[CLOSED_30S] redis RESP 畸形 #7 src=127.0.0.21 banner=0 28s
+[CLOSED] postgres startup 畸形 #0 src=127.0.0.22 banner=0 0s
+[CLOSED_30S] postgres startup 畸形 #1 src=127.0.0.23 banner=0 28s
+[CLOSED] postgres startup 畸形 #2 src=127.0.0.24 banner=0 0s
+[CLOSED] postgres startup 畸形 #3 src=127.0.0.25 banner=0 0s
+[CLOSED] postgres startup 畸形 #4 src=127.0.0.26 banner=0 0s
+[CLOSED] mysql 握手异常 #0 src=127.0.0.27 banner=78 0s
+[CLOSED] mysql 握手异常 #1 src=127.0.0.28 banner=78 0s
+[CLOSED] mysql 握手异常 #2 src=127.0.0.29 banner=78 0s
+[CLOSED] mysql 握手异常 #3 src=127.0.0.30 banner=78 0s
+[CLOSED] mongodb OP 头长度异常 #0 src=127.0.0.31 banner=0 0s
+[CLOSED_30S] mongodb OP 头长度异常 #1 src=127.0.0.32 banner=0 28s
+[CLOSED] mongodb OP 头长度异常 #2 src=127.0.0.33 banner=0 0s
+[CLOSED_30S] mssql TDS 头长度异常 #0 src=127.0.0.34 banner=0 28s
+[CLOSED_30S] mssql TDS 头长度异常 #1 src=127.0.0.35 banner=0 28s
+[CLOSED_30S] mssql TDS 头长度异常 #2 src=127.0.0.36 banner=0 28s
+[CLOSED] smb 分片错乱 #0 src=127.0.0.37 banner=0 0s
+[CLOSED] smb 分片错乱 #1 src=127.0.0.38 banner=0 0s
+[CLOSED] smb 分片错乱 #2 src=127.0.0.39 banner=0 0s
+[CLOSED] smb 分片错乱 #3 src=127.0.0.40 banner=0 0s
+[CLOSED_30S] rdp X.224 截断 #0 src=127.0.0.41 banner=0 28s
+[CLOSED] rdp X.224 截断 #1 src=127.0.0.42 banner=0 0s
+[CLOSED_30S] rdp X.224 截断 #2 src=127.0.0.43 banner=0 28s
+[CLOSED_30S] memcached 命令/二进制畸形 #0 src=127.0.0.44 banner=0 28s
+[CLOSED_30S] memcached 命令/二进制畸形 #1 src=127.0.0.45 banner=0 28s
+[CLOSED_30S] memcached 命令/二进制畸形 #2 src=127.0.0.46 banner=0 28s
+[CLOSED_30S] memcached 命令/二进制畸形 #3 src=127.0.0.47 banner=0 28s
+=== 汇总 ===
+CLOSED=15 CLOSED_30S=31 HANG=0 CONN_FAIL=0 总=46
+agent health=200
+（注：每用例独立源 IP，限速不生效；CLOSED=解析器立即关闭；CLOSED_30S=30s 超时兜底关闭（connTimeout 设计）；HANG=超过 35s 未关闭（缺陷））

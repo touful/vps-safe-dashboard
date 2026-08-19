@@ -68,8 +68,8 @@
 | 项目 | 结果 |
 | :--- | :--- |
 | `go build ./...` / `go vet ./...` | exit 0 |
-| `go test ./...` | **19 包全绿**（含新包 dbdsn；输出落盘 gotest_all.txt） |
-| 重点包 -count=1 非缓存 | api 40.7s / store 16.4s / honeypot 3.7s / config / archive / f2b / fw / ssh / dbdsn 全绿 |
+| `go test ./...` | **17 包 ok + 2 包无测试文件**（internal/diskutil、tools/archive-trigger；输出落盘 gotest_all.txt，全量缓存命中——Go 内容寻址缓存，代码未变时有效） |
+| 重点包 -count=1 非缓存 | api 40.7s / store 16.4s / honeypot 3.7s / config / archive / f2b / fw / ssh / dbdsn 全绿（非缓存重跑） |
 | Linux amd64 交叉编译 | exit 0 |
 
 **D 收敛专项（diskmon 直连 diskutil）**：diskmon.go:49-52（D11 直连 diskutil.UsagePercent，原 archive.DiskUsagePercent）+ api/disk_linux.go:12 + collect/disk_linux.go:30 三处统一 diskutil（代码确认）；diskmon 包测试全绿（0.329s）
@@ -101,11 +101,11 @@
 
 ## 6. 证据四态声明
 
-- **已验证**：§2.1-§2.8 全部——原始输出落盘 evidence/TEST-ARCH-001/（test_execution_evidence.txt 执行摘要、gotest_all.txt 19 包输出、xtime_equivalence_tests.txt 5 个等价性测试 -v、shouldstart_honeypot_test.txt、ratelimit_429.txt 429 序列+Retry-After）；单测输出、curl 状态码、浏览器 DOM 计数、脚本 stdout 均有记录
+- **已验证**：§2.1-§2.8 全部——原始输出落盘 evidence/TEST-ARCH-001/（test_execution_evidence.txt 执行摘要、gotest_all.txt 17 包输出、xtime_equivalence_tests.txt 5 个等价性测试 -v、shouldstart_honeypot_test.txt、ratelimit_429.txt 429 序列+Retry-After、build_vet_linux.txt 退出码、integration_10proto.txt 集成 stdout、emoji_proxypair.txt、malformed_46cases.txt 畸形输出、frontend_dom.txt DOM 计数）；单测输出、curl 状态码、浏览器 DOM 计数、脚本 stdout 均有记录
 - 已观察：无
 - 推断：无
 - 未验证：见 §4
-- **证据提交**：git c64f9ac（报告+证据首版）+ 整改提交（本修订）
+- **证据提交**：git c64f9ac（报告+证据首版）+ c6d9b0d（reviewer R1 整改）+ 本修订提交
 
 ## 7. 复现步骤
 

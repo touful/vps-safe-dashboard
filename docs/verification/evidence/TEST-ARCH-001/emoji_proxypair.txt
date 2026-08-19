@@ -1,0 +1,3 @@
+smb rows=7, emoji-hit=1
+username='WORKGROUP\\\\\\U0001f600\\u4e2dadmin' (len=17)
+EMOJI PROXY PAIR DECODE: PASS
