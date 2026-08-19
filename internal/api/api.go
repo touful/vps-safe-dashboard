@@ -18,6 +18,7 @@ import (
 
 	_ "modernc.org/sqlite" // 与主库一致
 
+	"sentry-agent/internal/dbdsn"
 	"sentry-agent/internal/event"
 	"sentry-agent/internal/web"
 )
@@ -55,7 +56,7 @@ type Server struct {
 // allowNoOrigin：监听回环地址时允许无 Origin 的 WS 请求（本机 CLI 工具场景）；
 // 非回环地址时拒绝（M-02：防止任意远程客户端绕过 Origin 白名单直连）。
 func NewServer(dbPath, archiveDir, wsOrigin string, allowNoOrigin bool, snapshotFn func() *event.ConnSnapshot) (*Server, error) {
-	db, err := sql.Open("sqlite", "file:"+urlPathEscape(dbPath)+"?mode=ro&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", dbdsn.ReadOnly(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("打开只读连接失败: %w", err)
 	}
@@ -292,12 +293,6 @@ func eqConds(q url.Values, keys []string) ([]string, []any) {
 	return conds, args
 }
 
-// urlPathEscape 路径 URL 编码（R-05：统一为 url.PathEscape，与 store/f2b 同规则；
-// SQLite URI 模式对 %XX 解码，转义 '?'/'#'/'%' 等 DSN 特殊字符）。
-func urlPathEscape(p string) string {
-	return url.PathEscape(p)
-}
-
 // ---- handlers ----
 
 // hHealth 健康检查（方案 3.7；R-06：ok 基于 meta 查询成败判定，DB 故障时返回 500 + ok:false）。
@@ -351,9 +346,20 @@ func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {
 	from := rangeSeconds(r)
 
 	var fwCnt, sshFail, sshOK int64
-	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM firewall_events WHERE ts >= ?`, from).Scan(&fwCnt)
-	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ssh_attempts WHERE ts >= ? AND result = 0`, from).Scan(&sshFail)
-	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ssh_attempts WHERE ts >= ? AND result = 1`, from).Scan(&sshOK)
+	// DEV-ARCH-002 C6：三个 COUNT 查询任一失败 → 500（防 DB 故障时"零攻击"假象，
+	// 与 hFirewallTimeline 等 handler 一致；原实现静默吞错）。
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM firewall_events WHERE ts >= ?`, from).Scan(&fwCnt); err != nil {
+		writeErr(w, 500, "查询失败: "+err.Error())
+		return
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ssh_attempts WHERE ts >= ? AND result = 0`, from).Scan(&sshFail); err != nil {
+		writeErr(w, 500, "查询失败: "+err.Error())
+		return
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ssh_attempts WHERE ts >= ? AND result = 1`, from).Scan(&sshOK); err != nil {
+		writeErr(w, 500, "查询失败: "+err.Error())
+		return
+	}
 
 	// 攻击端口 TOP（防火墙 DPT 口径，方案 3.4 强制：只允许 DPT；与 hTopPorts
 	// 同口径——统计所有防火墙事件，inbound 扫描探测/reject 拦截/drop 丢弃均计入）。

@@ -223,7 +223,9 @@ func main() {
 	// DEV-HONEY-001：蜜罐假服务（仅落库模式；凭据事件经 Cred 通道落 cred_events 表）。
 	// 默认关闭（config honeypot.enabled=false 保守）；启用时每个协议独立监听 goroutine，
 	// 单协议监听失败仅留痕不崩溃（其余协议继续）。
-	if cfg.Honeypot.Enabled {
+	// DEV-ARCH-002 C7：stdout 模式（-stdout debug）不启动蜜罐——out 输出器不消费
+	// Cred 通道，启动会导致凭据事件无消费者（通道满后丢弃）；与"仅落库模式"注释一致。
+	if !*stdoutMode && cfg.Honeypot.Enabled {
 		startProducer(func() {
 			hp := honeypot.NewServer(cfg.Honeypot.Listen, ch.Cred, ch.System)
 			if err := hp.Run(ctx); err != nil {
