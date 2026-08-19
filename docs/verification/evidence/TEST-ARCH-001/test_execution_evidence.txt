@@ -1,0 +1,40 @@
+=== TEST-ARCH-001 测试执行记录（基线 0b5e36f）===
+
+== 1. 行为变更 ==
+hSummary 正常路径：主库实例 summary fw_events=110 ssh_fail=56 ssh_ok=5（COUNT 正确非零）
+hSummary DB 故障：TestSummaryDBDown 单测 PASS（srv.db.Close() → 500，0.11s）
+stdout 模式：-stdout + honeypot.enabled=true → 蜜罐 10 端口全部不监听（13306/16379/10023/10021/11433/17017/15432/13389/1445/11212 全 False）
+非 stdout 对照：蜜罐端口监听（13306/16379 True）+ 集成 ALL_MATCH
+stdout 模式 web 不启动为既有设计（main.go L153 '仅落库模式'，非回归）
+
+== 2. x/time 限流等价性 ==
+页面节奏 7 轮轮询 0 拒绝（heavy=100 配置下）
+heavy_limit_rps=1 实例：attacks/geo 8 连 → 200×6 + 429×2 + Retry-After:1（与 TEST-GEO-001 基线 200×6+429×3 模式一致）
+honeypot 限流等价性单测：TestRateLimiter/TestRateLimiterSweep/TestRateLimiterOverflowRebuild/TestServerRateLimitReject/TestServerConcurrentLimit 全 PASS
+
+== 3. 蜜罐零回归 ==
+集成脚本 10 协议 ALL_MATCH（telnet/ftp/redis/postgres/mysql/mongodb/mssql/smb/rdp/memcached 全 [OK]）
+畸形复测（scripts/honeypot_malformed.py 全量 35s）：CLOSED=15 + CLOSED_30S=31 + HANG=0 + CONN_FAIL=0，agent health=200（与 TEST-HONEY-001 基线一致）
+utf16 代理对（H-09 修复）：smb 用户名 '😀中admin'（U+1F600 代理对 D83D DE00）→ API 捕获 'WORKGROUP\\😀中admin' len=17 正确解码 → EMOJI PROXY PAIR DECODE: PASS
+
+== 4. dbdsn 收敛 ==
+api.go:59 / f2b.go:108 / store.go:212 三处统一 dbdsn.ReadOnly/ReadWrite
+ReadOnly='file:<PathEscape>?mode=ro&_pragma=busy_timeout(5000)'；ReadWrite=WAL+synchronous=NORMAL+busy_timeout+foreign_keys
+契约测试 dbdsn_test.go + api_pure_test.go（URL 编码：空格/问号/#/%/&）全 PASS
+
+== 5. HH:MM 收敛 ==
+config.ParseHourMinute 导出（config.go:509）严格 HH:MM（len==5+':'+数字+h<=23/m<=59）；archive.go:335 复用
+旧 Sscanf 宽松解析差异由 config.Validate 拦截前提消除（config.go:410 校验）；TestParseHourMinute 边界测试 PASS
+
+== 6. 死代码/死配置 ==
+log.level 全仓库 grep count=0（含测试/脚本/文档，排除 docs/verification 历史报告）
+DefaultCriticalUsagePct/MonthOf 代码零残留（仅 docs/verification 历史报告提及）
+
+== 7. 全量回归 ==
+go build/vet exit 0；go test ./... 19 包全绿（含新包 dbdsn）；重点包 -count=1 非缓存全绿（api 40.7s/store 16.4s/honeypot 3.7s/config/archive/f2b/fw/ssh/dbdsn）
+Linux amd64 交叉编译 exit 0；go.mod 新增仅 golang.org/x/time v0.15.0（cb5bf62）
+
+== 8. 前端/API 冒烟 ==
+关键 API 全 200：health/summary/attacks/geo/honeypot/events/export/csv?range=24h
+页面渲染：标题'VPS安全态势'、四页签（总览/连接/攻击/数据导出）可切换、18 卡片、5 表格、攻击页蜜罐卡+地图 canvas+hp-table 60 行
+summary COUNT 非零正确（fw=110/ssh_fail=56/ssh_ok=5）
