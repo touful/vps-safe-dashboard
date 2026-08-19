@@ -1,0 +1,12 @@
+=== RUN   TestTokenBucketPageRhythm
+    ratelimit_rhythm_test.go:41: 椤甸潰鑺傚妯℃嫙锛? 杞叡 19 涓?heavy 璇锋眰锛屾嫆缁?0 涓?--- PASS: TestTokenBucketPageRhythm (30.03s)
+=== RUN   TestTokenBucketBurstReject
+--- PASS: TestTokenBucketBurstReject (0.00s)
+=== RUN   TestTokenBucket
+--- PASS: TestTokenBucket (1.10s)
+=== RUN   TestTokenBucketCap
+--- PASS: TestTokenBucketCap (1.10s)
+=== RUN   TestTokenBucketConcurrent
+--- PASS: TestTokenBucketConcurrent (0.00s)
+PASS
+ok  	sentry-agent/internal/api	32.329s

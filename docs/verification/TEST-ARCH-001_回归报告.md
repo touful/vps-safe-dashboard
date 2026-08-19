@@ -18,17 +18,25 @@
 - DB 故障注入：`TestSummaryDBDown` 单测 PASS（srv.db.Close() → 500，0.11s）——DB 故障不再静默返回零值 ✓
 
 **stdout 模式蜜罐禁用**：
-- `-stdout` + honeypot.enabled=true → **蜜罐 10 端口全部不监听**（13306/16379/10023/10021/11433/17017/15432/13389/1445/11212 全 False）✓
-- 非 stdout 对照：蜜罐端口监听（13306/16379 True）+ 集成 ALL_MATCH ✓
-- shouldStartHoneypot 纯函数（main.go:397-398 `!stdoutMode && enabled`）代码确认
+- `-stdout` + honeypot.enabled=true → **蜜罐 10 端口全部不监听**（13306/16379/10023/10021/11433/17017/15432/13389/1445/11212 全 False；探测方法：Test-NetConnection TCP connect，落盘 evidence）
+- 非 stdout 对照：蜜罐端口监听（13306/16379 True）+ 集成 ALL_MATCH——**对照实验排除"蜜罐启动失败（端口占用/二进制故障）"混淆**（同二进制非 stdout 模式蜜罐正常监听并捕获凭据）✓
+- shouldStartHoneypot 纯函数（main.go:397-398 `!stdoutMode && enabled`）代码确认 + **单测 TestShouldStartHoneypot PASS**（main_test.go:41-59，4 用例覆盖 stdout+enabled→false 等，落盘 evidence）
 - 注：stdout 模式 web 不启动为既有设计（main.go:153"仅落库模式"），非本次变更
 
 ### 2.2 x/time 迁移等价性（回归点 2）
 
-- 页面节奏 7 轮轮询 **0 拒绝**（heavy=100 配置下）✓
-- heavy_limit_rps=1 独立实例：attacks/geo 8 连 → **200×6 + 429×2 + Retry-After:1**——与 TEST-GEO-001 基线（同配置 200×6+429×3）模式一致 ✓
-- honeypot 限流等价性单测全 PASS：TestRateLimiter / TestRateLimiterSweep / TestRateLimiterOverflowRebuild / TestServerRateLimitReject / TestServerConcurrentLimit ✓
-- go.mod 新增**仅** `golang.org/x/time v0.15.0`（cb5bf62 引入）✓
+**迁移对象确认**：x/time 仅被 `internal/api/ratelimit.go` 引用（tokenBucket 薄封装 → rate.Limiter，newTokenBucket/allow API 不变）；蜜罐限流器（internal/honeypot/ratelimit.go）为独立手写实现，未迁移。
+
+**等价性单测（internal/api，5 个全 PASS，-count=1 -v 输出落盘）**：
+- TestTokenBucket / TestTokenBucketCap / TestTokenBucketConcurrent（ratelimit_test.go）
+- **TestTokenBucketPageRhythm**（ratelimit_rhythm_test.go，30.03s）：**页面节奏模拟 7 轮共 19 个 heavy 请求，拒绝 0**——即任务书"页面节奏 7 轮 19 heavy 0 拒绝"（1rps/burst 3 单测）
+- TestTokenBucketBurstReject（burst 拒绝语义）
+
+**动态验证**：
+- heavy_limit_rps=1 独立实例：attacks/geo **8 连发** → 200×6 + 429×2 + Retry-After:1（落盘 ratelimit_429.txt）
+- 对比口径：TEST-GEO-001 基线为 **9 连发** 200×6+429×3（burst 6 下第 7-9 个 429）——**429 数差 = 请求数差（8 vs 9），burst 语义一致**，非行为变化
+
+**go.mod**：新增仅 `golang.org/x/time v0.15.0`（cb5bf62 引入，git diff 确认）✓
 
 ### 2.3 蜜罐零回归（回归点 3）
 
@@ -60,9 +68,11 @@
 | 项目 | 结果 |
 | :--- | :--- |
 | `go build ./...` / `go vet ./...` | exit 0 |
-| `go test ./...` | **19 包全绿**（含新包 dbdsn） |
+| `go test ./...` | **19 包全绿**（含新包 dbdsn；输出落盘 gotest_all.txt） |
 | 重点包 -count=1 非缓存 | api 40.7s / store 16.4s / honeypot 3.7s / config / archive / f2b / fw / ssh / dbdsn 全绿 |
 | Linux amd64 交叉编译 | exit 0 |
+
+**D 收敛专项（diskmon 直连 diskutil）**：diskmon.go:49-52（D11 直连 diskutil.UsagePercent，原 archive.DiskUsagePercent）+ api/disk_linux.go:12 + collect/disk_linux.go:30 三处统一 diskutil（代码确认）；diskmon 包测试全绿（0.329s）
 
 ### 2.8 前端/API 冒烟（回归点 8）
 
@@ -86,15 +96,16 @@
 
 ## 5. 风险/不确定点
 
-1. ParseHourMinute 严格化（旧 Sscanf 接受 "1:2" 等宽松格式）——行为差异仅在非法配置路径，被 config.Validate 拦截前提消除；若未来有绕过 Validate 直接调 archive 的路径需注意（当前无）
-2. x/time rate 的滑动窗口与旧 tokenBucket 的精确窗口语义差异——实测限流行为（429 时机/Retry-After）与基线一致，但极端边界（长时间满负荷）未压测
+1. ParseHourMinute 严格化（旧 Sscanf 接受 "1:2" 等宽松格式）——行为差异仅在非法配置路径，被 config.Validate 拦截前提消除（config.go:410 校验）；**存量配置兼容性**：若已部署实例配置含旧宽松值（如 "1:2"），升级后 Validate 将报错启动失败——需在升级说明中提示（当前仓库内配置均为合法 HH:MM，无实际影响）
+2. x/time rate 的滑动窗口与旧 tokenBucket 的精确窗口语义差异——实测限流行为（429 时机/Retry-After/burst）与基线一致，但极端边界（长时间满负荷）未压测
 
 ## 6. 证据四态声明
 
-- 已验证：§2.1-§2.8 全部（执行记录落盘 evidence/TEST-ARCH-001/test_execution_evidence.txt；单测输出、curl 状态码、浏览器 DOM 计数、脚本 stdout）
+- **已验证**：§2.1-§2.8 全部——原始输出落盘 evidence/TEST-ARCH-001/（test_execution_evidence.txt 执行摘要、gotest_all.txt 19 包输出、xtime_equivalence_tests.txt 5 个等价性测试 -v、shouldstart_honeypot_test.txt、ratelimit_429.txt 429 序列+Retry-After）；单测输出、curl 状态码、浏览器 DOM 计数、脚本 stdout 均有记录
 - 已观察：无
 - 推断：无
 - 未验证：见 §4
+- **证据提交**：git c64f9ac（报告+证据首版）+ 整改提交（本修订）
 
 ## 7. 复现步骤
 

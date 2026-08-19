@@ -1,0 +1,4 @@
+=== RUN   TestShouldStartHoneypot
+--- PASS: TestShouldStartHoneypot (0.00s)
+PASS
+ok  	sentry-agent/cmd/sentry-agent	0.084s
