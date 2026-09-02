@@ -16,6 +16,9 @@
  *          design-taste（反 AI 默认/圆角锁定/对比度纪律）、industrial-brutalist（战术遥测气质/等宽数字）、
  *          redesign-existing-projects（focus 可见性/状态完备）、stitch-design-taste（密度>7 数字全等宽）。
  * 语义色（ok/warn/danger）保持 DEV-014 基线不变——用户认知资产，不更换。
+ * FE-R4（2026-09 第四轮氛围精修，preserve-then-refine）：指挥室纵深氛围层（暗角/噪点/能量线）、
+ *          战术细节（h1 铭牌副标/卡片仪表编号/状态点雷达涟漪）、交互微精修（hover 左缘指示/
+ *          selection/焦点环收敛/字体渲染/Firefox 滚动条）——全部静态效果，零新增动画，零 JS 改动。
  */
 :root {
   /* 背景四层（冷石墨）：页面底 → 下沉层 → 卡片 → hover → 悬浮 */
@@ -67,6 +70,8 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+/* FE-R4（2026-09 氛围精修）：Firefox 细滚动条（对齐 ::-webkit-scrollbar 视觉） */
+html { scrollbar-color: var(--border) transparent; scrollbar-width: thin; }
 
 body {
   font-family: var(--font-ui);
@@ -80,7 +85,30 @@ body {
   font-size: 13px; /* DEV-FE-003：D4 正文档（方案 4.2 全尺度化） */
   line-height: 1.55;
   min-height: 100vh;
+  /* FE-R4：深色面板文字渲染（细字重下抗锯齿，深底浅字更纯净） */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* ===== FE-R4 氛围层（"指挥室"纵深，两个静态 fixed 覆盖层，零动画零重绘） =====
+ * 暗角：镜头边缘缓降暗化（radial 55% 内全透明，不触碰首屏核心数据区），
+ *       制造 CRT 屏幕内凹感；pointer-events:none 不拦截交互。
+ * 噪点：SVG feTurbulence 120px 平铺微颗粒（opacity 2.2%），对抗大面积纯色底的塑料感；
+ *       静态渲染一次，不随滚动重绘（1C1G 性能红线内）。
+ * 层级：20——盖过内容与 header(10)（暗角本应罩全屏），低于 sys-toast(30)/tooltip(40)。 */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: 20; pointer-events: none;
+  background: radial-gradient(ellipse 130% 100% at 50% 38%, transparent 58%, rgba(3, 6, 10, 0.34) 100%);
+}
+body::after {
+  content: ""; position: fixed; inset: 0; z-index: 20; pointer-events: none; opacity: 0.022;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* FE-R4：选区冰蓝（与强调色一致的全局微细节） */
+::selection { background: rgba(88, 166, 255, 0.28); color: var(--text); }
+/* FE-R4：全局焦点环收敛兜底（各控件已有单独定义，此处覆盖 select/summary 等遗漏件） */
+:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
 /* ---- 一次性入场（页面加载 stagger，无循环；prefers-reduced-motion 关闭） ---- */
 @keyframes fade-up {
@@ -98,14 +126,29 @@ header {
   position: sticky; top: 0; z-index: 10;
   padding: 8px var(--space-6); /* DEV-FE-002：chrome 压缩（方案 8.1） */
   background: var(--bg-page);
+  /* FE-R4：底边"能量线"——冰蓝自 logo 侧流出渐隐入石墨 hairline。
+   * 实现：::after 绝对定位 1px 渐变条（border-image 1px 切片在低 DPI 下渐变不可辨，
+   * 目检反馈后改为伪元素方案，渲染明确）；静态无动画。 */
   border-bottom: 1px solid var(--border);
   display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap;
+}
+header::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+  background: linear-gradient(90deg, rgba(88, 166, 255, 0.9), rgba(88, 166, 255, 0.45) 24%, rgba(88, 166, 255, 0.12) 45%, rgba(42, 52, 65, 0.9) 70%, var(--border));
+  pointer-events: none;
 }
 header h1 {
   font-size: 15px; margin: 0; font-weight: 600; letter-spacing: 0.3px;
   color: var(--text); display: flex; align-items: center; gap: 8px;
   font-family: var(--font-display); /* DEV-047 A1：标题字体（Bahnschrift 工业压缩感） */
   position: relative; overflow: hidden; /* DEV-047 F1：logo 扫描线裁剪容器 */
+}
+/* FE-R4：h1 战术副标——等宽宽字距英文小标，指挥室仪表铭牌感（纯装饰，读屏友好隐藏） */
+.h1-tag {
+  font-family: var(--font-num); font-size: 9.5px; font-weight: 400;
+  color: var(--text-faint); letter-spacing: 2.5px;
+  margin-left: 2px; padding-left: 10px; border-left: 1px solid var(--border-soft);
+  align-self: center; white-space: nowrap;
 }
 .logo-ico { width: 22px; height: 22px; color: var(--accent); flex: none; } /* DEV-047 F1：18px → 22px 提权 */
 /* DEV-047 F1：logo hover 200ms 扫描线（CSS 伪元素 1 次动画，非循环；reduced-motion 关闭）。
@@ -299,9 +342,16 @@ td.ts-cell {
   transition: background-color var(--t-fast) var(--ease);
 }
 #situation-bar:hover { background: var(--bg-hover); }
+/* FE-R4：状态点静态雷达涟漪——双层同色扩散环（box-shadow 静态，零动画成本），
+ * 替代原中性白晕；态势条为面板最高优先级结论，状态点需要"仪表指示灯"级存在感 */
 #situation-bar .sit-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04); }
-#situation-bar.ok .sit-dot { background: var(--ok); }
-#situation-bar.warn .sit-dot { background: var(--warn); }
+#situation-bar.ok .sit-dot { background: var(--ok); box-shadow: 0 0 0 3px rgba(63, 185, 80, 0.14), 0 0 0 7px rgba(63, 185, 80, 0.05); }
+#situation-bar.warn .sit-dot { background: var(--warn); box-shadow: 0 0 0 3px rgba(210, 153, 34, 0.16), 0 0 0 7px rgba(210, 153, 34, 0.05); }
+/* FE-R4：态势条状态微染——warn 态左起琥珀 6% 渐隐（低于任何语义阈值可见度，
+ * hover 纯色优先）；ok 态保持中性底（绿色大面积染底有"一切正常"的误导性庆祝感） */
+#situation-bar.warn {
+  background: linear-gradient(90deg, rgba(210, 153, 34, 0.06), transparent 55%), var(--bg-card);
+}
 #situation-bar .sit-num { font-size: 18px; font-weight: 600; font-family: var(--font-num); color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: -0.5px; line-height: 1; margin: 0 2px; }
 #situation-bar .sit-toggle {
   margin-left: auto; background: none; border: 1px solid var(--border-soft); color: var(--text-dim);
@@ -422,11 +472,19 @@ details.fold summary:focus-visible { outline: 1px solid var(--accent); outline-o
 /* 表格 zebra 交替行（--bg-inset）+ 行点击过滤（方案 3.5/7.5） */
 tbody tr:nth-child(even) { background: var(--bg-inset); }
 tbody tr:hover { background: var(--bg-hover); }
+/* FE-R4：表格 hover 行左缘冰蓝指示条（24px 内渐隐；background-image 独立叠加，
+ * 不覆盖 zebra/hover 底色；row-highlight 的 !important 优先级不受影响） */
+tbody tr:hover { background-image: linear-gradient(90deg, rgba(88, 166, 255, 0.35), rgba(88, 166, 255, 0) 24px); }
 tr.row-clickable { cursor: pointer; }
 tr.row-clickable:hover td { color: var(--text); }
 tr.row-highlight { background: rgba(88, 166, 255, 0.12) !important; } /* DEV-FE-003：跟随 --accent-strong（#58A6FF）数据强调 */
 td.clickable { cursor: pointer; }
 td.clickable:hover { color: var(--text); background: rgba(76, 154, 255, 0.06); }
+
+/* FE-R4：表格三态占位行前置符号（等宽字体符号，空态/加载态的视觉锚点；
+ * error-row 保持纯文字红色不加符号——错误语义本身已是强调） */
+.empty-row::before { content: "∅  "; font-family: var(--font-num); color: var(--text-faint); }
+.loading-row::before { content: "◔  "; font-family: var(--font-num); color: var(--text-faint); }
 
 @media (max-width: 720px) {
   #situation-bar { padding-left: var(--space-3); padding-right: var(--space-3); }
@@ -491,6 +549,15 @@ main { padding: var(--space-4) var(--space-6) var(--space-8); }
   border-radius: 1px; background: var(--accent-strong); opacity: 0.55;
 }
 .card h3[data-accent="danger"]::before { background: var(--danger); }
+/* FE-R4：卡片头仪表编号——h3[data-idx] 静态属性（每页独立 01 起，避免 CSS counter
+ * 在 display:none 页签间单调累积的跨页编号缺陷）；等宽小字推至标题行最右，
+ * 与左侧语义色条呼应形成"遥测仪表"框定。编号为 HTML 手写序，无 JS 依赖。 */
+.card h3[data-idx]::after {
+  content: attr(data-idx); margin-left: auto; align-self: center;
+  font-family: var(--font-num); font-size: 10px; font-weight: 400;
+  color: var(--text-faint); letter-spacing: 1.5px; padding-left: var(--space-2);
+  white-space: nowrap;
+}
 .chart { width: 100%; height: 240px; }
 /* 攻击页图表空数据占位（DEV-019：与表格空态文案一致，ECharts 空画布之上覆盖） */
 .chart-empty { position: relative; }
@@ -580,7 +647,7 @@ tr.row-warn { color: var(--warn); }
 </head>
 <body>
 <header>
-  <h1><svg class="logo-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 1.8l6 2.4v4.3c0 3.7-2.4 6.4-6 8-3.6-1.6-6-4.3-6-8V4.2z"/><path d="M7.6 10l1.7 1.7 3.1-3.4"/></svg>VPS安全态势</h1>
+  <h1><svg class="logo-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 1.8l6 2.4v4.3c0 3.7-2.4 6.4-6 8-3.6-1.6-6-4.3-6-8V4.2z"/><path d="M7.6 10l1.7 1.7 3.1-3.4"/></svg>VPS安全态势<span class="h1-tag" aria-hidden="true">SENTRY · SITUATION</span></h1>
   <span id="conn-status">连接中…</span>
   <span id="sample-note" title="外部威胁事件为限速采样视图（默认 5 包/s，已排除内网/自身流量），完整记录见连接事件" data-full="外部威胁事件为限速采样视图（默认 5 包/s，已排除内网/自身流量），完整记录见连接事件">⚠ 采样视图</span>
   <span id="freshness" class="freshness">更新于 --:--:--</span>
@@ -608,7 +675,7 @@ tr.row-warn { color: var(--warn); }
   <div id="panel-overview" class="panel active">
     <!-- L2 决策证据：风险评分 + 攻击三通道趋势同排（方案 3.2/5.1；DEV-045：inbound 入站探测主通道） -->
     <div class="grid" style="margin-bottom:12px;">
-      <div class="card"><h3 class="panel-title" tabindex="-1" data-accent="danger">风险评分（本机攻击行为 + 资源维度，无漏洞/CVSS/情报字段）
+      <div class="card"><h3 class="panel-title" tabindex="-1" data-accent="danger" data-idx="01">风险评分（本机攻击行为 + 资源维度，无漏洞/CVSS/情报字段）
         <span class="risk-note">按所选时间范围累计，跨范围不可直接比较</span></h3>
         <div class="risk-wrap">
           <div id="chart-risk" role="img" aria-label="风险评分图：数据加载中" style="width:200px;height:150px;"></div>
@@ -619,7 +686,7 @@ tr.row-warn { color: var(--warn); }
           </div>
         </div>
       </div>
-      <div class="card" style="grid-column: span 2;"><h3 data-accent="danger">攻击趋势（SSH 失败 vs 入站探测 vs 拦截，点击图例隐藏通道）</h3>
+      <div class="card" style="grid-column: span 2;"><h3 data-accent="danger" data-idx="02">攻击趋势（SSH 失败 vs 入站探测 vs 拦截，点击图例隐藏通道）</h3>
         <div class="chart-wrap">
           <div id="chart-attack-trend" class="chart" role="img" aria-label="攻击趋势图：数据加载中" style="height:220px;"></div>
           <div id="zero-attack-badge" class="zero-line" style="display:none;">✓ 所选范围无攻击记录</div>
@@ -649,18 +716,18 @@ tr.row-warn { color: var(--warn); }
     </div>
     <!-- L3 TOP 攻击源 + 被攻击端口（迷你榜，保留点击联动；方案 3.2） -->
     <div class="grid" style="margin-bottom:12px;">
-      <div class="card"><h3>TOP 攻击源（点击复制 IP）</h3><ul id="top-sources-mini" class="mini-top"></ul></div>
-      <div class="card"><h3>被攻击端口 TOP5（点击跳转攻击页过滤）</h3><ul id="top-ports-mini" class="mini-top"></ul></div>
+      <div class="card"><h3 data-idx="03">TOP 攻击源（点击复制 IP）</h3><ul id="top-sources-mini" class="mini-top"></ul></div>
+      <div class="card"><h3 data-idx="04">被攻击端口 TOP5（点击跳转攻击页过滤）</h3><ul id="top-ports-mini" class="mini-top"></ul></div>
     </div>
     <!-- L4 系统资源：默认折叠区（初始展开，手动折叠后 sessionStorage 记忆；方案 3.2/9.4） -->
     <details class="fold" id="fold-resources" open>
       <summary><span class="fold-title">系统资源（CPU/内存/磁盘/网络）</span><span class="fold-hint">点击折叠</span></summary>
       <div class="fold-body">
         <div class="grid">
-          <div class="card"><h3>CPU 使用率</h3><div id="chart-cpu" class="chart" role="img" aria-label="CPU 使用率图：数据加载中"></div></div>
-          <div class="card"><h3>内存使用率</h3><div id="chart-mem" class="chart" role="img" aria-label="内存使用率图：数据加载中"></div></div>
-          <div class="card"><h3>磁盘使用率</h3><div id="chart-disk" class="chart" role="img" aria-label="磁盘使用率图：数据加载中"></div></div>
-          <div class="card"><h3>网络速率 (B/s)</h3><div id="chart-net" class="chart" role="img" aria-label="网络速率图：数据加载中"></div></div>
+          <div class="card"><h3 data-idx="05">CPU 使用率</h3><div id="chart-cpu" class="chart" role="img" aria-label="CPU 使用率图：数据加载中"></div></div>
+          <div class="card"><h3 data-idx="06">内存使用率</h3><div id="chart-mem" class="chart" role="img" aria-label="内存使用率图：数据加载中"></div></div>
+          <div class="card"><h3 data-idx="07">磁盘使用率</h3><div id="chart-disk" class="chart" role="img" aria-label="磁盘使用率图：数据加载中"></div></div>
+          <div class="card"><h3 data-idx="08">网络速率 (B/s)</h3><div id="chart-net" class="chart" role="img" aria-label="网络速率图：数据加载中"></div></div>
         </div>
       </div>
     </details>
@@ -674,21 +741,21 @@ tr.row-warn { color: var(--warn); }
     </details>
   </div>
   <div id="panel-conn" class="panel">
-    <div class="card"><h3 class="panel-title" tabindex="-1">当前连接（ss 快照 20s 采集 / 页面 5s 轮询）</h3>
+    <div class="card"><h3 class="panel-title" tabindex="-1" data-idx="01">当前连接（ss 快照 20s 采集 / 页面 5s 轮询）</h3>
       <div class="scroll"><table id="snap-table"><caption class="sr-only">当前连接快照</caption><thead><tr><th>协议</th><th>状态</th><th>源</th><th>目的</th><th>Pid</th></tr></thead><tbody></tbody></table></div>
     </div>
-    <div class="card" style="margin-top:12px;"><h3>最近连接事件（NEW/UPDATE/DESTROY）</h3>
+    <div class="card" style="margin-top:12px;"><h3 data-idx="02">最近连接事件（NEW/UPDATE/DESTROY）</h3>
       <div class="scroll"><table id="conn-table"><caption class="sr-only">最近连接事件</caption><thead><tr><th>时间</th><th>类型</th><th>协议</th><th>源</th><th>目的</th><th>包/字节</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
   <div id="panel-attack" class="panel">
     <div id="rate-hint" class="rate-hint" style="display:none;">30 天视图聚合较重，攻击数据刷新频率自动降至 30 秒</div>
     <div class="grid">
-      <div class="card"><h3 class="panel-title" tabindex="-1" data-accent="danger">被攻击端口 TOP（外部威胁 DPT 口径，点击柱条过滤）</h3><div id="chart-ports" class="chart" role="img" aria-label="被攻击端口 TOP 图：数据加载中"></div></div>
-      <div class="card"><h3 data-accent="danger">攻击源 IP TOP（点击柱条过滤）</h3><div id="chart-sources" class="chart" role="img" aria-label="攻击源 IP TOP 图：数据加载中"></div></div>
-      <div class="card"><h3 data-accent="danger">SSH 失败时间线（每小时）</h3><div id="chart-ssh" class="chart" role="img" aria-label="SSH 失败时间线图：数据加载中"></div></div>
+      <div class="card"><h3 class="panel-title" tabindex="-1" data-accent="danger" data-idx="01">被攻击端口 TOP（外部威胁 DPT 口径，点击柱条过滤）</h3><div id="chart-ports" class="chart" role="img" aria-label="被攻击端口 TOP 图：数据加载中"></div></div>
+      <div class="card"><h3 data-accent="danger" data-idx="02">攻击源 IP TOP（点击柱条过滤）</h3><div id="chart-sources" class="chart" role="img" aria-label="攻击源 IP TOP 图：数据加载中"></div></div>
+      <div class="card"><h3 data-accent="danger" data-idx="03">SSH 失败时间线（每小时）</h3><div id="chart-ssh" class="chart" role="img" aria-label="SSH 失败时间线图：数据加载中"></div></div>
       <!-- DEV-GEO-001：全球攻击地图（SSH 失败按来源国家聚合；点击国家联动下方列表与导出） -->
-      <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger">全球攻击地图（SSH 失败来源国家聚合）
+      <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger" data-idx="04">全球攻击地图（SSH 失败来源国家聚合）
         <span class="risk-note">仅统计 SSH 失败次数（result=失败），按来源 IP 所属国家聚合</span></h3>
         <div class="geo-toolbar">
           <select id="geo-country-filter" class="table-filter" title="按国家/地区过滤（与地图点击联动）">
@@ -710,7 +777,7 @@ tr.row-warn { color: var(--warn); }
         <ul id="geo-sources-list" class="mini-top"></ul>
       </div>
       <!-- DEV-HONEY-001（M-B）：协议凭据捕获卡（蜜罐假服务）——独立全宽卡，位于地图与 SSH 表之间 -->
-      <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger">协议凭据捕获（蜜罐）
+      <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger" data-idx="05">协议凭据捕获（蜜罐）
         <span class="risk-note">蜜罐对标准端口提供最小认证握手模拟，捕获攻击者尝试的登录凭据；【凭据数据仅本地存储】密码默认遮蔽，点击显示</span>
         <select id="hp-proto-filter" class="table-filter" title="按协议过滤">
           <option value="">全部协议</option>
@@ -735,7 +802,7 @@ tr.row-warn { color: var(--warn); }
           </table>
         </div>
       </div>
-      <div class="card" style="grid-column: 1 / -1;"><h3>SSH 登录尝试（失败红色，点击时间列排序）
+      <div class="card" style="grid-column: 1 / -1;"><h3 data-idx="06">SSH 登录尝试（失败红色，点击时间列排序）
         <select id="ssh-result-filter" class="table-filter" title="按结果过滤">
           <option value="">全部结果</option>
           <option value="0">仅失败</option>
@@ -745,7 +812,7 @@ tr.row-warn { color: var(--warn); }
           <th>时间</th><th>源 IP</th><th>用户名</th><th>认证方式</th><th>结果</th><th>指纹</th><th>详情</th>
         </tr></thead><tbody></tbody></table></div>
       </div>
-      <div class="card" style="grid-column: 1 / -1;"><h3>外部威胁事件明细（拦截/丢弃红色，点击时间列排序）
+      <div class="card" style="grid-column: 1 / -1;"><h3 data-idx="07">外部威胁事件明细（拦截/丢弃红色，点击时间列排序）
         <select id="fw-action-filter" class="table-filter" title="按动作过滤">
           <option value="">全部动作</option>
           <option value="inbound">仅入站探测</option>
@@ -761,7 +828,7 @@ tr.row-warn { color: var(--warn); }
   </div>
   <div id="panel-export" class="panel">
     <div class="card">
-      <h3 class="panel-title" tabindex="-1">数据导出（CSV）</h3>
+      <h3 class="panel-title" tabindex="-1" data-idx="01">数据导出（CSV）</h3>
       <div class="export-block">
         <div class="export-label">时间段（预设）</div>
         <div class="export-presets">
