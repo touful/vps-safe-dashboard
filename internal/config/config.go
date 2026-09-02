@@ -121,6 +121,11 @@ type DBCfg struct {
 	// RetentionDays 事件数据保留天数（默认 7；<=0 禁用清理，
 	// 恢复永久保留语义——首次启用时早于保留期的存量数据将在启动首轮清理中删除）。
 	RetentionDays int `json:"retention_days"`
+	// CredRetentionDays 蜜罐凭据（cred_events）独立保留天数（默认 90；<=0 禁用清理）。
+	// M-1 修复：凭据表原为全库唯一无删除路径的表（retention 清理遍历归档表清单，
+	// 不含 cred_events），蜜罐开启时攻击者可注入超长凭据致磁盘耗尽；凭据属取证
+	// 数据，默认保留期显著长于事件表（90 天 > 7 天）。
+	CredRetentionDays int `json:"cred_retention_days"`
 }
 
 // ArchiveCfg 归档模块（M-09，方案 3.9/6.6）。
@@ -218,13 +223,14 @@ func Defaults() *Config {
 		SSH: SSHCfg{Source: "journald", VerboseFingerprint: true},
 		FW:  FWCfg{Source: "journald-kernel", Prefix: "SENTRY_FW:", RateLimitPktS: 5, ExcludeInternal: true, SSHLearnEnabled: true, SSHLearnWindowDays: 30, SSHLearnIntervalMin: 10},
 		F2B: F2BCfg{Enabled: true, LogPath: "/var/log/fail2ban.log", DBPath: "/var/lib/fail2ban/fail2ban.sqlite3"},
-		DB: DBCfg{
-			Path:            "/var/lib/sentry-agent/state.db",
-			BatchIntervalMS: 1000,
-			BatchSize:       500,
-			ArchiveDir:      "/var/lib/sentry-agent/archive",
-			RetentionDays:   7,
-		},
+	DB: DBCfg{
+		Path:              "/var/lib/sentry-agent/state.db",
+		BatchIntervalMS:   1000,
+		BatchSize:         500,
+		ArchiveDir:        "/var/lib/sentry-agent/archive",
+		RetentionDays:     7,
+		CredRetentionDays: 90,
+	},
 		Archive: ArchiveCfg{MonthlyHour: "02:00", GzipLevel: 6, CopyAfterDays: 60},
 		Web:     WebCfg{Listen: "127.0.0.1:8080", WSOriginAllow: "http://127.0.0.1:8080", WSMaxConns: 100, RateLimitRPS: 10, RateLimitBurst: 20, HeavyLimitRPS: 1},
 		Disk:    DiskCfg{WarnPercent: 80, CriticalPercent: 90, EmergencyPercent: 95},

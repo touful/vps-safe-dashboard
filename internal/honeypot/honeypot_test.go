@@ -1,11 +1,14 @@
 package honeypot
 
 import (
+	"bufio"
 	"context"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"sentry-agent/internal/event"
 )
@@ -296,5 +299,115 @@ func TestServerRunNoListen(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run 未退出")
+	}
+}
+
+// TestTruncateCredText M-1 回归：凭据字段截断（rune 边界安全，不撕裂多字节字符）。
+func TestTruncateCredText(t *testing.T) {
+	if got := truncateCredText("short"); got != "short" {
+		t.Errorf("短串应原样返回，实际 %q", got)
+	}
+	// 超长 ASCII：截到 credTextMax 个 rune。
+	long := strings.Repeat("a", credTextMax+100)
+	if got := truncateCredText(long); utf8.RuneCountInString(got) != credTextMax {
+		t.Errorf("ASCII 截断后 rune 数 = %d，期望 %d", utf8.RuneCountInString(got), credTextMax)
+	}
+	// 多字节字符（3 字节/rune）：字节数超限但 rune 数未超 → 原样保留
+	//（体积上限仍收敛于 credTextMax*4 字节，防注入语义不变）。
+	multi := strings.Repeat("密", credTextMax/2+10)
+	if got := truncateCredText(multi); got != multi {
+		t.Errorf("rune 数未超限时应原样保留，实际长度 %d", len(got))
+	}
+	// rune 数也超限：截断且结果仍是有效 UTF-8。
+	multiOver := strings.Repeat("密", credTextMax+10)
+	got := truncateCredText(multiOver)
+	if !utf8.ValidString(got) {
+		t.Error("截断结果应为有效 UTF-8（rune 边界）")
+	}
+	if utf8.RuneCountInString(got) != credTextMax {
+		t.Errorf("多字节截断后 rune 数 = %d，期望 %d", utf8.RuneCountInString(got), credTextMax)
+	}
+}
+
+// TestFTPCredTruncated M-1 回归：超长凭据经框架层统一截断后投递
+//（防蜜罐端口向 cred_events 注入 MB 级字段致磁盘耗尽）。
+func TestFTPCredTruncated(t *testing.T) {
+	credCh := make(chan event.CredEvent, 4)
+	_, addrs := startTestServer(t, []string{"ftp"}, credCh, nil)
+	conn, err := net.Dial("tcp", addrs["ftp"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	br := bufio.NewReader(conn)
+	if _, err := br.ReadString('\n'); err != nil { // banner: 220
+		t.Fatalf("读 banner 失败: %v", err)
+	}
+	if _, err := conn.Write([]byte("USER " + strings.Repeat("a", credTextMax+2000) + "\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := br.ReadString('\n'); err != nil { // 331
+		t.Fatalf("读 331 失败: %v", err)
+	}
+	if _, err := conn.Write([]byte("PASS x\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ev := <-credCh:
+		if n := utf8.RuneCountInString(ev.Username); n > credTextMax {
+			t.Errorf("超长用户名应截断到 %d rune，实际 %d", credTextMax, n)
+		}
+		if n := len(ev.Password); n > credTextMax {
+			t.Errorf("密码字段长度 %d 超上限", n)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("未收到凭据事件")
+	}
+}
+
+// TestMemcachedExtraControlCharDropped M-1 补充：Extra 与 Username/Password 同等
+// validCredText 校验——memcached 命令概览含客户端原始行，控制字符输入不落库。
+func TestMemcachedExtraControlCharDropped(t *testing.T) {
+	credCh := make(chan event.CredEvent, 4)
+	_, addrs := startTestServer(t, []string{"memcached"}, credCh, nil)
+
+	// 正例：干净命令行 → 凭据事件（Extra 概览）正常投递。
+	c1, err := net.Dial("tcp", addrs["memcached"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c1.Write([]byte("stats\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bufio.NewReader(c1).ReadString('\n'); err != nil { // ERROR
+		t.Fatalf("读 ERROR 响应失败: %v", err)
+	}
+	_ = c1.Close()
+	select {
+	case ev := <-credCh:
+		if ev.Extra == "" {
+			t.Error("干净命令应产生含命令概览的 Extra")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("干净命令未产生凭据事件")
+	}
+
+	// 反例：命令行含控制字符（0x01）→ 畸形输入不落库。
+	c2, err := net.Dial("tcp", addrs["memcached"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c2.Write([]byte("stats\x01x\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bufio.NewReader(c2).ReadString('\n'); err != nil { // ERROR（rec 已执行且被过滤）
+		t.Fatalf("读 ERROR 响应失败: %v", err)
+	}
+	_ = c2.Close()
+	select {
+	case ev := <-credCh:
+		t.Errorf("含控制字符的 Extra 不应落库，实际收到: %+v", ev)
+	case <-time.After(300 * time.Millisecond):
+		// 预期：无凭据事件。
 	}
 }

@@ -74,32 +74,46 @@ func cleanupTable(ctx context.Context, db *sql.DB, table string, cutoff int64, b
 
 // runRetentionOnce 执行一轮 retention 清理（写线程内调用；启动首轮 + 每日 02:30 定时）。
 // cutoff 按本轮开始时刻快照（不随清理过程漂移，防边界误删）；
-// 触发表：archive.ArchivedTables() 全量（meta 不清理）；
+// 触发表：archive.ArchivedTables() 全量（meta 不清理）+ cred_events（M-1 修复：
+// 蜜罐凭据表原为全库唯一无删除路径的表，独立保留期 cred_retention_days 防磁盘耗尽；
+// 归档副本不含凭据表——凭据敏感仅留主库，保留期默认 90 天取证窗口充足）；
 // yield 批间让出回调：透传给 cleanupTable，Run 场景消费一轮
 // 通道维持写吞吐；测试场景传 nil。
-// 留痕：system_event info（合计行数/耗时）+ meta.last_retention_ts（幂等/可观测）。
+// 留痕：system_event info（事件表/凭据表分别计行数与耗时）+ meta.last_retention_ts
+// （幂等/可观测）。事件与凭据两段独立留痕：禁用其一时不产生该段无意义日志。
 func (s *Store) runRetentionOnce(ctx context.Context, yield func()) error {
-	// 防御：禁用态（<=0）直接返回——Run 已守卫，此处防内部误调用
+	// 防御：两保留期均禁用时直接返回——Run 已守卫，此处防内部误调用
 	// 计算出未来 cutoff（会删 0 行但产生无意义 meta 写入）。
-	if s.retentionDays <= 0 {
+	if s.retentionDays <= 0 && s.credRetentionDays <= 0 {
 		return nil
 	}
-	cutoff := time.Now().AddDate(0, 0, -s.retentionDays).Unix()
 	start := time.Now()
-	var total int64
-	for _, t := range archive.ArchivedTables() {
-		n, err := cleanupTable(ctx, s.db, t, cutoff, retentionBatchSize, yield)
-		if err != nil {
-			return fmt.Errorf("清理表 %s 失败: %w", t, err)
+	if s.retentionDays > 0 {
+		cutoff := time.Now().AddDate(0, 0, -s.retentionDays).Unix()
+		var total int64
+		for _, t := range archive.ArchivedTables() {
+			n, err := cleanupTable(ctx, s.db, t, cutoff, retentionBatchSize, yield)
+			if err != nil {
+				return fmt.Errorf("清理表 %s 失败: %w", t, err)
+			}
+			total += n
 		}
-		total += n
+		event.ReportSys(s.ch.System, "store", "info",
+			fmt.Sprintf("retention 清理完成：各表行数合计 %d，耗时 %v（保留 %d 天）", total, time.Since(start).Round(time.Millisecond), s.retentionDays))
+	}
+	if s.credRetentionDays > 0 {
+		cutoff := time.Now().AddDate(0, 0, -s.credRetentionDays).Unix()
+		n, err := cleanupTable(ctx, s.db, "cred_events", cutoff, retentionBatchSize, yield)
+		if err != nil {
+			return fmt.Errorf("清理表 cred_events 失败: %w", err)
+		}
+		event.ReportSys(s.ch.System, "store", "info",
+			fmt.Sprintf("cred_events 清理完成：行数 %d，耗时 %v（保留 %d 天）", n, time.Since(start).Round(time.Millisecond), s.credRetentionDays))
 	}
 	if _, err := s.db.Exec(`INSERT INTO meta(key, value) VALUES('last_retention_ts', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
 		fmt.Sprintf("%d", time.Now().Unix())); err != nil {
 		return fmt.Errorf("记录 last_retention_ts 失败: %w", err)
 	}
-	event.ReportSys(s.ch.System, "store", "info",
-		fmt.Sprintf("retention 清理完成：各表行数合计 %d，耗时 %v（保留 %d 天）", total, time.Since(start).Round(time.Millisecond), s.retentionDays))
 	return nil
 }
 

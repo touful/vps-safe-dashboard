@@ -143,7 +143,7 @@ func TestNextRetentionTime(t *testing.T) {
 func TestRunRetentionOnce(t *testing.T) {
 	dir := t.TempDir()
 	st, err := NewStore(filepath.Join(dir, "state.db"), filepath.Join(dir, "archive"),
-		1000, 500, 6, 7, 60, 90, event.NewChannels(16), &sync.WaitGroup{})
+		1000, 500, 6, 7, 90, 60, 90, event.NewChannels(16), &sync.WaitGroup{})
 	if err != nil {
 		t.Fatalf("NewStore 失败: %v", err)
 	}
@@ -213,5 +213,72 @@ func TestWarnRetentionArchiveGap(t *testing.T) {
 	case ev := <-ch3.System:
 		t.Errorf("retention<=0 不应 warn，实际: %s", ev.Message)
 	default:
+	}
+}
+
+// TestRunRetentionOnceCredTable M-1 回归：cred_events 按独立保留期清理
+// （默认 90 天 > 事件表 7 天——凭据为取证数据保留期更长）。
+// 预插 30 天前（cred 保留期内、事件表超期）与 100 天前（双双超期）凭据各 1 条：
+// 断言 cred 仅清 100 天那条、且 30 天前凭据不受事件表 7 天保留期影响。
+func TestRunRetentionOnceCredTable(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewStore(filepath.Join(dir, "state.db"), filepath.Join(dir, "archive"),
+		1000, 500, 6, 7, 90, 60, 90, event.NewChannels(16), &sync.WaitGroup{})
+	if err != nil {
+		t.Fatalf("NewStore 失败: %v", err)
+	}
+	defer st.Close()
+
+	now := nowSec()
+	for _, ts := range []int64{now - 30*86400, now - 100*86400} {
+		if _, err := st.db.Exec(`INSERT INTO cred_events (ts, proto, src_ip, username, password, extra) VALUES (?,?,?,?,?,?)`,
+			ts, "mysql", 1, "root", "pass", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.runRetentionOnce(context.Background(), nil); err != nil {
+		t.Fatalf("runRetentionOnce 失败: %v", err)
+	}
+	var remaining int64
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM cred_events`).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 1 {
+		t.Errorf("清理后 cred_events 行数 = %d, 期望 1（30 天前凭据应保留）", remaining)
+	}
+	var keptTS int64
+	if err := st.db.QueryRow(`SELECT ts FROM cred_events`).Scan(&keptTS); err != nil {
+		t.Fatal(err)
+	}
+	// 分界点取 50 天：30 天前凭据晚于分界（应保留），100 天前早于分界（应清除）。
+	if keptTS <= now-50*86400 {
+		t.Errorf("保留行应为 30 天前凭据，实际 ts 距今 %d 天", (now-keptTS)/86400)
+	}
+}
+
+// TestRunRetentionOnceCredDisabled M-1 回归：cred_retention_days<=0（禁用）时
+// cred_events 不参与清理（即使事件表保留期启用）。
+func TestRunRetentionOnceCredDisabled(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewStore(filepath.Join(dir, "state.db"), filepath.Join(dir, "archive"),
+		1000, 500, 6, 7, 0, 60, 90, event.NewChannels(16), &sync.WaitGroup{})
+	if err != nil {
+		t.Fatalf("NewStore 失败: %v", err)
+	}
+	defer st.Close()
+
+	if _, err := st.db.Exec(`INSERT INTO cred_events (ts, proto, src_ip, username, password, extra) VALUES (?,?,?,?,?,?)`,
+		nowSec()-365*86400, "telnet", 1, "root", "pass", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.runRetentionOnce(context.Background(), nil); err != nil {
+		t.Fatalf("runRetentionOnce 失败: %v", err)
+	}
+	var remaining int64
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM cred_events`).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 1 {
+		t.Errorf("cred 保留期禁用时不应清理，实际剩余 %d 行", remaining)
 	}
 }

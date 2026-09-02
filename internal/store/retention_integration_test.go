@@ -53,7 +53,7 @@ func TestRunRetentionStartupConcurrentWrites(t *testing.T) {
 	ch := event.NewChannels(64) // 小容量模拟真实 4096 满场景（更易暴露阻塞）
 	var producers sync.WaitGroup
 	st, err := NewStore(dbPath, filepath.Join(dir, "archive"),
-		200, 50, 6, 7, 60, 90, ch, &producers)
+		200, 50, 6, 7, 90, 60, 90, ch, &producers)
 	if err != nil {
 		t.Fatalf("NewStore 失败: %v", err)
 	}

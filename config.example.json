@@ -39,7 +39,8 @@
     "batch_interval_ms": 1000,
     "batch_size": 500,
     "archive_dir": "/var/lib/sentry-agent/archive",
-    "retention_days": 7
+    "retention_days": 7,
+    "cred_retention_days": 90
   },
   "archive": {
     "monthly_hour": "02:00",

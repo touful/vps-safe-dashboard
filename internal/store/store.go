@@ -147,6 +147,8 @@ type Store struct {
 	archiveCriticalPct float64
 	// retentionDays 事件数据保留天数（<=0 禁用清理）。
 	retentionDays int
+	// credRetentionDays 蜜罐凭据独立保留天数（M-1 修复；<=0 禁用清理）。
+	credRetentionDays int
 	// copyAfterDays 归档跨度（archive.copy_after_days，空洞语义 warn 检测用，B.5.1）。
 	copyAfterDays int
 
@@ -159,7 +161,8 @@ type Store struct {
 // 用户/被攻破的低权限服务账号不可读安全数据（SSH 指纹/用户名/防火墙 raw）。
 // 目录权限为 Linux 语义：Windows 上 mode 参数被忽略（无权限位模型），功能不回归。
 // 新增 retentionDays（<=0 禁用清理）与 copyAfterDays（归档空洞 warn 检测）。
-func NewStore(dbPath, archiveDir string, batchIntervalMS, batchSize, gzipLevel, retentionDays, copyAfterDays int, archiveCriticalPct float64, ch *event.Channels, producers *sync.WaitGroup) (*Store, error) {
+// M-1 修复新增 credRetentionDays：蜜罐凭据独立保留天数（<=0 禁用清理）。
+func NewStore(dbPath, archiveDir string, batchIntervalMS, batchSize, gzipLevel, retentionDays, credRetentionDays, copyAfterDays int, archiveCriticalPct float64, ch *event.Channels, producers *sync.WaitGroup) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return nil, fmt.Errorf("创建主库目录失败: %w", err)
 	}
@@ -201,6 +204,7 @@ func NewStore(dbPath, archiveDir string, batchIntervalMS, batchSize, gzipLevel, 
 		gzipLevel:          gzipLevel,
 		archiveCriticalPct: archiveCriticalPct,
 		retentionDays:      retentionDays,
+		credRetentionDays:  credRetentionDays,
 		copyAfterDays:      copyAfterDays,
 		archiveReq:         make(chan string, 8),
 	}, nil
@@ -290,11 +294,12 @@ func (s *Store) Run(ctx context.Context) error {
 	// 通道，通道 4096 满后 conntrack hook 阻塞 → netlink 缓冲积压 → ENOBUFS 溢出丢
 	// 事件）——改为 retentionNow 独立 channel 在 select 循环内触发，批间 yield 消费
 	// 一轮通道维持写吞吐；此后每日 02:30（固定，运营官 D.4 裁定 4）触发。
-	// retentionDays<=0 时 retentionNow/retentionC 均为 nil（nil channel 永不就绪，select 跳过）。
+	// 事件保留期与凭据保留期（M-1）任一启用即启动清理循环（两者均 <=0 时
+	// retentionNow/retentionC 均为 nil——nil channel 永不就绪，select 跳过）。
 	s.warnRetentionArchiveGap() // 归档空洞语义提示（B.5.1，启动留痕一条）
 	var retentionC <-chan time.Time
 	var retentionNow chan struct{}
-	if s.retentionDays > 0 {
+	if s.retentionDays > 0 || s.credRetentionDays > 0 {
 		retentionNow = make(chan struct{}, 1)
 		retentionNow <- struct{}{} // 启动立即触发首轮（select 循环内执行，不阻塞写路径）
 		rt := time.NewTimer(time.Until(nextRetentionTime(time.Now())))

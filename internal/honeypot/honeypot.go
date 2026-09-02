@@ -39,6 +39,11 @@ const (
 	// 单连接内洪泛认证尝试（实测 ftp PASS 洪泛 1s 约 58 条）；超限后忽略后续记录
 	// （连接继续维持，凭据不再落库）——防批量注入污染统计与存储。
 	credsPerConnLimit = 10
+	// credTextMax 凭据字段字节长度上限（M-1 加固）：各协议读缓冲上界不一致
+	// （mysql/mongodb 报文可达 1MB、auth-response hex 编码后约 2MB），攻击者可
+	// 经蜜罐端口向 cred_events 注入超长凭据致磁盘耗尽；框架层统一按字节截断，
+	// 与 telnet readLine 的 4KB 行上限对齐。
+	credTextMax = 4096
 	// rateLimiterMaxBuckets IP 限速器活跃桶上限，超过触发惰性清理（防 map 无限增长）。
 	rateLimiterMaxBuckets = 10000
 )
@@ -173,7 +178,7 @@ func (s *Server) serveProto(ctx context.Context, proto string, ln net.Listener, 
 		connWG.Add(1)
 		go func() {
 			defer connWG.Done()
-			s.handleConn(proto, conn)
+			s.handleConn(ctx, proto, conn)
 		}()
 	}
 }
@@ -206,7 +211,9 @@ func (s *Server) acceptConn(proto string, conn net.Conn) bool {
 }
 
 // handleConn 单连接处理：超时设置 → 统计 → 协议握手 → 凭据记录。
-func (s *Server) handleConn(proto string, conn net.Conn) {
+// ctx 透传给协议 handler（工程修复：原传 context.Background()，handler 内的
+// ctx.Done 检查永不生效，仅靠 30s deadline 兜底）。
+func (s *Server) handleConn(ctx context.Context, proto string, conn net.Conn) {
 	defer func() {
 		<-s.sem
 		_ = conn.Close()
@@ -231,10 +238,17 @@ func (s *Server) handleConn(proto string, conn net.Conn) {
 		return
 	}
 	c := &countingConn{Conn: conn}
-	h(context.Background(), c, srcIP, func(ev event.CredEvent) {
-		if !validCredText(ev.Username) || !validCredText(ev.Password) {
-			return // D-A：畸形凭据（控制字节）不落库——批量注入噪声不入库
+	h(ctx, c, srcIP, func(ev event.CredEvent) {
+		// 畸形凭据不落库（D-A）：控制字符过滤；Extra 与 Username/Password 同等校验
+		// （memcached 命令概览等含客户端原始输入，未校验会成绕过面）。
+		if !validCredText(ev.Username) || !validCredText(ev.Password) || !validCredText(ev.Extra) {
+			return
 		}
+		// M-1 加固：三字段统一 4KB 截断（超长凭据注入防磁盘耗尽；取证价值不受影响——
+		// 超长输入本身即异常，前 4KB 已足够识别攻击工具特征）。
+		ev.Username = truncateCredText(ev.Username)
+		ev.Password = truncateCredText(ev.Password)
+		ev.Extra = truncateCredText(ev.Extra)
 		ev.TS = time.Now().Unix()
 		ev.Proto = proto
 		ev.SrcIP = srcIP
@@ -255,6 +269,21 @@ func validCredText(s string) bool {
 		}
 	}
 	return true
+}
+
+// truncateCredText 凭据字段截断至 credTextMax 字节（M-1 加固）。
+// rune 截断保证不撕裂多字节 UTF-8 字符（字节截断会产生无效 UTF-8，
+// 落库后 JSON 编码被替换为 U+FFFD）；凭据事件频率低（每 IP 10 连接/分钟），
+// []rune 转换开销可接受（与 event.Truncate512 同风格）。
+func truncateCredText(s string) string {
+	if len(s) <= credTextMax {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= credTextMax {
+		return s // 字节数超限但 rune 数未超（多字节字符），原样保留
+	}
+	return string(r[:credTextMax])
 }
 
 // emit 投递凭据事件（非阻塞：通道满时丢弃并限频留痕，不阻塞连接处理路径）。

@@ -68,7 +68,7 @@ func TestCredChannelDrain(t *testing.T) {
 	ch := event.NewChannels(16)
 	producers := &sync.WaitGroup{}
 	dir := t.TempDir()
-	st, err := NewStore(dir+"/state.db", dir+"/archive", 500, 10, 6, 7, 60, 90, ch, producers)
+	st, err := NewStore(dir+"/state.db", dir+"/archive", 500, 10, 6, 7, 90, 60, 90, ch, producers)
 	if err != nil {
 		t.Fatalf("NewStore 失败: %v", err)
 	}
