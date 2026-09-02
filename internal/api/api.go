@@ -405,12 +405,14 @@ func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {
 
 	// 攻击端口 TOP（防火墙 DPT 口径，方案 3.4 强制：只允许 DPT；与 hTopPorts
 	// 同口径——统计所有防火墙事件，inbound 扫描探测/reject 拦截/drop 丢弃均计入）。
+	// PERF-FIX：INDEXED BY idx_fw_ts 强制时间过滤先行（生产大库实测 GROUP BY
+	// 计划可能选 dst_port 索引全表扫描+回表，单次数十秒拖死全部端点，见 topHits 注释）。
 	type portHit struct {
 		DstPort int   `json:"dst_port"`
 		Hits    int64 `json:"hits"`
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT dst_port, COUNT(*) FROM firewall_events
-		WHERE ts >= ? GROUP BY dst_port ORDER BY COUNT(*) DESC LIMIT 5`, from)
+		INDEXED BY idx_fw_ts WHERE ts >= ? GROUP BY dst_port ORDER BY COUNT(*) DESC LIMIT 5`, from)
 	if err == nil {
 		defer rows.Close()
 		var top []portHit
