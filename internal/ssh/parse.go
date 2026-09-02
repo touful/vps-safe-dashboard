@@ -22,8 +22,10 @@ func ParseSSHLine(line string, ts int64) (event.SSHAttempt, bool) {
 			continue
 		}
 		attempt := event.SSHAttempt{
-			TS:         ts,
-			Username:   m[p.idxUser],
+			TS: ts,
+			// n-4 加固：username 与 Detail 同口径 Truncate512——正则 (\S+) 捕获的
+			// 用户名随行长度（scanner 上限 1MB）无截断入库，构成存储放大面。
+			Username:   event.Truncate512(m[p.idxUser]),
 			AuthMethod: p.method,
 			Result:     p.result,
 			Detail:     event.Truncate512(line),

@@ -95,7 +95,7 @@ func (s *Server) hGeoAttacks(w http.ResponseWriter, r *http.Request) {
 	minCount := parseUintParam(r, "min_count", 0)
 	rows, mmdbOK, err := s.queryGeoRows(ctx, from, 1000)
 	if err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	rows = filterGeoRows(rows, country, minCount)
@@ -122,7 +122,7 @@ func (s *Server) hExportAttacksCSV(w http.ResponseWriter, r *http.Request) {
 	minCount := parseUintParam(r, "min_count", 0)
 	rows, _, err := s.queryGeoRows(ctx, from, 1000)
 	if err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	rows = filterGeoRows(rows, country, minCount)

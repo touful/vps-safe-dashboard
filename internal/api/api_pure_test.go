@@ -81,3 +81,27 @@ func TestReadOnlyDSNEscape(t *testing.T) {
 		}
 	}
 }
+
+// TestWSFallbackURL CSP ws:// 兜底条目推导（工程修复回归：原硬编码
+// ws://127.0.0.1:8080，改监听地址后老浏览器 WS 被 CSP 拦截）。
+func TestWSFallbackURL(t *testing.T) {
+	cases := []struct {
+		listen string
+		want   string
+	}{
+		{"127.0.0.1:8080", "ws://127.0.0.1:8080"},    // 默认部署形态
+		{"127.0.0.1:9090", "ws://127.0.0.1:9090"},    // 改端口
+		{"localhost:8080", "ws://localhost:8080"},     // localhost
+		{"192.168.1.5:8080", "ws://192.168.1.5:8080"}, // 具体地址
+		{":8080", "ws://127.0.0.1:8080"},              // 空 host=全接口 → 回环兜底
+		{"0.0.0.0:8080", "ws://127.0.0.1:8080"},       // 通配 → 回环兜底
+		{"[::]:8080", "ws://127.0.0.1:8080"},          // IPv6 通配 → 回环兜底
+		{"8080", "ws://127.0.0.1:8080"},               // 异常输入 → 默认形态
+		{"", "ws://127.0.0.1:8080"},                   // 未注入 → 默认形态
+	}
+	for _, c := range cases {
+		if got := wsFallbackURL(c.listen); got != c.want {
+			t.Errorf("wsFallbackURL(%q) = %q, 期望 %q", c.listen, got, c.want)
+		}
+	}
+}

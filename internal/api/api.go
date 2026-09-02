@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -45,6 +46,8 @@ type Server struct {
 	connFallbackRep *event.RateLimiter
 	// retentionDays 数据保留天数（health 返回，前端 range 提示）。
 	retentionDays int
+	// listen 实际监听地址（SetListen 注入；静态资源 CSP 的 ws:// 兜底条目推导用）。
+	listen string
 	// geo GeoIP 国家查询（DEV-GEO-001；nil = 未配置，地图降级 Unknown）。
 	// 与 mmdb 文件生命周期解耦：*geoip.Reader 由 main 创建（updater 原子替换内部句柄），
 	// API 仅持接口引用。
@@ -146,10 +149,34 @@ func (s *Server) routes() {
 	mux.HandleFunc("/api/v1/snapshot", s.limitAPI(s.hSnapshot))
 	// DEV-HONEY-001：蜜罐凭据捕获查询（range/proto/limit；只读，普通限流档）。
 	mux.HandleFunc("/api/v1/honeypot/events", s.limitAPI(s.hHoneypotEvents))
-	mux.HandleFunc("/ws", s.hWS)
-	// 静态前端（embed，见 internal/web）。
-	mux.Handle("/", web.Handler())
+	// m-3 加固：/ws 握手纳入全局令牌桶（原仅 wsMaxConns + 5s 握手 deadline 兜底，
+	// 高频建断连接可消耗升级握手 CPU；升级成功后的长连接不再消耗令牌，正常面板
+	// 单连接不受影响）。
+	mux.HandleFunc("/ws", s.limitAPI(s.hWS))
+	// 静态前端（embed，见 internal/web）。CSP 的 ws:// 兜底条目按实际监听地址
+	// 动态推导（工程修复：原硬编码 ws://127.0.0.1:8080，改监听地址的老浏览器
+	// WS 会被 CSP 拦截）——SetListen 在 Serve 前注入，请求时读取。
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		web.HandlerWithWS(wsFallbackURL(s.listen)).ServeHTTP(w, r)
+	}))
 	s.mux = mux
+}
+
+// wsFallbackURL 从监听地址推导 CSP connect-src 的显式 ws:// 兜底条目。
+// 空 host（":8080"）或通配地址（0.0.0.0/[::]）→ 127.0.0.1:port（默认访问形态）；
+// 其余（localhost/具体 IP/域名）直接 ws://host:port。现代浏览器同源 WS 由
+// CSP3 'self' 覆盖，本条目仅老浏览器兜底，故通配场景取 127.0.0.1 即可。
+// 异常输入（非 host:port）保守退化为默认部署形态。
+func wsFallbackURL(listen string) string {
+	const fallback = "ws://127.0.0.1:8080"
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return fallback
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return "ws://" + net.JoinHostPort(host, port)
 }
 
 // limitAPI 全局 API 限流包装（429 + JSON 错误体；前端 errCb 已有失败态机制）。
@@ -238,6 +265,14 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, errResp{Error: msg})
 }
 
+// writeDBErr 数据库/内部查询失败统一响应（m-2 加固）：对外固定文案，
+// 不回显内部错误细节（SQLite 错误串含 SQL 片段与库文件路径——暴露场景
+// 0.0.0.0 监听时构成信息泄露面）；详情记 stderr 供运维排查。
+func writeDBErr(w http.ResponseWriter, r *http.Request, err error) {
+	fmt.Fprintf(os.Stderr, "api 查询失败 %s: %v\n", r.URL.Path, err)
+	writeErr(w, http.StatusInternalServerError, "查询失败（详情见服务端日志）")
+}
+
 // rangeSeconds 解析 range 参数（1h/24h/7d/30d，默认 24h）为起始时间戳。
 func rangeSeconds(r *http.Request) int64 {
 	v := r.URL.Query().Get("range")
@@ -302,7 +337,9 @@ func (s *Server) hHealth(w http.ResponseWriter, r *http.Request) {
 	var schemaVer string
 	metaErr := s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key='schema_version'`).Scan(&schemaVer)
 	if metaErr != nil {
-		writeErr(w, http.StatusInternalServerError, "数据库不可用: "+metaErr.Error())
+		// m-2 加固：错误细节不回显客户端（暴露场景信息泄露），记 stderr 排查。
+		fmt.Fprintf(os.Stderr, "api health 元数据查询失败: %v\n", metaErr)
+		writeErr(w, http.StatusInternalServerError, "数据库不可用（详情见服务端日志）")
 		return
 	}
 	var dbSize int64
@@ -334,6 +371,11 @@ func (s *Server) SetDBPath(p string) { s.dbPath = p }
 // 注意：须在 Serve 之前调用（运行期不热更新）。
 func (s *Server) SetRetentionDays(days int) { s.retentionDays = days }
 
+// SetListen 注入实际监听地址（静态资源 CSP 的 ws:// 兜底条目按此推导；
+// 未注入时退化为默认部署形态 ws://127.0.0.1:8080）。
+// 注意：须在 Serve 之前调用（运行期不热更新；与 SetLimits 等同一时序约束）。
+func (s *Server) SetListen(addr string) { s.listen = addr }
+
 // SetGeo 注入 GeoIP 国家查询（DEV-GEO-001；nil 或未加载 reader 时 mmdb_ok=false，
 // 地图数据 country 恒 Unknown，前端显示降级提示）。
 // 注意：须在 Serve 之前调用（运行期不热更新）。
@@ -349,15 +391,15 @@ func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {
 	// DEV-ARCH-002 C6：三个 COUNT 查询任一失败 → 500（防 DB 故障时"零攻击"假象，
 	// 与 hFirewallTimeline 等 handler 一致；原实现静默吞错）。
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM firewall_events WHERE ts >= ?`, from).Scan(&fwCnt); err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ssh_attempts WHERE ts >= ? AND result = 0`, from).Scan(&sshFail); err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ssh_attempts WHERE ts >= ? AND result = 1`, from).Scan(&sshOK); err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 
@@ -388,7 +430,7 @@ func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	writeErr(w, 500, "查询失败: "+err.Error())
+	writeDBErr(w, r, err)
 }
 
 // activeConns 活跃连接数（现场核查结论 8）：优先 conntrack count 文件值

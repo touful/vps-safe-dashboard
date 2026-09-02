@@ -45,7 +45,7 @@ func (s *Server) hHoneypotEvents(w http.ResponseWriter, r *http.Request) {
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	defer rows.Close()

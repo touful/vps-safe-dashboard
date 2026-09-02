@@ -173,6 +173,8 @@ func main() {
 			// 以下 setter 注入须全部在 Serve 之前完成（api.Server 时序约束，
 			// 运行期不热更新，见 api.Server.SetLimits 等注释）。
 			srv.SetDBPath(cfg.DB.Path)
+			// 注入监听地址（静态资源 CSP 的 ws:// 兜底条目按实际地址推导）。
+			srv.SetListen(cfg.Web.Listen)
 			// 注入数据保留天数（health 返回，前端 range 提示）。
 			srv.SetRetentionDays(cfg.DB.RetentionDays)
 			// VS-03/VS-04（DEV-P1-001）：注入 WS 连接数上限与速率限制（config 默认

@@ -26,7 +26,7 @@ func (s *Server) hResources(w http.ResponseWriter, r *http.Request) {
 		MAX(net_rx_bps), MAX(net_tx_bps)
 		FROM resources WHERE ts >= ? GROUP BY bucket ORDER BY bucket`, stepSec, stepSec, from)
 	if err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	defer rows.Close()
@@ -73,7 +73,7 @@ func (s *Server) hConnections(w http.ResponseWriter, r *http.Request) {
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	defer rows.Close()
@@ -120,7 +120,7 @@ func (s *Server) hSSH(w http.ResponseWriter, r *http.Request) {
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	defer rows.Close()
@@ -161,7 +161,7 @@ func (s *Server) hFirewall(w http.ResponseWriter, r *http.Request) {
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	defer rows.Close()
@@ -198,7 +198,7 @@ func (s *Server) hTopPorts(w http.ResponseWriter, r *http.Request) {
 	}
 	hits, err := s.topHits(ctx, from, top, "dst_port")
 	if err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	type hit struct {
@@ -223,7 +223,7 @@ func (s *Server) hTopSources(w http.ResponseWriter, r *http.Request) {
 	}
 	hits, err := s.topHits(ctx, from, top, "src_ip")
 	if err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	type hit struct {
@@ -336,7 +336,7 @@ func (s *Server) hSSHTimeline(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.QueryContext(ctx, `SELECT (ts/3600)*3600 AS hour, COUNT(*) FROM ssh_attempts
 		WHERE ts >= ? AND result = 0 GROUP BY hour ORDER BY hour`, from)
 	if err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	defer rows.Close()
@@ -381,7 +381,7 @@ func (s *Server) hFirewallTimeline(w http.ResponseWriter, r *http.Request) {
 		SUM(CASE WHEN action='inbound' THEN 1 ELSE 0 END)
 		FROM firewall_events WHERE ts >= ? GROUP BY hour ORDER BY hour`, fromBucket)
 	if err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	defer rows.Close()
@@ -435,7 +435,7 @@ func (s *Server) hBans(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.QueryContext(ctx, `SELECT ts, ip, type, jail FROM ban_events
 		WHERE ts >= ? ORDER BY ts DESC LIMIT ?`, from, limit)
 	if err != nil {
-		writeErr(w, 500, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	defer rows.Close()

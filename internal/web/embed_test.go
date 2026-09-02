@@ -3,6 +3,7 @@
 package web
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -54,4 +55,27 @@ func TestSampleNoteTerminology(t *testing.T) {
 		}
 	}
 	t.Error("index.html 未找到 sample-note 元素")
+}
+
+// TestHandlerWithWSCSP CSP connect-src 显式 ws:// 条目动态注入
+//（工程修复回归：原硬编码 ws://127.0.0.1:8080）。
+func TestHandlerWithWSCSP(t *testing.T) {
+	cases := []struct {
+		wsURL string
+	}{
+		{"ws://127.0.0.1:8080"},
+		{"ws://192.168.1.5:9090"},
+	}
+	for _, c := range cases {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/index.html", nil)
+		HandlerWithWS(c.wsURL).ServeHTTP(rec, req)
+		csp := rec.Header().Get("Content-Security-Policy")
+		if !strings.Contains(csp, "connect-src 'self' "+c.wsURL) {
+			t.Errorf("CSP connect-src 应含动态条目 %s，实际: %s", c.wsURL, csp)
+		}
+		if !strings.Contains(csp, "default-src 'self'") {
+			t.Errorf("CSP 其余指令不应缺失，实际: %s", csp)
+		}
+	}
 }

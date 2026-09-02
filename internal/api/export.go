@@ -81,7 +81,7 @@ func (s *Server) hExportCSV(w http.ResponseWriter, r *http.Request) {
 	) ORDER BY ts, ip`
 	rows, err := s.db.QueryContext(ctx, query, from, to, from, to)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败: "+err.Error())
+		writeDBErr(w, r, err)
 		return
 	}
 	defer rows.Close()
