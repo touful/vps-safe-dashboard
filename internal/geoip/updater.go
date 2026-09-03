@@ -50,8 +50,8 @@ type Updater struct {
 	sys        chan<- event.SystemEvent
 	rep        *event.RateLimiter // 留痕限频（下载失败等告警 1/小时，避免网络故障刷屏）
 	httpCl     *http.Client
-	updateURL  string  // 下载地址（默认 MaxMind；测试注入 mock）
-	lastRunDay int     // 当日已执行标记（UTC 日期），防同日内重复触发
+	updateURL  string // 下载地址（默认 MaxMind；测试注入 mock）
+	lastRunDay int    // 当日已执行标记（UTC 日期），防同日内重复触发
 }
 
 // NewUpdater 创建更新器。sys 可为 nil（测试/未注入场景静默）。

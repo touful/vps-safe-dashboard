@@ -11,10 +11,12 @@ import (
 
 // handleFTP FTP 认证握手模拟（RFC 959）。
 // 流程：220 横幅 → 循环解析客户端命令：
-//   USER <name>    → 331 Password required（暂存用户名）
-//   PASS <pass>    → 记录 CredEvent（用户名取自上次 USER）→ 530 Login incorrect（支持重试多组）
-//   QUIT           → 221 关闭
-//   SYST/其他      → 502 Command not implemented（最小响应，不泄露真实系统信息）
+//
+//	USER <name>    → 331 Password required（暂存用户名）
+//	PASS <pass>    → 记录 CredEvent（用户名取自上次 USER）→ 530 Login incorrect（支持重试多组）
+//	QUIT           → 221 关闭
+//	SYST/其他      → 502 Command not implemented（最小响应，不泄露真实系统信息）
+//
 // 行协议：\r\n 结尾文本行；多行命令不解析（命令概览级）。
 func handleFTP(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.CredEvent)) {
 	if _, err := conn.Write([]byte("220 FTP Server ready\r\n")); err != nil {

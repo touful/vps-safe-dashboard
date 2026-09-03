@@ -45,10 +45,10 @@ func TestMySQLCapture(t *testing.T) {
 	resp = append(resp, tmp[:]...)
 	binary.LittleEndian.PutUint32(tmp[:], 1<<20) // max packet
 	resp = append(resp, tmp[:]...)
-	resp = append(resp, 45) // charset
-	resp = append(resp, make([]byte, 23)...) // reserved
-	resp = append(resp, []byte("root\x00")...) // username
-	resp = append(resp, 20) // auth-response 长度（mysql_native_password 20 字节）
+	resp = append(resp, 45)                                // charset
+	resp = append(resp, make([]byte, 23)...)               // reserved
+	resp = append(resp, []byte("root\x00")...)             // username
+	resp = append(resp, 20)                                // auth-response 长度（mysql_native_password 20 字节）
 	resp = append(resp, []byte("0123456789ABCDEFGHIJ")...) // 伪 SHA1 摘要
 	// 报文头：len(3) + seq(1)。
 	pkt := make([]byte, 0, 4+len(resp))
@@ -217,8 +217,8 @@ func TestMSSQLCapture(t *testing.T) {
 
 	// 2. LOGIN7：用户名 "sa" UTF-16LE + 密码 "P@ssw0rd!" 的 TDS 混淆字节。
 	host := []byte("PC1")
-	user := []byte{'s', 0, 'a', 0}                        // "sa" UTF-16LE
-	pass := obfuscateTDSForTest("P@ssw0rd!")              // 真实混淆向量
+	user := []byte{'s', 0, 'a', 0}           // "sa" UTF-16LE
+	pass := obfuscateTDSForTest("P@ssw0rd!") // 真实混淆向量
 	if err := writeTDSPacket(c, 0x10, buildTestLogin7(host, user, pass)); err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestMSSQLCaptureDeobfFallback(t *testing.T) {
 func buildTestLogin7(host, user, pass []byte) []byte {
 	dataOff := 36 + 5*4
 	login := make([]byte, 0, 512)
-	login = append(login, 0, 0, 0, 0) // Length 占位
+	login = append(login, 0, 0, 0, 0)             // Length 占位
 	login = append(login, 0x04, 0x00, 0x00, 0x74) // TDSVersion 7.4
 	login = append(login, 0, 0, 0x10, 0x00)       // PacketSize 4096
 	login = append(login, 0, 0, 0, 0, 0, 0, 0, 0) // ClientProgVer + ClientPID
@@ -314,26 +314,26 @@ func TestSMB2Capture(t *testing.T) {
 	// 1. Negotiate 请求：64 头 + 36 固定 + dialects。
 	neg := make([]byte, 0, 64+36+4)
 	neg = append(neg, []byte("\xfeSMB")...)
-	neg = append(neg, 64, 0) // StructureSize
-	neg = append(neg, 0, 0)  // CreditCharge
-	neg = append(neg, 0, 0, 0, 0) // Status
-	neg = append(neg, 0x00, 0x00) // Command = NEGOTIATE
-	neg = append(neg, 1, 0)       // Credit
-	neg = append(neg, 0, 0, 0, 0) // Flags
-	neg = append(neg, 0, 0, 0, 0) // NextCommand
+	neg = append(neg, 64, 0)                  // StructureSize
+	neg = append(neg, 0, 0)                   // CreditCharge
+	neg = append(neg, 0, 0, 0, 0)             // Status
+	neg = append(neg, 0x00, 0x00)             // Command = NEGOTIATE
+	neg = append(neg, 1, 0)                   // Credit
+	neg = append(neg, 0, 0, 0, 0)             // Flags
+	neg = append(neg, 0, 0, 0, 0)             // NextCommand
 	neg = append(neg, 1, 0, 0, 0, 0, 0, 0, 0) // MessageId = 1
 	neg = append(neg, 0, 0, 0, 0, 0, 0, 0, 0) // Reserved + TreeId
 	neg = append(neg, 0, 0, 0, 0, 0, 0, 0, 0) // SessionId
-	neg = append(neg, make([]byte, 16)...)     // Signature
+	neg = append(neg, make([]byte, 16)...)    // Signature
 	// 36 固定：StructureSize(2)=36 + DialectCount(2) + SecurityMode(2) + Reserved(2) +
 	// Capabilities(4) + ClientGuid(16) + SecurityMode(4 空) + Dialects[...]
-	neg = append(neg, 36, 0)      // StructureSize
-	neg = append(neg, 1, 0)       // DialectCount
-	neg = append(neg, 1, 0)       // SecurityMode
-	neg = append(neg, 0, 0)       // Reserved
-	neg = append(neg, 0, 0, 0, 0) // Capabilities
+	neg = append(neg, 36, 0)               // StructureSize
+	neg = append(neg, 1, 0)                // DialectCount
+	neg = append(neg, 1, 0)                // SecurityMode
+	neg = append(neg, 0, 0)                // Reserved
+	neg = append(neg, 0, 0, 0, 0)          // Capabilities
 	neg = append(neg, make([]byte, 16)...) // ClientGuid
-	neg = append(neg, 0x10, 0x02) // Dialect SMB 2.1
+	neg = append(neg, 0x10, 0x02)          // Dialect SMB 2.1
 	if _, err := c.Write(neg); err != nil {
 		t.Fatal(err)
 	}
@@ -372,8 +372,8 @@ func TestSMB2Capture(t *testing.T) {
 	ss = append(ss, 0, 0, 0, 0) // Status
 	ss = append(ss, 0x01, 0x00) // Command = SESSION_SETUP
 	ss = append(ss, 1, 0)
-	ss = append(ss, 0, 0, 0, 0) // Flags
-	ss = append(ss, 0, 0, 0, 0) // NextCommand
+	ss = append(ss, 0, 0, 0, 0)             // Flags
+	ss = append(ss, 0, 0, 0, 0)             // NextCommand
 	ss = append(ss, 2, 0, 0, 0, 0, 0, 0, 0) // MessageId = 2
 	ss = append(ss, 0, 0, 0, 0)             // Reserved
 	ss = append(ss, 0, 0, 0, 0)             // TreeId
@@ -381,9 +381,9 @@ func TestSMB2Capture(t *testing.T) {
 	ss = append(ss, make([]byte, 16)...)    // Signature
 	// SESSION_SETUP 请求体：StructureSize(2)=25 + Flags(1) + SecurityMode(1) +
 	// Capabilities(4) + Channel(4) + SecBufOff(2) + SecBufLen(2) + PrevSessionId(8) + Buffer。
-	ss = append(ss, 25, 0) // StructureSize
-	ss = append(ss, 0)     // Flags
-	ss = append(ss, 1)     // SecurityMode
+	ss = append(ss, 25, 0)      // StructureSize
+	ss = append(ss, 0)          // Flags
+	ss = append(ss, 1)          // SecurityMode
 	ss = append(ss, 0, 0, 0, 0) // Capabilities
 	ss = append(ss, 0, 0, 0, 0) // Channel
 	var sbo [2]byte
@@ -466,10 +466,10 @@ func TestRDPCapture(t *testing.T) {
 	// X.224 Connection Request（TPKT + CR + cookie）。
 	cookie := []byte("Cookie: mstshash=admin\r\n")
 	cr := make([]byte, 0, 11+len(cookie))
-	cr = append(cr, 0x0E, 0xE0)       // LI + PDU type (CR)
-	cr = append(cr, 0, 0, 0, 0)       // dst-ref + src-ref
-	cr = append(cr, 0x00)             // class
-	cr = append(cr, cookie...)        // variable part（cookie）
+	cr = append(cr, 0x0E, 0xE0) // LI + PDU type (CR)
+	cr = append(cr, 0, 0, 0, 0) // dst-ref + src-ref
+	cr = append(cr, 0x00)       // class
+	cr = append(cr, cookie...)  // variable part（cookie）
 	var tmp [2]byte
 	tpkt := make([]byte, 0, 4+len(cr))
 	tpkt = append(tpkt, 3, 0)
@@ -646,7 +646,7 @@ func buildNTLMSSPAuth(user, domain string) []byte {
 	field(wkOff, 0) // Workstation
 	field(wkOff, 0) // EncryptedRandomSessionKey
 	binary.LittleEndian.PutUint32(tmp[:], 0x00088201)
-	b = append(b, tmp[:]...)          // NegotiateFlags
+	b = append(b, tmp[:]...)              // NegotiateFlags
 	b = append(b, 6, 1, 0, 0, 0, 0, 0, 0) // Version
 	b = append(b, make([]byte, 16)...)    // MIC
 	b = append(b, ntResp...)
@@ -692,15 +692,15 @@ func TestMySQLStrictParse(t *testing.T) {
 	if pos+4+8+1+2+1+2+2+1+10 > len(greeting) {
 		t.Fatalf("greeting 过短（%d 字节）", len(greeting))
 	}
-	pos += 4                                     // connection_id
-	part1 := greeting[pos : pos+8]               // auth-plugin-data-part1
+	pos += 4                       // connection_id
+	part1 := greeting[pos : pos+8] // auth-plugin-data-part1
 	// H-03 回归断言：salt 为中性 20 字节（part1 "FixedSrv"，不得含蜜罐标识）。
 	if got := string(part1); got != "FixedSrv" {
 		t.Fatalf("auth-plugin-data-part1 = %q, 期望 FixedSrv（H-03：中性 salt）", got)
 	}
-	pos += 8 + 1                                 // part1 + filler
+	pos += 8 + 1 // part1 + filler
 	capsLower := binary.LittleEndian.Uint16(greeting[pos : pos+2])
-	pos += 2 + 1 + 2                             // caps_lower + charset + status
+	pos += 2 + 1 + 2 // caps_lower + charset + status
 	capsUpper := binary.LittleEndian.Uint16(greeting[pos : pos+2])
 	pos += 2
 	caps := uint32(capsLower) | uint32(capsUpper)<<16
@@ -852,24 +852,24 @@ func TestSMB2FragmentedFrames(t *testing.T) {
 func buildSMB2NegotiateFrame() []byte {
 	neg := make([]byte, 0, 64+30)
 	neg = append(neg, []byte("\xfeSMB")...)
-	neg = append(neg, 64, 0) // StructureSize
-	neg = append(neg, 0, 0)  // CreditCharge
-	neg = append(neg, 0, 0, 0, 0) // Status
-	neg = append(neg, 0x00, 0x00) // Command = NEGOTIATE
-	neg = append(neg, 1, 0)       // Credit
-	neg = append(neg, 0, 0, 0, 0) // Flags
-	neg = append(neg, 0, 0, 0, 0) // NextCommand
+	neg = append(neg, 64, 0)                  // StructureSize
+	neg = append(neg, 0, 0)                   // CreditCharge
+	neg = append(neg, 0, 0, 0, 0)             // Status
+	neg = append(neg, 0x00, 0x00)             // Command = NEGOTIATE
+	neg = append(neg, 1, 0)                   // Credit
+	neg = append(neg, 0, 0, 0, 0)             // Flags
+	neg = append(neg, 0, 0, 0, 0)             // NextCommand
 	neg = append(neg, 1, 0, 0, 0, 0, 0, 0, 0) // MessageId = 1
 	neg = append(neg, 0, 0, 0, 0, 0, 0, 0, 0) // Reserved + TreeId
 	neg = append(neg, 0, 0, 0, 0, 0, 0, 0, 0) // SessionId
-	neg = append(neg, make([]byte, 16)...)     // Signature
-	neg = append(neg, 36, 0)      // StructureSize（声明值，固定实际 28）
-	neg = append(neg, 1, 0)       // DialectCount
-	neg = append(neg, 1, 0)       // SecurityMode
-	neg = append(neg, 0, 0)       // Reserved
-	neg = append(neg, 0, 0, 0, 0) // Capabilities
-	neg = append(neg, make([]byte, 16)...) // ClientGuid
-	neg = append(neg, 0x10, 0x02) // Dialect SMB 2.1
+	neg = append(neg, make([]byte, 16)...)    // Signature
+	neg = append(neg, 36, 0)                  // StructureSize（声明值，固定实际 28）
+	neg = append(neg, 1, 0)                   // DialectCount
+	neg = append(neg, 1, 0)                   // SecurityMode
+	neg = append(neg, 0, 0)                   // Reserved
+	neg = append(neg, 0, 0, 0, 0)             // Capabilities
+	neg = append(neg, make([]byte, 16)...)    // ClientGuid
+	neg = append(neg, 0x10, 0x02)             // Dialect SMB 2.1
 	return neg
 }
 
@@ -877,23 +877,23 @@ func buildSMB2NegotiateFrame() []byte {
 func buildSMB2SessionSetupFrame(auth []byte) []byte {
 	ss := make([]byte, 0, 64+24+len(auth))
 	ss = append(ss, []byte("\xfeSMB")...)
-	ss = append(ss, 64, 0) // StructureSize
-	ss = append(ss, 0, 0)  // CreditCharge
-	ss = append(ss, 0, 0, 0, 0) // Status
-	ss = append(ss, 0x01, 0x00) // Command = SESSION_SETUP
-	ss = append(ss, 1, 0)       // Credit
-	ss = append(ss, 0, 0, 0, 0) // Flags
-	ss = append(ss, 0, 0, 0, 0) // NextCommand
+	ss = append(ss, 64, 0)                  // StructureSize
+	ss = append(ss, 0, 0)                   // CreditCharge
+	ss = append(ss, 0, 0, 0, 0)             // Status
+	ss = append(ss, 0x01, 0x00)             // Command = SESSION_SETUP
+	ss = append(ss, 1, 0)                   // Credit
+	ss = append(ss, 0, 0, 0, 0)             // Flags
+	ss = append(ss, 0, 0, 0, 0)             // NextCommand
 	ss = append(ss, 2, 0, 0, 0, 0, 0, 0, 0) // MessageId = 2
 	ss = append(ss, 0, 0, 0, 0)             // Reserved
 	ss = append(ss, 0, 0, 0, 0)             // TreeId
 	ss = append(ss, 0, 0, 0, 0, 0, 0, 0, 0) // SessionId
 	ss = append(ss, make([]byte, 16)...)    // Signature
-	ss = append(ss, 25, 0) // StructureSize（声明值，固定实际 24）
-	ss = append(ss, 0)     // Flags
-	ss = append(ss, 1)     // SecurityMode
-	ss = append(ss, 0, 0, 0, 0) // Capabilities
-	ss = append(ss, 0, 0, 0, 0) // Channel
+	ss = append(ss, 25, 0)                  // StructureSize（声明值，固定实际 24）
+	ss = append(ss, 0)                      // Flags
+	ss = append(ss, 1)                      // SecurityMode
+	ss = append(ss, 0, 0, 0, 0)             // Capabilities
+	ss = append(ss, 0, 0, 0, 0)             // Channel
 	var sbo [2]byte
 	binary.LittleEndian.PutUint16(sbo[:], uint16(64+24))
 	ss = append(ss, sbo[:]...)

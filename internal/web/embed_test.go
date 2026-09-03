@@ -58,7 +58,7 @@ func TestSampleNoteTerminology(t *testing.T) {
 }
 
 // TestHandlerWithWSCSP CSP connect-src 显式 ws:// 条目动态注入
-//（工程修复回归：原硬编码 ws://127.0.0.1:8080）。
+// （工程修复回归：原硬编码 ws://127.0.0.1:8080）。
 func TestHandlerWithWSCSP(t *testing.T) {
 	cases := []struct {
 		wsURL string

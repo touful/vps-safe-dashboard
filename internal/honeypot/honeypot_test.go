@@ -330,7 +330,7 @@ func TestTruncateCredText(t *testing.T) {
 }
 
 // TestFTPCredTruncated M-1 回归：超长凭据经框架层统一截断后投递
-//（防蜜罐端口向 cred_events 注入 MB 级字段致磁盘耗尽）。
+// （防蜜罐端口向 cred_events 注入 MB 级字段致磁盘耗尽）。
 func TestFTPCredTruncated(t *testing.T) {
 	credCh := make(chan event.CredEvent, 4)
 	_, addrs := startTestServer(t, []string{"ftp"}, credCh, nil)

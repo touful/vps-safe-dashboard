@@ -280,7 +280,7 @@ func buildMongoReply(errmsg string) []byte {
 	msg := make([]byte, 0, 16+len(doc))
 	var hdr [16]byte
 	binary.LittleEndian.PutUint32(hdr[:4], uint32(16+len(doc))) // messageLength
-	binary.LittleEndian.PutUint32(hdr[12:16], 1)                 // OP_REPLY
+	binary.LittleEndian.PutUint32(hdr[12:16], 1)                // OP_REPLY
 	msg = append(msg, hdr[:]...)
 	msg = append(msg, doc...)
 	return msg
@@ -323,9 +323,9 @@ func writeMongoMsg(conn net.Conn, msg []byte, reqID uint32) error {
 	binary.LittleEndian.PutUint32(hdr[8:12], reqID) // responseTo = 请求 ID
 	binary.LittleEndian.PutUint32(hdr[12:16], 2013) // OP_MSG
 	out = append(out, hdr[:]...)
-	out = append(out, 0, 0, 0, 0)   // flags
-	out = append(out, 0)            // section kind 0 = body
-	out = append(out, msg[16:]...)  // BSON doc
+	out = append(out, 0, 0, 0, 0)  // flags
+	out = append(out, 0)           // section kind 0 = body
+	out = append(out, msg[16:]...) // BSON doc
 	// writeAll2 已由标准库 io.Copy 取代（DEV-ARCH-002 A2：bytes.Reader 实现
 	// WriteTo，io.Copy 直连 conn.Write 循环；短写返回 io.ErrShortWrite → 蜜罐
 	// 响应路径断开——net.Conn 短写概率极低，失败路径方向与旧实现一致）。

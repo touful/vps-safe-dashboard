@@ -16,10 +16,11 @@ import (
 // AuthenticationCleartextPassword（诱导明文密码）→ 客户端回 PasswordMessage
 // （p 消息，明文）→ 记录 CredEvent → 回 ErrorResponse 拒绝（password authentication failed）。
 // 消息格式：
-//   StartupMessage:           Int32 len | Int32 196608(3.0) | key\0value\0... | \0
-//   AuthenticationCleartextPassword (R): Byte 'R' | Int32 len=8 | Int32 code=3
-//   PasswordMessage (p):      Byte 'p' | Int32 len | password\0
-//   ErrorResponse (E):        Byte 'E' | Int32 len | (Byte type + String)* | \0
+//
+//	StartupMessage:           Int32 len | Int32 196608(3.0) | key\0value\0... | \0
+//	AuthenticationCleartextPassword (R): Byte 'R' | Int32 len=8 | Int32 code=3
+//	PasswordMessage (p):      Byte 'p' | Int32 len | password\0
+//	ErrorResponse (E):        Byte 'E' | Int32 len | (Byte type + String)* | \0
 func handlePostgres(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.CredEvent)) {
 	// 1. StartupMessage：长度（含自身 4 字节）+ 协议版本 + 参数对 + 终止 0。
 	var hdr [8]byte
@@ -124,5 +125,3 @@ func buildPGError(severity, message string) []byte {
 	binary.BigEndian.PutUint32(b[lenPos:], uint32(len(b)-lenPos))
 	return b
 }
-
-

@@ -10,9 +10,9 @@ import (
 // 存储治理：allow 调用时惰性清理过期桶 + 桶数超阈值时全量清理（防恶意多源
 // 伪造源 IP 场景下 map 无限增长——蜜罐场景攻击者源 IP 真实可追，阈值兜底）。
 type ipRateLimiter struct {
-	mu     sync.Mutex
-	limit  int
-	window time.Duration
+	mu      sync.Mutex
+	limit   int
+	window  time.Duration
 	buckets map[uint32]*ipBucket
 	// calls 自上次全量清理以来的 allow 调用计数（触发全量清理节流）。
 	calls int

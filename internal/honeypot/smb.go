@@ -100,13 +100,14 @@ func handleSMB(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.
 
 // readSMB2Body 读取 SMB2 消息体（不含 64 字节头）。
 // 按命令类型读固定体长（R-10 reviewer 整改：TCP 分片下多帧安全）：
-//   NEGOTIATE（0x0000）：固定 28 字节 + dialects（DialectCount×2）——SMB2_NEGOTIATE_REQUEST
-//     （MS-SMB2 2.2.3）固定字段 = StructureSize(2)+DialectCount(2)+SecurityMode(2)+
-//     Reserved(2)+Capabilities(4)+ClientGuid(16) = 28；StructureSize 字段值 36 含
-//     SMB 3.x 的 NegotiateContext 字段，2.1 客户端不发送，故按 28 + dialects 消费；
-//   SESSION_SETUP（0x0001）：固定 24 字节（StructureSize 字段值 25 但结构实际
-//     2+1+1+4+4+2+2+8 = 24）+ SecurityBufferLength（体偏移 14）安全缓冲；
-//   SMB2 无显式帧总长，由结构体长度字段决定。
+//
+//	NEGOTIATE（0x0000）：固定 28 字节 + dialects（DialectCount×2）——SMB2_NEGOTIATE_REQUEST
+//	  （MS-SMB2 2.2.3）固定字段 = StructureSize(2)+DialectCount(2)+SecurityMode(2)+
+//	  Reserved(2)+Capabilities(4)+ClientGuid(16) = 28；StructureSize 字段值 36 含
+//	  SMB 3.x 的 NegotiateContext 字段，2.1 客户端不发送，故按 28 + dialects 消费；
+//	SESSION_SETUP（0x0001）：固定 24 字节（StructureSize 字段值 25 但结构实际
+//	  2+1+1+4+4+2+2+8 = 24）+ SecurityBufferLength（体偏移 14）安全缓冲；
+//	SMB2 无显式帧总长，由结构体长度字段决定。
 func readSMB2Body(conn net.Conn, hdr []byte) ([]byte, bool) {
 	// hdr 从 StructureSize 起（完整头偏移 4 处）；Command 位于 hdr[8:10]。
 	cmd := binary.LittleEndian.Uint16(hdr[8:10])
@@ -188,17 +189,17 @@ func buildSMB2NegotiateResponse(msgID uint64) []byte {
 	// ServerStartTime(8) + SecurityBufferOffset(2) + SecurityBufferLength(2) +
 	// Reserved(2)。
 	nb := make([]byte, 0, 64+len(challenge))
-	nb = append(nb, 64, 0)                 // StructureSize（规范值 64，字段实际 62 字节）
-	nb = append(nb, 0x01, 0x00)            // SecurityMode: SIGNING_ENABLED
-	nb = append(nb, 0x10, 0x02)            // DialectRevision: SMB 2.1（广泛兼容）
-	nb = append(nb, 0, 0)                  // Reserved
+	nb = append(nb, 64, 0)                         // StructureSize（规范值 64，字段实际 62 字节）
+	nb = append(nb, 0x01, 0x00)                    // SecurityMode: SIGNING_ENABLED
+	nb = append(nb, 0x10, 0x02)                    // DialectRevision: SMB 2.1（广泛兼容）
+	nb = append(nb, 0, 0)                          // Reserved
 	nb = append(nb, []byte("1234567890ABCDEF")...) // ServerGuid（16 字节；H-03：中性值，原含蜜罐标识）
-	nb = append(nb, 0, 0, 0, 0) // Capabilities
-	nb = append(nb, 0x00, 0x10, 0x00, 0x00) // MaxTransactSize 4MB
-	nb = append(nb, 0x00, 0x10, 0x00, 0x00) // MaxReadSize
-	nb = append(nb, 0x00, 0x10, 0x00, 0x00) // MaxWriteSize
-	nb = append(nb, 0, 0, 0, 0, 0, 0, 0, 0) // SystemTime
-	nb = append(nb, 0, 0, 0, 0, 0, 0, 0, 0) // ServerStartTime
+	nb = append(nb, 0, 0, 0, 0)                    // Capabilities
+	nb = append(nb, 0x00, 0x10, 0x00, 0x00)        // MaxTransactSize 4MB
+	nb = append(nb, 0x00, 0x10, 0x00, 0x00)        // MaxReadSize
+	nb = append(nb, 0x00, 0x10, 0x00, 0x00)        // MaxWriteSize
+	nb = append(nb, 0, 0, 0, 0, 0, 0, 0, 0)        // SystemTime
+	nb = append(nb, 0, 0, 0, 0, 0, 0, 0, 0)        // ServerStartTime
 	// SecurityBufferOffset = 126（64 头 + 62 体）。
 	secOff := 64 + 62
 	var sbo [2]byte
@@ -225,10 +226,10 @@ func buildSMB2NegotiateResponse(msgID uint64) []byte {
 	out = append(out, 0, 0, 0, 0) // NextCommand
 	var mi [8]byte
 	binary.LittleEndian.PutUint64(mi[:], msgID)
-	out = append(out, mi[:]...)               // MessageId（回显请求）
-	out = append(out, 0, 0, 0, 0)             // Reserved
-	out = append(out, 0, 0, 0, 0)             // TreeId
-	out = append(out, 0, 0, 0, 0, 0, 0, 0, 0) // SessionId
+	out = append(out, mi[:]...)                                       // MessageId（回显请求）
+	out = append(out, 0, 0, 0, 0)                                     // Reserved
+	out = append(out, 0, 0, 0, 0)                                     // TreeId
+	out = append(out, 0, 0, 0, 0, 0, 0, 0, 0)                         // SessionId
 	out = append(out, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) // Signature 16
 	out = append(out, nb...)
 	out = append(out, challenge...)
@@ -305,16 +306,16 @@ func writeSMB2Error(conn net.Conn, command uint16, status uint32) error {
 	var cm [2]byte
 	binary.LittleEndian.PutUint16(cm[:], command)
 	out = append(out, cm[:]...)
-	out = append(out, 1, 0) // Credit
-	out = append(out, 0, 0, 0, 0, 0, 0, 0, 0) // Flags + NextCommand
-	out = append(out, 0, 0, 0, 0, 0, 0, 0, 0) // MessageId
-	out = append(out, 0, 0, 0, 0, 0, 0, 0, 0) // Reserved + TreeId
-	out = append(out, 0, 0, 0, 0, 0, 0, 0, 0) // SessionId
+	out = append(out, 1, 0)                                           // Credit
+	out = append(out, 0, 0, 0, 0, 0, 0, 0, 0)                         // Flags + NextCommand
+	out = append(out, 0, 0, 0, 0, 0, 0, 0, 0)                         // MessageId
+	out = append(out, 0, 0, 0, 0, 0, 0, 0, 0)                         // Reserved + TreeId
+	out = append(out, 0, 0, 0, 0, 0, 0, 0, 0)                         // SessionId
 	out = append(out, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) // Signature
 	// Error Response 体。
-	out = append(out, 9, 0) // StructureSize
-	out = append(out, 0)    // ErrorContextCount
-	out = append(out, 0)    // Reserved
+	out = append(out, 9, 0)       // StructureSize
+	out = append(out, 0)          // ErrorContextCount
+	out = append(out, 0)          // Reserved
 	out = append(out, 0, 0, 0, 0) // ByteCount
 	// writeAll2 已由标准库 io.Copy 取代（DEV-ARCH-002 A2：短写返回
 	// io.ErrShortWrite → 响应路径断开，net.Conn 短写概率极低）。

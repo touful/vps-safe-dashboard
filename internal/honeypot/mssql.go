@@ -107,8 +107,10 @@ func writeTDSPacket(conn net.Conn, pktType byte, payload []byte) error {
 
 // buildPreloginResponse 构造最小 Prelogin Response（MS-TDS 2.2.1.1）。
 // 选项表（token + offset + length 三元组，offset 从消息起始计算）：
-//   VERSION（token 0x00，8 字节伪 TDS 版本）
-//   ENCRYPTION（token 0x01，1 字节 = 0x00 OFF——诱导客户端走明文后续流程）
+//
+//	VERSION（token 0x00，8 字节伪 TDS 版本）
+//	ENCRYPTION（token 0x01，1 字节 = 0x00 OFF——诱导客户端走明文后续流程）
+//
 // 选项表 15 字节（5+5+5）+ 1 字节对齐 pad = 16 字节，数据区从偏移 16 开始。
 func buildPreloginResponse() []byte {
 	const verOff = 16
@@ -232,7 +234,7 @@ func writeTDSLoginFailed(conn net.Conn, user string) error {
 	var num [4]byte
 	binary.BigEndian.PutUint32(num[:], 18456)
 	token = append(token, num[:]...)
-	token = append(token, 1) // state
+	token = append(token, 1)  // state
 	token = append(token, 14) // class（14 = 登录）
 	token = append(token, []byte(msg)...)
 	token = append(token, 0) // VarChar 终止

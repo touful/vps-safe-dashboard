@@ -16,6 +16,7 @@ import (
 //   - AUTH <password>       → 记录（username 留空，redis 无用户概念）
 //   - AUTH <user> <password> → 记录（ACL 用户格式）
 //   - HELLO 3 [AUTH u p]     → HELLO 带 AUTH 参数时解析记录；回 -ERR 最小响应
+//
 // 响应全部为拒绝（-ERR），不执行任何命令、不返回真实信息（INFO/CONFIG 等回 -ERR）。
 // 解析：优先 RESP 数组（*N\r\n$len\r\n...）；首字节非 '*' 时按 inline 命令行
 // （空格分词，兼容 telnet 式攻击脚本）。
@@ -151,5 +152,3 @@ func readRESPBulk(br *bufio.Reader) (string, error) {
 	}
 	return string(buf[:n]), nil
 }
-
-

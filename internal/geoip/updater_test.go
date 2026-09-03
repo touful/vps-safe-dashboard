@@ -42,7 +42,7 @@ func testTarGz(t *testing.T, entries map[string][]byte) []byte {
 func TestExtractMMDB(t *testing.T) {
 	data := testTarGz(t, map[string][]byte{
 		"GeoLite2-Country_20260101/GeoLite2-Country.mmdb": {1, 2, 3},
-		"GeoLite2-Country_20260101/COPYRIGHT.txt":        []byte("x"),
+		"GeoLite2-Country_20260101/COPYRIGHT.txt":         []byte("x"),
 	})
 	got, err := extractMMDB(data)
 	if err != nil {

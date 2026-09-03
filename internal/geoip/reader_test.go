@@ -13,9 +13,9 @@ import (
 func TestReaderLoadErrors(t *testing.T) {
 	dir := t.TempDir()
 	cases := []string{
-		filepath.Join(dir, "no_such.mmdb"),          // 不存在
-		dir,                                          // 目录（Open 失败）
-		filepath.Join(dir, "garbage.mmdb"),           // 垃圾内容（先写后测）
+		filepath.Join(dir, "no_such.mmdb"), // 不存在
+		dir,                                // 目录（Open 失败）
+		filepath.Join(dir, "garbage.mmdb"), // 垃圾内容（先写后测）
 	}
 	if err := os.WriteFile(cases[2], []byte("not a maxmind db"), 0o644); err != nil {
 		t.Fatal(err)

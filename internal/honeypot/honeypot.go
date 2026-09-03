@@ -87,8 +87,8 @@ type Server struct {
 	addrs map[string]string
 
 	// 治理
-	sem chan struct{}   // 全局并发上限信号量（容量 maxConns）
-	rl  *ipRateLimiter  // 每源 IP 限速
+	sem chan struct{}      // 全局并发上限信号量（容量 maxConns）
+	rl  *ipRateLimiter     // 每源 IP 限速
 	rep *event.RateLimiter // system_events 连接留痕限频（1/分钟）
 
 	// 统计

@@ -16,8 +16,10 @@ const telnetBanner = "Ubuntu 22.04.3 LTS\r\n"
 
 // handleTelnet telnet 登录握手模拟（RFC 854）。
 // 流程：横幅 → 循环（最多 loginRoundsMax 轮）：
-//   发 "login: " → 收用户名 → 发 "Password: " → 收密码 → 记录 CredEvent
-//   → 发 "Login incorrect" → 继续下一轮；客户端断开/超时结束。
+//
+//	发 "login: " → 收用户名 → 发 "Password: " → 收密码 → 记录 CredEvent
+//	→ 发 "Login incorrect" → 继续下一轮；客户端断开/超时结束。
+//
 // 不实现 TELNET 选项协商（IAC 序列）：真实客户端通常先发 IAC DO/DONT 协商，
 // 扫描器/脚本通常直接发 login 行；对 IAC 字节（0xFF）按普通行数据丢弃处理。
 func handleTelnet(ctx context.Context, conn net.Conn, srcIP uint32, rec func(event.CredEvent)) {

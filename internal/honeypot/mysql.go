@@ -29,7 +29,7 @@ func handleMySQL(ctx context.Context, conn net.Conn, srcIP uint32, rec func(even
 	// reserved(10) | auth_plugin_data_part2(max(13, len-8)-1=12) | auth_plugin_name(NUL)
 	salt := []byte("FixedSrvSalt00112233") // 恰好 20 字节（part1 "FixedSrv" 8 + part2 "Salt00112233" 12）；
 	// H-03：中性伪随机串（原 "sentryH0n3yp0tS4lt12" 含蜜罐标识，攻击者可据 banner 特征规避）
-	greeting := []byte{10} // protocol version 10（version 字段紧随其后 NUL 终止）
+	greeting := []byte{10}          // protocol version 10（version 字段紧随其后 NUL 终止）
 	version := []byte("8.0.35\x00") // 伪装版本串（H-03：去 "honeypot" 后缀标识；仅诱导客户端继续认证，非真实信息）
 	greeting = append(greeting, version...)
 	var connID [4]byte
@@ -46,10 +46,10 @@ func handleMySQL(ctx context.Context, conn net.Conn, srcIP uint32, rec func(even
 	greeting = append(greeting, 0x77, 0x77) // caps_upper（LE 0x7777：置位 bit16/17/18/20/21/22/24/25/26/28/29/30，
 	// 含 CLIENT_CONNECT_ATTRS(0x100000) 等高位；bit19 PLUGIN_AUTH 未置——插件名已由
 	// auth_plugin_name 字段声明，客户端不依赖该位）
-	greeting = append(greeting, 21)         // auth_plugin_data_len = 21（20 salt + 1 NUL）
-	greeting = append(greeting, make([]byte, 10)...) // reserved
-	greeting = append(greeting, salt[8:]...)         // auth_plugin_data_part2（12 字节）
-	greeting = append(greeting, 0)                   // salt 串 NUL 终止
+	greeting = append(greeting, 21)                                     // auth_plugin_data_len = 21（20 salt + 1 NUL）
+	greeting = append(greeting, make([]byte, 10)...)                    // reserved
+	greeting = append(greeting, salt[8:]...)                            // auth_plugin_data_part2（12 字节）
+	greeting = append(greeting, 0)                                      // salt 串 NUL 终止
 	greeting = append(greeting, []byte("mysql_native_password\x00")...) // auth plugin
 	if err := writeMySQLPacket(conn, 0, greeting); err != nil {
 		return

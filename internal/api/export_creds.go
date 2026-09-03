@@ -15,9 +15,9 @@ import (
 // 数据口径：cred_events 按 (proto, username, password) 去重聚合（与
 // /api/v1/honeypot/creds 同一聚合口径），三格式：
 //   - csv       全量审计视图（含摘要/无认证协议条目），表头
-//               username,password,protocol,kind,count,first_seen,last_seen,src_ip_count
+//     username,password,protocol,kind,count,first_seen,last_seen,src_ip_count
 //   - pairs     爆破字典格式，每行 `username:password`（仅 kind=plaintext 且密码非空，
-//               按尝试次数降序；hydra -C / medusa 组合字典格式）
+//     按尝试次数降序；hydra -C / medusa 组合字典格式）
 //   - passwords 纯密码列表（仅明文且非空，跨协议去重，按尝试次数降序）
 //
 // 明文协议：telnet/ftp/redis/postgres（捕获即明文）+ mssql（TDS 混淆可逆，捕获时已还原；
