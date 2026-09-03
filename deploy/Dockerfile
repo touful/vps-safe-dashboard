@@ -7,6 +7,11 @@
 # 后续升级 Go 时须同步更新此处版本与 go.mod 指令。
 FROM golang:1.26.6-alpine AS builder
 WORKDIR /src
+# GOPROXY：国内构建环境 proxy.golang.org 不可达（2.2.0 构建实测 i/o timeout），
+# 默认走 goproxy.cn（全球可达）；海外构建如需官方源可构建时覆盖：
+#   docker build --build-arg GOPROXY=https://proxy.golang.org .
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
