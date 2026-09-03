@@ -27,9 +27,10 @@ services:
       - NET_ADMIN
       - NET_BIND_SERVICE
     user: "1000:1000"
-    # 日志组补充：读取宿主 journal（C-12 检查后按实际 GID 调整）
-    # group_add:
-    #   - "998"   # systemd-journal GID（以宿主 getent group systemd-journal 为准）
+    # 日志组补充：读取宿主 journal（C-12：以宿主 getent group systemd-journal 实测 GID 为准；
+    # 2.1.1 生产实测 GID=101，缺失该组 journalctl 无权限读 /var/log/journal → SSH/FW 通道退出）
+    group_add:
+      - "101"   # systemd-journal GID（宿主实测）
     volumes:
       # 数据卷（rw）
       - /var/lib/sentry-agent:/var/lib/sentry-agent
@@ -46,11 +47,10 @@ services:
     environment:
       - TZ=Asia/Shanghai
     # F-03（DEV-009）：纵深防御——内存上限 + no-new-privileges
-    mem_limit: 256m
-    # VS-13（AUD-VPS-001 P2-2 / DEV-VPS-001 C1）：CPU 上限 0.8 核——1C1G 留余量，
-    # 防止 30d 聚合查询等重查询打满宿主单核（mem_limit 已兜底内存，CPU 由 cpus 约束；
-    # 任务书指定 0.8，高于审计 VS-13 建议值 0.5，以任务书为准）
-    cpus: "0.8"
+    # 2.1.1 生产实测（2026-09）：256m 在蜜罐启用 + 30d 聚合查询下偏紧，放宽至 512m；
+    # CPU 0.8 → 1.6（宿主 2C，留余量同时避免重查询排队超时）。
+    mem_limit: 512m
+    cpus: "1.6"
     # VS-13（AUD-VPS-001 P2-2 / DEV-VPS-001 C2）：rootfs 只读——防容器持久性写入。
     # 评估结论（DEV-P1-002）：静态二进制（CGO_ENABLED=0）+ journalctl/ss/tail 均为读操作，
     # SQLite 数据写入全部落在 /var/lib/sentry-agent（rw 卷，WAL/-wal/-shm 同目录）；
