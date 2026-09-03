@@ -7,9 +7,14 @@
 *.json text
 *.yml text
 *.yaml text
-*.sh text
 *.py text
 *.js text
 *.css text
 *.html text
 *.txt text
+
+# Linux 侧直接执行的部署资产显式 eol=lf（2026-09-03 生产实测：Windows 上 git archive
+# 对仅 text 属性的文件按 core.autocrlf 输出 CRLF，VPS bash 执行报 $'\r': command not found；
+# eol=lf 使 checkout 与 archive 均输出 LF）
+*.sh text eol=lf
+Dockerfile text eol=lf
