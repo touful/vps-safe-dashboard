@@ -189,7 +189,7 @@ func (s *Server) hFirewall(w http.ResponseWriter, r *http.Request) {
 // hTopPorts 被探测端口 TOP（方案 4.4 DPT 口径：统计所有防火墙事件，
 // inbound 扫描探测 / reject 拦截 / drop 丢弃均计入"被探测端口"；DPT 警示固化）。
 func (s *Server) hTopPorts(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), aggTimeout(r, 15*time.Second))
 	defer cancel()
 	from := rangeSeconds(r)
 	top := parseUintParam(r, "top", 10)
@@ -214,7 +214,7 @@ func (s *Server) hTopPorts(w http.ResponseWriter, r *http.Request) {
 
 // hTopSources 攻击源 IP TOP（方案 4.4）。
 func (s *Server) hTopSources(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), aggTimeout(r, 15*time.Second))
 	defer cancel()
 	from := rangeSeconds(r)
 	top := parseUintParam(r, "top", 10)
@@ -366,9 +366,10 @@ func (s *Server) hSSHTimeline(w http.ResponseWriter, r *http.Request) {
 // 注意：防火墙日志为限速采样视图（默认 5 包/s），聚合值代表采样趋势而非全量计数。
 func (s *Server) hFirewallTimeline(w http.ResponseWriter, r *http.Request) {
 	// 30d 视图千万行级全量 SUM CASE 聚合估 2-8s，context 5s 超时会周期性 500，
-	// 导致双通道图/FW spark/评分/态势条同时失效——30d 放宽超时至 30s，其余保持 5s。
+	// 导致双通道图/FW spark/评分/态势条同时失效——30d 放宽超时至 30s；
+	// 24h 冷启动同因放宽（aggTimeout，2026-09-03 生产实测）。
 	rng := r.URL.Query().Get("range")
-	timeout := 5 * time.Second
+	timeout := aggTimeout(r, 15*time.Second)
 	if rng == "30d" {
 		timeout = 30 * time.Second
 	}

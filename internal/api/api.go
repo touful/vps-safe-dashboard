@@ -385,9 +385,21 @@ func (s *Server) SetListen(addr string) { s.listen = addr }
 // 注意：须在 Serve 之前调用（运行期不热更新）。
 func (s *Server) SetGeo(g GeoLookuper) { s.geo = g }
 
+// aggTimeout 聚合查询超时分档：1h/7d 轻档 5s；24h/30d 视图放宽为 long 档。
+// 生产实测（2026-09-03，2.2.0，1.2GB 库）：容器重启后 SQLite 页缓存全冷，
+// ts 索引范围扫 + GROUP BY 首查约 5s（热态 0.3s），固定 5s 超时导致冷启动窗口内
+// 面板报错横幅；放宽后仅慢不挂。long 由调用方按端点负载给定（15s/30s）。
+func aggTimeout(r *http.Request, long time.Duration) time.Duration {
+	switch r.URL.Query().Get("range") {
+	case "24h", "30d":
+		return long
+	}
+	return 5 * time.Second
+}
+
 // hSummary 总览聚合（方案 3.7/4.4）。
 func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), aggTimeout(r, 15*time.Second))
 	defer cancel()
 	from := rangeSeconds(r)
 
