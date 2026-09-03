@@ -282,6 +282,14 @@ th .sort-arrow { color: var(--accent); font-size: 10px; margin-left: 3px; }
 .hp-pw { color: var(--text-dim); font-family: var(--font-num); }
 .hp-pw.masked { color: var(--text-faint); letter-spacing: 1.5px; }
 #hp-total { margin-left: auto; }
+/* DEV-HONEY-002：凭据字典卡——小计推右 + 卡头导出按钮组（小尺寸变体） */
+#hpd-total { margin-left: auto; }
+.hpd-actions { display: flex; gap: 6px; margin-left: 8px; }
+.hpd-actions .export-btn { padding: 3px 12px; font-size: 12px; }
+.hpd-kind { font-size: 11px; padding: 1px 7px; border-radius: var(--radius-sm); border: 1px solid var(--border-soft); }
+.hpd-kind.plaintext { color: var(--danger); border-color: rgba(255, 99, 99, 0.35); }
+.hpd-kind.hash { color: var(--warn); border-color: rgba(230, 168, 60, 0.35); }
+.hpd-kind.none { color: var(--text-faint); }
 /* ===== DEV-017 精修基线保留并升级 ===== */
 
 /* 字体层级：时间戳列 12px 等宽次级色（tabular-nums 对齐） */
@@ -802,7 +810,26 @@ tr.row-warn { color: var(--warn); }
           </table>
         </div>
       </div>
-      <div class="card" style="grid-column: 1 / -1;"><h3 data-idx="06">SSH 登录尝试（失败红色，点击时间列排序）
+      <!-- DEV-HONEY-002：凭据字典（去重聚合 + 导出）——按 协议+用户名+密码 聚合去重，
+           导出跟随当前时间范围与协议过滤（与上方明细卡共用协议下拉） -->
+      <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger" data-idx="06">凭据字典（去重聚合）
+        <span class="risk-note">按 协议+用户名+密码 去重聚合；明文协议可直接入爆破字典，mysql/smb/mongodb 为不可逆摘要，rdp/memcached 协议无认证；密码默认遮蔽，点击显示</span>
+        <span id="hpd-total" class="fold-hint"></span>
+        <span class="hpd-actions">
+          <button id="hpd-export-csv" class="export-btn" title="导出全量凭据字典 CSV（含摘要与无认证条目，审计口径）">CSV</button>
+          <button id="hpd-export-pairs" class="export-btn" title="导出 账号:密码 组合字典（仅明文凭据，hydra -C 格式）">账号:密码</button>
+          <button id="hpd-export-pass" class="export-btn" title="导出纯密码列表（仅明文凭据，跨协议去重）">密码表</button>
+        </span></h3>
+        <div class="scroll">
+          <table id="hpd-table"><caption class="sr-only">蜜罐捕获凭据的去重聚合字典</caption>
+            <thead><tr>
+              <th>协议</th><th>用户名</th><th>密码</th><th>类型</th><th>次数</th><th>首见</th><th>最近</th><th>源 IP 数</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card" style="grid-column: 1 / -1;"><h3 data-idx="07">SSH 登录尝试（失败红色，点击时间列排序）
         <select id="ssh-result-filter" class="table-filter" title="按结果过滤">
           <option value="">全部结果</option>
           <option value="0">仅失败</option>
@@ -812,7 +839,7 @@ tr.row-warn { color: var(--warn); }
           <th>时间</th><th>源 IP</th><th>用户名</th><th>认证方式</th><th>结果</th><th>指纹</th><th>详情</th>
         </tr></thead><tbody></tbody></table></div>
       </div>
-      <div class="card" style="grid-column: 1 / -1;"><h3 data-idx="07">外部威胁事件明细（拦截/丢弃红色，点击时间列排序）
+      <div class="card" style="grid-column: 1 / -1;"><h3 data-idx="08">外部威胁事件明细（拦截/丢弃红色，点击时间列排序）
         <select id="fw-action-filter" class="table-filter" title="按动作过滤">
           <option value="">全部动作</option>
           <option value="inbound">仅入站探测</option>

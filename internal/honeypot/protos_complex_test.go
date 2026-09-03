@@ -190,7 +190,9 @@ func TestMongoDBOPQuery(t *testing.T) {
 	}
 }
 
-// TestMSSQLCapture mssql Prelogin + LOGIN7：用户名明文 + TDS 密码字段 + ERROR 18456。
+// TestMSSQLCapture mssql Prelogin + LOGIN7：用户名明文 + TDS 密码还原 + ERROR 18456。
+// 密码用真实 TDS 混淆向量（"P@ssw0rd!" 经 impacket 同构算法混淆），验证 handler
+// 捕获时还原明文（DEV-HONEY-002 增强：TDS 混淆可逆，还原成功记明文）。
 func TestMSSQLCapture(t *testing.T) {
 	credCh := make(chan event.CredEvent, 16)
 	_, addrs := startTestServer(t, []string{"mssql"}, credCh, nil)
@@ -213,14 +215,68 @@ func TestMSSQLCapture(t *testing.T) {
 		t.Fatalf("Prelogin 响应类型 = %v", pkt[0])
 	}
 
-	// 2. LOGIN7：固定头 36 + offset 表（5 项）+ 变长数据。
-	// 注意：offset 表须在全部 append 完成后写入（先 append 后写表，
-	// 否则 append 扩容会覆盖表内容）。
-	// 用户名按 TDS 规范 UTF-16LE 编码（R-02 整改后蜜罐按规范解码，ASCII 构造
-	// 会产生双字节乱码）。
+	// 2. LOGIN7：用户名 "sa" UTF-16LE + 密码 "P@ssw0rd!" 的 TDS 混淆字节。
 	host := []byte("PC1")
-	user := []byte{'s', 0, 'a', 0} // "sa" UTF-16LE
-	pass := []byte{0x01, 0xA4, 0x02, 0xA3} // TDS 混淆密码示例（XOR 0xA5 语义）
+	user := []byte{'s', 0, 'a', 0}                        // "sa" UTF-16LE
+	pass := obfuscateTDSForTest("P@ssw0rd!")              // 真实混淆向量
+	if err := writeTDSPacket(c, 0x10, buildTestLogin7(host, user, pass)); err != nil {
+		t.Fatal(err)
+	}
+
+	ev := recvCred(t, credCh)
+	if ev.Proto != "mssql" || ev.Username != "sa" {
+		t.Fatalf("凭据事件 = %+v", ev)
+	}
+	if ev.Password != "P@ssw0rd!" {
+		t.Fatalf("TDS 密码还原 = %q, 期望明文 P@ssw0rd!", ev.Password)
+	}
+	if !strings.Contains(ev.Extra, "已还原") {
+		t.Fatalf("extra 应注明已还原明文: %q", ev.Extra)
+	}
+	// ERROR 18456 响应。token 布局：0xAA(1) + length(2) + number(4) + state(1) + class(1) + msg。
+	pkt, err = readTDSPacket(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pkt) < 2 || pkt[0] != 0x04 || pkt[1] != 0xAA {
+		t.Fatalf("错误响应异常: type=%v token=%v", pkt[0], pkt[1])
+	}
+	if binary.BigEndian.Uint32(pkt[4:8]) != 18456 {
+		t.Fatalf("错误码 = %d, 期望 18456", binary.BigEndian.Uint32(pkt[4:8]))
+	}
+}
+
+// TestMSSQLCaptureDeobfFallback 非标准客户端（畸形/非可打印混淆字节）回退 hex 摘要：
+// 垃圾数据不得伪装成"明文"污染字典（Extra 注明还原失败，credKind 降级 hash）。
+func TestMSSQLCaptureDeobfFallback(t *testing.T) {
+	credCh := make(chan event.CredEvent, 16)
+	_, addrs := startTestServer(t, []string{"mssql"}, credCh, nil)
+	c := dialProto(t, addrs, "mssql")
+	pre := []byte{0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	if err := writeTDSPacket(c, 0x12, pre); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readTDSPacket(c); err != nil {
+		t.Fatal(err)
+	}
+	// 混淆字节还原后含控制字符（0x10 DLE）——还原失败回退 hex。
+	user := []byte{'s', 0, 'a', 0}
+	pass := []byte{0x01, 0xA4, 0x02, 0xA3}
+	if err := writeTDSPacket(c, 0x10, buildTestLogin7([]byte("PC1"), user, pass)); err != nil {
+		t.Fatal(err)
+	}
+	ev := recvCred(t, credCh)
+	if ev.Password != "01a402a3" {
+		t.Fatalf("回退 hex = %q, 期望 01a402a3", ev.Password)
+	}
+	if !strings.Contains(ev.Extra, "还原失败") {
+		t.Fatalf("extra 应注明还原失败: %q", ev.Extra)
+	}
+}
+
+// buildTestLogin7 构造最小 LOGIN7 消息（固定头 36 + 5 项 offset 表 + 变长数据）。
+// offset 表在全部 append 完成后写入（先 append 后写表，否则 append 扩容会覆盖表内容）。
+func buildTestLogin7(host, user, pass []byte) []byte {
 	dataOff := 36 + 5*4
 	login := make([]byte, 0, 512)
 	login = append(login, 0, 0, 0, 0) // Length 占位
@@ -234,44 +290,19 @@ func TestMSSQLCapture(t *testing.T) {
 	login = append(login, host...)
 	login = append(login, user...)
 	login = append(login, pass...)
-	// 全部数据就绪后写 offset 表。
-	putU16 := func(b []byte, off int, v uint16) { binary.BigEndian.PutUint16(b[off:off+2], v) }
-	putU16(login, 36, uint16(dataOff))
-	putU16(login, 38, uint16(len(host)))
-	putU16(login, 40, uint16(dataOff+len(host)))
-	putU16(login, 42, uint16(len(user)))
-	putU16(login, 44, uint16(dataOff+len(host)+len(user)))
-	putU16(login, 46, uint16(len(pass)))
-	putU16(login, 48, 0) // AppName off 0
-	putU16(login, 50, 0)
-	putU16(login, 52, 0) // ServerName off 0
-	putU16(login, 54, 0)
+	putU16 := func(off int, v uint16) { binary.BigEndian.PutUint16(login[off:off+2], v) }
+	putU16(36, uint16(dataOff))
+	putU16(38, uint16(len(host)))
+	putU16(40, uint16(dataOff+len(host)))
+	putU16(42, uint16(len(user)))
+	putU16(44, uint16(dataOff+len(host)+len(user)))
+	putU16(46, uint16(len(pass)))
+	putU16(48, 0) // AppName off 0
+	putU16(50, 0)
+	putU16(52, 0) // ServerName off 0
+	putU16(54, 0)
 	binary.BigEndian.PutUint32(login[:4], uint32(len(login)))
-	if err := writeTDSPacket(c, 0x10, login); err != nil {
-		t.Fatal(err)
-	}
-
-	ev := recvCred(t, credCh)
-	if ev.Proto != "mssql" || ev.Username != "sa" {
-		t.Fatalf("凭据事件 = %+v", ev)
-	}
-	if !strings.Contains(ev.Password, "01a402a3") {
-		t.Fatalf("TDS 密码字段 hex = %q", ev.Password)
-	}
-	if !strings.Contains(ev.Extra, "TDS") {
-		t.Fatalf("extra 应注明 TDS: %q", ev.Extra)
-	}
-	// ERROR 18456 响应。token 布局：0xAA(1) + length(2) + number(4) + state(1) + class(1) + msg。
-	pkt, err = readTDSPacket(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pkt) < 2 || pkt[0] != 0x04 || pkt[1] != 0xAA {
-		t.Fatalf("错误响应异常: type=%v token=%v", pkt[0], pkt[1])
-	}
-	if binary.BigEndian.Uint32(pkt[4:8]) != 18456 {
-		t.Fatalf("错误码 = %d, 期望 18456", binary.BigEndian.Uint32(pkt[4:8]))
-	}
+	return login
 }
 
 // TestSMB2Capture smb2 Negotiate + Session Setup（NTLMSSP AUTH）：Domain\User + NTLMv2 hash。

@@ -25,48 +25,9 @@ import (
 // 避免大结果集内存峰值——30d 全量可能数万行）；空数据返回 200 + 空文件（前端提示"无攻击记录"）。
 // 限流：路由注册处套 limitHeavy（与 firewall/timeline 一致，1 rps / burst 6）。
 func (s *Server) hExportCSV(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	rangeV := q.Get("range")
-	fromS, toS := q.Get("from"), q.Get("to")
-	hasRange := rangeV != ""
-	hasFromTo := fromS != "" || toS != ""
-	if hasRange == hasFromTo {
-		writeErr(w, http.StatusBadRequest, "参数错误：range 与 from/to 须二选一")
+	from, to, timeout, ok := parseExportWindow(w, r)
+	if !ok {
 		return
-	}
-	var from, to int64
-	if hasRange {
-		from = rangeSeconds(r)
-		to = time.Now().Unix()
-	} else {
-		var err error
-		from, err = strconv.ParseInt(fromS, 10, 64)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "参数错误：from 须为 Unix 秒")
-			return
-		}
-		to, err = strconv.ParseInt(toS, 10, 64)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, "参数错误：to 须为 Unix 秒")
-			return
-		}
-		if from > to {
-			writeErr(w, http.StatusBadRequest, "参数错误：from 不能晚于 to")
-			return
-		}
-		// span<0 兜底 int64 溢出回绕（from/to 极端值组合使 to-from 溢出为负，
-		// 可绕过跨度上限——评审整改）；正常输入下 span>=0 恒成立。
-		span := to - from
-		if span < 0 || span > 90*86400 {
-			writeErr(w, http.StatusBadRequest, "参数错误：自定义时间跨度不能超过 90 天")
-			return
-		}
-	}
-	// 超时：30d 视图（或自定义跨度 >7d）放宽至 30s（与 hFirewallTimeline 同模式），其余 5s。
-	// 注：span 仅自定义路径定义；range 路径跨度恒 <=30d，超时档由 rangeV 判定。
-	timeout := 5 * time.Second
-	if (hasRange && rangeV == "30d") || (!hasRange && to-from > 7*86400) {
-		timeout = 30 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
@@ -132,4 +93,52 @@ func (s *Server) hExportCSV(w http.ResponseWriter, r *http.Request) {
 	if err := cw.Error(); err != nil {
 		s.limitWarn.Report(s.sysCh, "api", "warn", "导出写入失败: "+err.Error())
 	}
+}
+
+// parseExportWindow 解析导出端点的二选一时间窗口参数（range=1h/24h/7d/30d 或
+// from+to Unix 秒；自定义跨度上限 90 天）。hExportCSV 与 hExportCreds 共用。
+// 返回 (from, to, timeout, ok)；ok=false 时已写 400 错误响应。
+// 超时档：30d 视图（或自定义跨度 >7d）放宽至 30s（与 hFirewallTimeline 同模式），其余 5s。
+func parseExportWindow(w http.ResponseWriter, r *http.Request) (from, to int64, timeout time.Duration, ok bool) {
+	q := r.URL.Query()
+	rangeV := q.Get("range")
+	fromS, toS := q.Get("from"), q.Get("to")
+	hasRange := rangeV != ""
+	hasFromTo := fromS != "" || toS != ""
+	if hasRange == hasFromTo {
+		writeErr(w, http.StatusBadRequest, "参数错误：range 与 from/to 须二选一")
+		return 0, 0, 0, false
+	}
+	if hasRange {
+		from = rangeSeconds(r)
+		to = time.Now().Unix()
+	} else {
+		var err error
+		from, err = strconv.ParseInt(fromS, 10, 64)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "参数错误：from 须为 Unix 秒")
+			return 0, 0, 0, false
+		}
+		to, err = strconv.ParseInt(toS, 10, 64)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "参数错误：to 须为 Unix 秒")
+			return 0, 0, 0, false
+		}
+		if from > to {
+			writeErr(w, http.StatusBadRequest, "参数错误：from 不能晚于 to")
+			return 0, 0, 0, false
+		}
+		// span<0 兜底 int64 溢出回绕（from/to 极端值组合使 to-from 溢出为负，
+		// 可绕过跨度上限——评审整改）；正常输入下 span>=0 恒成立。
+		span := to - from
+		if span < 0 || span > 90*86400 {
+			writeErr(w, http.StatusBadRequest, "参数错误：自定义时间跨度不能超过 90 天")
+			return 0, 0, 0, false
+		}
+	}
+	timeout = 5 * time.Second
+	if (hasRange && rangeV == "30d") || (!hasRange && to-from > 7*86400) {
+		timeout = 30 * time.Second
+	}
+	return from, to, timeout, true
 }

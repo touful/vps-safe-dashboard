@@ -5,7 +5,7 @@
 ## 核心特性
 
 - **五通道采集，事件驱动优先**：资源（5s 轮询 /proc）、连接（conntrack 事件流 + ss 快照兜底）、SSH 登录尝试（journald/rsyslog 流式解析，VERBOSE 指纹）、防火墙日志（nftables/iptables LOG 解析，限速采样）、fail2ban 封禁记录（日志/数据库双源）。
-- **蜜罐凭据捕获（DEV-HONEY-001）**：对 mysql/redis/memcached/mssql/mongodb/postgres/rdp/smb/telnet/ftp 十种协议标准端口提供最小认证握手模拟，捕获攻击者尝试登录的用户名/密码（明文协议完整捕获，加密/哈希协议捕获不可逆摘要并如实标注）；不执行任何命令、不返回真实系统信息；连接治理严格（超时/并发上限/每 IP 限速）；凭据仅本地存储，前端默认遮蔽展示。
+- **蜜罐凭据捕获（DEV-HONEY-001/002）**：对 mysql/redis/memcached/mssql/mongodb/postgres/rdp/smb/telnet/ftp 十种协议标准端口提供最小认证握手模拟，捕获攻击者尝试登录的用户名/密码（telnet/ftp/redis/postgres 明文捕获；mssql TDS 混淆可逆、捕获时还原明文；mysql/smb/mongodb 捕获不可逆摘要并如实标注；rdp/memcached 协议无认证）；凭据字典按 协议+用户名+密码 去重聚合，支持三格式导出（CSV 审计全量 / 账号:密码 组合字典 / 纯密码表，用户裁定 2026-09-02 开放本地导出）；不执行任何命令、不返回真实系统信息；连接治理严格（超时/并发上限/每 IP 限速）；前端默认遮蔽展示。
 - **只记录不预判**：所有数据源全量采集入库，采集路径不做业务级丢弃；过滤仅在展示层（面板查询参数）进行。
 - **攻击态势聚合现有防护日志**：SSH 失败 / 防火墙 drop / fail2ban 封禁 / 磁盘水位四维风险评分 + 态势结论条，不引入重型检测引擎。
 - **SQLite WAL 持久化**：单写线程 + 批量事务，synchronous=NORMAL；主库永久保留，gzip 归档对抗磁盘增长。
@@ -14,7 +14,7 @@
 
 ## 架构概览
 
-Go 单进程（`sentry-agent`）：各采集通道以协程组织，统一写入 SQLite（WAL），对外提供 17 个只读 HTTP API（含 /api/v1/export/csv 数据导出与 /api/v1/honeypot/events 蜜罐凭据查询）+ 1 个 WebSocket 实时通道；前端为内嵌静态文件（index.html + app.js + 本地 echarts.min.js，零 CDN、零外部资源）。
+Go 单进程（`sentry-agent`）：各采集通道以协程组织，统一写入 SQLite（WAL），对外提供 19 个只读 HTTP API（含 /api/v1/export/csv 数据导出、/api/v1/honeypot/events 蜜罐凭据查询、/api/v1/honeypot/creds 凭据字典聚合与 /api/v1/export/creds 字典导出）+ 1 个 WebSocket 实时通道；前端为内嵌静态文件（index.html + app.js + 本地 echarts.min.js，零 CDN、零外部资源）。
 
 ```
 采集通道（资源/连接/SSH/防火墙/fail2ban/蜜罐）

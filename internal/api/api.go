@@ -149,6 +149,10 @@ func (s *Server) routes() {
 	mux.HandleFunc("/api/v1/snapshot", s.limitAPI(s.hSnapshot))
 	// DEV-HONEY-001：蜜罐凭据捕获查询（range/proto/limit；只读，普通限流档）。
 	mux.HandleFunc("/api/v1/honeypot/events", s.limitAPI(s.hHoneypotEvents))
+	// DEV-HONEY-002：凭据字典聚合（去重；只读，普通限流档）与字典导出
+	// （与 export/csv 同档 heavy 限流）。导出为本地敏感数据（用户裁定 2026-09-02 开放）。
+	mux.HandleFunc("/api/v1/honeypot/creds", s.limitAPI(s.hHoneypotCreds))
+	mux.HandleFunc("/api/v1/export/creds", s.limitHeavy(s.hExportCreds))
 	// m-3 加固：/ws 握手纳入全局令牌桶（原仅 wsMaxConns + 5s 握手 deadline 兜底，
 	// 高频建断连接可消耗升级握手 CPU；升级成功后的长连接不再消耗令牌，正常面板
 	// 单连接不受影响）。

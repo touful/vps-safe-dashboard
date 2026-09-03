@@ -78,7 +78,8 @@
     geo: { rows: null, country: '', min: 0, mmdbOk: false },
     // DEV-HONEY-001：蜜罐凭据捕获状态（rows 全量缓存，proto 前端筛选走后端参数；
     // revealed 密码显示集合按行唯一键 __k 记忆——行对象每轮重建，须独立持久化）
-    hp: { rows: null, proto: '', revealed: {} },
+    // DEV-HONEY-002：dict 凭据字典聚合缓存（rows 跟随同一 proto 过滤与 range）。
+    hp: { rows: null, dict: null, proto: '', revealed: {} },
     worldLoaded: false,      // world.json 已注册标志（一次性 fetch/registerMap）
     attackDataFailed: false, // 攻击数据源失败标志——每轮 pollAttack 开头重置，成功回调不覆盖
     sshTimelineOk: true,     // ssh/timeline 独立就绪标志（fwTimeline 成功不覆盖它）
@@ -1259,6 +1260,62 @@
       };
     });
   }
+  // DEV-HONEY-002：凭据字典聚合表渲染（去重聚合行 + 密码遮蔽点击切换 + 类型徽标）。
+  // 行键 d- 前缀与明细表（hp-table）键空间隔离——共用 state.hp.revealed 集合但不互串。
+  function renderHoneyCredDict() {
+    if (!vis('attack')) { return; }
+    var tb = tbody('hpd-table');
+    if (!tb) return;
+    var rows = state.hp.dict;
+    if (!rows) { setTableState('hpd-table', 'loading-row', '加载中…'); return; }
+    if (!rows.length) { setTableState('hpd-table', 'empty-row', '暂无凭据字典（蜜罐未启用或未捕获）'); return; }
+    var totalEl = document.getElementById('hpd-total');
+    if (totalEl) {
+      var pl = 0;
+      rows.forEach(function (r) { if (r.kind === 'plaintext') { pl++; } });
+      totalEl.textContent = '去重 ' + rows.length + ' 组（明文 ' + pl + '）';
+    }
+    var s = state.sort['hpd-table'];
+    rows = sortRows(rows, s && s.key, s && s.dir);
+    rows = rows.slice(0, tablePage['hpd-table'] || TABLE_PAGE);
+    var seen = {};
+    rows.forEach(function (r) {
+      var base = r.proto + '|' + r.username + '|' + (r.password || '').slice(0, 8);
+      seen[base] = (seen[base] || 0) + 1;
+      r.__k = 'd-' + base + '#' + seen[base];
+    });
+    var kindText = { plaintext: '明文', hash: '摘要', none: '无认证' };
+    var kindTitle = {
+      plaintext: '明文捕获（可直接入爆破字典）',
+      hash: '不可逆摘要（mysql SHA1 链 / smb NTLMv2 / mongodb SCRAM），无法还原明文',
+      none: '协议无认证机制（rdp/memcached），无凭据可捕获'
+    };
+    renderTableDiff(tb, rows, function (r) {
+      var k = r.__k;
+      var masked = !state.hp.revealed[k];
+      return {
+        key: r.__k,
+        cells: [
+          { text: r.proto, cls: 'num' },
+          { text: r.username || '(空)' },
+          { text: masked ? '••••（点击显示）' : (r.password || '(空)'),
+            cls: (masked ? 'hp-pw masked ' : 'hp-pw ') + 'clickable',
+            title: masked ? '点击显示密码（本地敏感数据）' : '点击遮蔽',
+            click: function (row) {
+              var rk = row.__k;
+              state.hp.revealed[rk] = !state.hp.revealed[rk];
+              renderHoneyCredDict();
+            } },
+          { text: kindText[r.kind] || r.kind, cls: 'hpd-kind ' + (r.kind || ''),
+            title: kindTitle[r.kind] || '' },
+          { text: r.count, cls: 'num' },
+          { text: fmtTimeFull(r.first_ts), cls: 'ts-cell' },
+          { text: fmtTimeFull(r.last_ts), cls: 'ts-cell' },
+          { text: r.src_ip_cnt, cls: 'num' }
+        ]
+      };
+    });
+  }
   function renderSnap() {
     if (!vis('conn')) { return; }
     var tb = tbody('snap-table');
@@ -1471,6 +1528,13 @@
       state.hp.rows = d.rows || [];
       renderHoneypot();
     }, function () { noteFailure(); setTableState('hp-table', 'error-row', '加载失败，请稍后重试'); });
+    // 凭据字典聚合（DEV-HONEY-002；与明细卡同一 range/proto 口径；失败置三态错误行）
+    var hpdQS = '/api/v1/honeypot/creds?limit=500&' + rangeQS();
+    if (state.hp.proto !== '') { hpdQS += '&proto=' + state.hp.proto; }
+    fetchJSON(hpdQS, function (d) {
+      state.hp.dict = d.rows || [];
+      renderHoneyCredDict();
+    }, function () { noteFailure(); setTableState('hpd-table', 'error-row', '加载失败，请稍后重试'); });
     // 防火墙明细（跟随 range + dst_port/src_ip 联动过滤 + action 下拉）
     var fwQS = '/api/v1/firewall?limit=200&' + rangeQS();
     if (state.filter && state.filter.type === 'port') { fwQS += '&dst_port=' + state.filter.value; }
@@ -1556,6 +1620,7 @@
     state.summary = null;
     state.geo.rows = null;   // 地图数据随范围重置（country/min 过滤保持，交互状态不丢）
     state.hp.rows = null;    // 蜜罐凭据随范围重置（proto/revealed 保持，交互状态不丢）
+    state.hp.dict = null;    // 凭据字典聚合随范围重置（DEV-HONEY-002）
     state.topPorts = [];
     state.resourceData = null;
     state.eventExpanded = false; // 范围切换后事件流恢复默认 3 条
@@ -1773,6 +1838,7 @@
       renderGeo();
       renderGeoSources();
       renderHoneypot(); // DEV-HONEY-001：蜜罐凭据表（缓存于 state.hp，切回补渲染）
+      renderHoneyCredDict(); // DEV-HONEY-002：凭据字典表（缓存于 state.hp.dict，切回补渲染）
     } else if (name === 'export') {
       // DEV-EXPORT-001：导出页为纯交互页——不注册任何轮询/拉取（可见性门控：无数据拉取），
       // 切页激活时不触发任何 render；数据由用户点击"导出 CSV"时按需 fetch。
@@ -1823,6 +1889,26 @@
   }
   var geoExportBtn = document.getElementById('geo-export-btn');
   if (geoExportBtn) { geoExportBtn.addEventListener('click', geoExport); }
+  // DEV-HONEY-002：凭据字典导出（geoExport 同模式 a.click 下载；跟随 range + 协议过滤）。
+  function honeyCredExport(format) {
+    var q = 'range=' + state.range + '&format=' + format;
+    if (state.hp.proto !== '') { q += '&proto=' + encodeURIComponent(state.hp.proto); }
+    var a = document.createElement('a');
+    var ext = format === 'csv' ? 'csv' : 'txt';
+    a.href = '/api/v1/export/creds?' + q;
+    a.download = 'sentry_creds_' + format + '_' + state.range +
+      (state.hp.proto !== '' ? '_' + state.hp.proto : '') + '.' + ext;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+  var hpdBind = function (id, fmt) {
+    var b = document.getElementById(id);
+    if (b) { b.addEventListener('click', function () { honeyCredExport(fmt); }); }
+  };
+  hpdBind('hpd-export-csv', 'csv');
+  hpdBind('hpd-export-pairs', 'pairs');
+  hpdBind('hpd-export-pass', 'passwords');
   loadWorldMap(function () { if (state.activePanel === 'attack') { renderGeo(); } }); // 后台预载（幂等）
 
   // A-04（AUDIT-005）：数据保留提示——从 health 读取 retention_days（跟随配置，
@@ -1889,6 +1975,7 @@
   bindScrollLoad('conn-table', renderConns);
   bindScrollLoad('snap-table', renderSnap);
   bindScrollLoad('hp-table', renderHoneypot); // DEV-HONEY-001
+  bindScrollLoad('hpd-table', renderHoneyCredDict); // DEV-HONEY-002
 
   // 列头排序绑定（keys 与表头列一一对应；null 列不可排）
   bindSort('snap-table', [null, null, 'src_port', 'dst_port', 'pid'], renderSnap);
@@ -1929,6 +2016,7 @@
       state.reqSeq++;
       resetTablePages();
       state.hp.rows = null;
+      state.hp.dict = null;
       pollAttack();
     });
   }

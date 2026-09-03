@@ -113,7 +113,8 @@ CREATE INDEX IF NOT EXISTS idx_se_ts ON system_events(ts);
 
 -- DEV-HONEY-001：蜜罐凭据捕获（明文协议为攻击者提交的明文密码；
 -- 加密/哈希协议为不可逆摘要，extra 注明 hash 类型；rdp/memcached 无认证捕获能力）。
--- 敏感信息：本表存攻击者尝试凭据，仅本地单机展示，禁止导出/外传。
+-- 敏感信息：本表存攻击者尝试凭据，默认仅本地展示；
+-- 用户裁定 2026-09-02：开放本地字典导出（/api/v1/export/creds，导出文件由用户自行保管）。
 CREATE TABLE IF NOT EXISTS cred_events (
     id       INTEGER PRIMARY KEY,
     ts       INTEGER NOT NULL,
