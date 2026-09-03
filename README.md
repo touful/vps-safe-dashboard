@@ -92,6 +92,7 @@ go run ./cmd/sentry-agent -config scripts/test_m1_b5_config.json
 - 主库永久保留（归档压缩仅副本，不清理主库）；`db.archive_dir` 归档目录默认 `/var/lib/sentry-agent/archive`。
 - 防火墙模式 B（D-05 用户裁定）：DROP 规则前插 LOG，防火墙日志为限速采样视图（默认 5 包/s，面板已显著标注）。
 - 数据不出 VPS（单机部署），无多机集中管理。
-- 蜜罐默认关闭（`honeypot.enabled=false` 保守）；启用前须确认对应标准端口无真实服务，并运行 `deploy/setup_firewall.sh` 放行蜜罐端口（配置驱动，未启用时保持原 DROP 行为）；Docker 部署低端口需 `NET_BIND_SERVICE`（compose 已配置）。
+- 蜜罐默认关闭（`honeypot.enabled=false` 保守）；启用前须确认对应标准端口无真实服务，并运行 `deploy/setup_firewall.sh` 放行蜜罐端口（配置驱动，未启用时保持原 DROP 行为）；Docker 部署低端口绑定依赖文件能力 `cap_net_bind_service`（见 Dockerfile 注释，与 no-new-privileges 互斥已评估）。
+- **蜜罐启用后的公网暴露提示**：凭据查询/字典/导出端点（/api/v1/honeypot/*、/api/v1/export/creds）随 Web 面板一同暴露——面板经反代公开到公网时，任意访客可拉取捕获的凭据字典（内容为攻击者失败的尝试凭据，不含本机真实凭据，但会暴露蜜罐存在事实）。建议公网部署时在反代层（如 NPM Access List / basic auth）对面板整体加认证，或限制访问来源。
 - `config.exclude_ips` 为操作方自身 IP 白名单（运维配置），**不做脱敏处理**（用户裁定，2026-08-18）。
 
