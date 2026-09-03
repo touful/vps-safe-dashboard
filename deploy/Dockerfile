@@ -26,10 +26,19 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o
 # 镜像大小实测（DEV-008）：压缩后 <50MB 目标复测见方案 6.4.1。
 FROM debian:bookworm-slim
 RUN apt-get update -qq \
-    && apt-get install -y -qq --no-install-recommends systemd iproute2 ca-certificates tzdata \
+    && apt-get install -y -qq --no-install-recommends systemd iproute2 ca-certificates tzdata libcap2-bin \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -r -u 1000 -m -d /home/sentry -s /usr/sbin/nologin sentry
 COPY --from=builder /out/sentry-agent /usr/local/bin/sentry-agent
+# DEV-HONEY-001 低端口绑定（2026-09-03 生产实测）：runc 对 --user 1000 + --cap-add
+# 组合不会把 cap 放入进程 permitted/effective 集（CapPrm=0，bind 21/23/445 报
+# permission denied），host 网络模式又不能改 net.ipv4.ip_unprivileged_port_start
+# （per-netns sysctl，会波及宿主全局）。标准解法：文件能力 cap_net_bind_service
+# ——非 root 进程经 exec 从二进制获得低端口绑定能力（受 compose cap_add 的
+# bounding set 交集约束，仅此一项）。约束：与 no-new-privileges 互斥（NNP 阻止
+# exec 应用 file caps），故 compose 移除该选项；容器 rootfs 只读、无 SUID 提权
+# 目标、file cap 仅 NET_BIND_SERVICE，已评估损失可忽略。
+RUN setcap cap_net_bind_service=+ep /usr/local/bin/sentry-agent
 USER sentry
 EXPOSE 8080
 # 冒烟验证发现（DEV-008）：默认 -config config.json 为相对路径（容器工作目录 /），

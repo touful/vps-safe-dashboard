@@ -61,8 +61,10 @@ services:
     tmpfs:
       - /tmp:size=16m
       - /home/sentry:size=1m
-    security_opt:
-      - no-new-privileges:true
+    # VS-13 注：原 no-new-privileges:true 已移除（2026-09-03）——它与低端口绑定所需的
+    # 文件能力 cap_net_bind_service 互斥（NNP 阻止 exec 应用 file caps，实测 bind
+    # 21/23/445 permission denied）。替代防护评估：rootfs 只读 + cap_drop ALL + 非 root
+    # 用户 + 无 SUID 提权目标，file cap 仅 NET_BIND_SERVICE（见 Dockerfile 注释）。
     logging:
       driver: json-file
       options:
