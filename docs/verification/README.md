@@ -30,6 +30,7 @@ sentry-agent 全生命周期验证/测试/审计档案。命名约定：`Vn_验�
 | [TEST-AUDIT-001_回归报告.md](TEST-AUDIT-001_回归报告.md) | DEV-AUDIT-001 审计优化重构后全量回归 | **PASS_WITH_NOTES**：基线 `1f62644`（vs 生产基线 `51af07d`）；22/24 场景字节级 SAME + export 专项验证 4 项 + 9 项回归点代码级核对全通过；4 Note + 2 观察项；证据 `evidence/TEST-AUDIT-001/` |
 | [TEST-GEO-001_回归报告.md](TEST-GEO-001_回归报告.md) | DEV-GEO-001 全球攻击地图 + GeoIP + 封禁移除回归 | **PASS_WITH_NOTES**：基线 `0713826`；attacks/geo + attacks_csv + GeoIP reader/updater + 前端地图/封禁移除 6 处全验证；1 Minor（D-1 country=Unknown 过滤大小写不匹配）+ 2 Note；证据 `evidence/TEST-GEO-001/` |
 | [TEST-HONEY-001_回归报告.md](TEST-HONEY-001_回归报告.md) | DEV-HONEY-001/002 蜜罐凭据捕获回归 | **PASS_WITH_NOTES**：基线 `dfb64f4`；10 协议 ALL_MATCH + 畸形 46 用例零崩溃 + 治理（限速/30s 超时/并发）+ API + 前端蜜罐卡 + 凭据红线全验证；G-01（D-1）修复回归通过；2 Minor（D-A 乱码凭据/D-B 遮蔽键粒度）+ 1 Note；证据 `evidence/TEST-HONEY-001/` |
+| [TEST-HONEY-002_回归报告.md](TEST-HONEY-002_回归报告.md) | DEV-HONEY-002 凭据字典 + mssql 明文还原回归 | **PASS_WITH_NOTES**：基线 `e8e06e9`（生产镜像 2.2.1）；mssql TDS 还原（impacket 交叉验证向量）+ 聚合去重 + 三格式导出 19/19 集成断言 + 生产 10 端口/公网 6 协议端到端/前端 DOM 断言全过；真实外部攻击流入（字典 198 组）；2 Note（公网凭据端点无认证待裁定、前端协议下拉静态例外） |
 
 > **TEST-007 双份说明**：编号撞车（不同里程碑各自编号）。`TEST-007_回归报告.md`（2026-08-14）属 M4/DEV-009 回归；`TEST-007_测试报告.md`（2026-08-15）属 DEV-019 前端美化回归。两份内容互补、任务不同，均保留。
 
