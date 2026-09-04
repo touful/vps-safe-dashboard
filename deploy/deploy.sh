@@ -42,10 +42,40 @@ if ! chown -R 1000:1000 /var/lib/sentry-agent 2>/dev/null; then
   exit 1
 fi
 echo "  数据目录属主已设为 UID 1000"
-if [ ! -f "$CONFIG_PATH" ]; then
-  cp "$SCRIPT_DIR/config.json" "$CONFIG_PATH" && echo "已生成默认配置 $CONFIG_PATH（请按需修改 ssh.source/fw.source 等）"
-else
+# 配置生成三分支（2026-09 重构：修复全新 clone 下 cp deploy/config.json 静默失败——
+# deploy/config.json 属本地调优文件被 .gitignore 忽略不入库，原脚本直接 cp 导致
+# 源文件不存在时无任何报错，容器只读挂载指向不存在文件）：
+#   (1) $CONFIG_PATH 已存在 → 保留不动（升级/重跑场景）；
+#   (2) deploy/config.json 存在（本地调优优先）→ 直接复制；
+#   (3) 均无 → 以 config.example.json 为模板生成，sed 将 f2b 路径替换为容器挂载口径
+#       （example 用宿主路径 /var/log/fail2ban.log 与 /var/lib/fail2ban/fail2ban.sqlite3，
+#       容器内须为 /host/fail2ban.log 与 /host/fail2ban.sqlite3，见 docker-compose.yml 挂载）。
+# 任一 cp/sed 失败显式 [FAIL] 退出（不再静默）；sed 失败时清理半成品，
+# 避免下次重跑误走分支 (1) 保留坏文件。
+if [ -f "$CONFIG_PATH" ]; then
   echo "配置已存在：$CONFIG_PATH（保留）"
+elif [ -f "$SCRIPT_DIR/config.json" ]; then
+  if cp "$SCRIPT_DIR/config.json" "$CONFIG_PATH"; then
+    echo "已从 deploy/config.json 生成本地调优配置 $CONFIG_PATH（请按需修改 ssh.source/fw.source 等）"
+  else
+    echo "[FAIL] 复制 deploy/config.json → $CONFIG_PATH 失败"
+    exit 1
+  fi
+else
+  if ! cp "$SCRIPT_DIR/config.example.json" "$CONFIG_PATH"; then
+    echo "[FAIL] 复制 config.example.json → $CONFIG_PATH 失败（部署模板缺失）"
+    exit 1
+  fi
+  if ! sed -i \
+      -e 's|/var/log/fail2ban\.log|/host/fail2ban.log|g' \
+      -e 's|/var/lib/fail2ban/fail2ban\.sqlite3|/host/fail2ban.sqlite3|g' \
+      "$CONFIG_PATH"; then
+    rm -f "$CONFIG_PATH"
+    echo "[FAIL] f2b 路径容器挂载口径替换失败（已清理半成品 $CONFIG_PATH）"
+    exit 1
+  fi
+  echo "已从 config.example.json 生成默认配置 $CONFIG_PATH（f2b 路径已替换为容器挂载口径 /host/*；请按需修改 ssh.source/fw.source 等）"
+  echo "[提示] 默认配置蜜罐关闭（honeypot.enabled=false）：如需蜜罐请编辑 $CONFIG_PATH 将 honeypot.enabled 改为 true 并重跑 setup_firewall.sh 放行蜜罐端口"
 fi
 # journal 与 fail2ban 文件只读挂载权限（R-05/N-02 修订：走 ACL 路径含默认 ACL，
 # 与方案 6.4.3"仅通过补充组或 ACL，不 chmod 放宽 journal"一致；容器 UID 1000 读权限；

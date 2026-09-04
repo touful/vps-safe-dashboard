@@ -1,13 +1,18 @@
 #!/bin/bash
 # 下载 GeoLite2-Country 离线库（DEV-GEO-001）——供攻击页"全球攻击地图"国家归属查询。
+# 【归档说明（2026-09）】本脚本已从 deploy/ 归档至 docs/verification/tools/，仅为
+# 手动备用工具：日常库更新由内置 geoip updater 自动完成（启动缺库即拉取 + 每日
+# ETag/Last-Modified 条件请求检查，见 internal/geoip/updater.go——与本脚本同一下载
+# 通道 Basic Auth + 解压 + 原子替换，且多 8.8.8.8 探针校验与热替换）。保留场景：
+# 无网络出站 VPS 的离线预置（本地下载后scp 上传）或手动强制刷新。
 # 用法：
-#   sudo bash deploy/fetch_geolite2.sh                                    # 从 deploy/config.json 读取 geoip 配置
-#   sudo bash deploy/fetch_geolite2.sh --account-id X --license-key Y --db-path /var/lib/sentry-agent/GeoLite2-Country.mmdb
+#   sudo bash docs/verification/tools/fetch_geolite2.sh                                    # 从 deploy/config.json 读取 geoip 配置
+#   sudo bash docs/verification/tools/fetch_geolite2.sh --account-id X --license-key Y --db-path /var/lib/sentry-agent/GeoLite2-Country.mmdb
 # 幂等：重复执行将原子替换为最新版本（旧库保留 .bak 一份）。
 # 凭据安全：仅从 deploy/config.json（gitignore 保护）或命令行参数读取，不写入任何文件；
 #           错误输出不含凭据明文。
 # 说明：agent 内置每日 02:30 UTC 自动更新（geoip.update_enabled=true 且凭据已配置）；
-#       本脚本用于部署时首次拉取或手动强制刷新。
+#       本脚本仅用于上述归档说明中的手动备用场景。
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_PATH="${SENTRY_CONFIG:-$SCRIPT_DIR/config.json}"
@@ -30,7 +35,7 @@ done
 if [ -z "$ACCOUNT_ID" ] || [ -z "$LICENSE_KEY" ] || [ -z "$DB_PATH" ]; then
   if ! command -v python3 >/dev/null 2>&1; then
     echo "[FAIL] 缺少参数且无 python3 解析 config.json"
-    echo "      请改用命令行参数：bash deploy/fetch_geolite2.sh --account-id X --license-key Y --db-path Z"
+    echo "      请改用命令行参数：bash docs/verification/tools/fetch_geolite2.sh --account-id X --license-key Y --db-path Z"
     exit 1
   fi
   read -r C_ACC C_KEY C_DB <<< "$(python3 - "$CONFIG_PATH" <<'PYEOF'

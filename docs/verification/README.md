@@ -61,7 +61,7 @@ sentry-agent 全生命周期验证/测试/审计档案。命名约定：`Vn_验�
 | `evidence/testfe002/` | TEST-FE-002 五项调整回归证据（浏览器日志/DOM 计数/截图） |
 | `evidence/testfe003/` | TEST-FE-003 P1+导出回归证据（CSV 样例/429/限流统计/WS 上限/压测） |
 
-> 一次性验证脚本已从 `scripts/` 清理（git 历史可恢复）；本目录保留的是不可再生的执行证据（原始输出与文本断言记录），请勿删除。
+> 一次性验证脚本已从 `scripts/` 清理（git 历史可恢复）；本目录保留的是不可再生的执行证据（原始输出与文本断言记录），请勿删除。可复用/备用的归档工具见 [tools/](tools/README.md)（TEST-HONEY-001 蜜罐治理证据脚本三件 + GeoLite2 手动下载备用脚本，2026-09 归档，复跑前提与关联报告见其 README）。
 
 > **大文件处理政策（DEV-CLEAN-001）**：超过 10MB 的执行证据以 gzip 压缩形式归档（如 `evidence/testfe001/trace_attack30s.json.gz`），原始文件不保留在仓库（63.5MB 压缩为 4.1MB，可解压还原）。历史报告/脚本中引用的原始 `.json` 路径已失效，复现分析时先解压 `.gz` 还原文件名（Linux/WSL：`gzip -dk trace_attack30s.json.gz`；Windows：`tar -xzf trace_attack30s.json.gz` 或 7-Zip 解压）。注：该 gz 按下方政策**不入库**（仅本地工作区持有），公开仓库无法解压复现。
 >

@@ -98,7 +98,8 @@ deploy/config.json
 *.sqlite
 *.sqlite3
 data/
-# DEV-GEO-001：GeoIP 离线库与更新状态（部署时 fetch_geolite2.sh/agent 每日更新产生；
+# DEV-GEO-001：GeoIP 离线库与更新状态（agent 内置 updater 每日更新产生；
+# 手动备用脚本已归档至 docs/verification/tools/fetch_geolite2.sh；
 # 旧库备份 .bak 已由上方 *.bak 规则覆盖）
 *.mmdb
 *.mmdb.state

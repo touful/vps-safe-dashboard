@@ -59,13 +59,12 @@ type ConntrackCfg struct {
 }
 
 // SSHCfg SSH 登录解析（M-03）。
+// 2026-09 重构注记：原 ssh.verbose_fingerprint 文档性字段已移除（代码从未读取）。
+// verbose 指纹跟随部署侧编译行为：sshd LogLevel VERBOSE 由 setup_system.sh 写入，
+// 解析器不因任何配置改变行为（见 internal/ssh/ssh.go 配置联动说明）。
 type SSHCfg struct {
 	// Source 日志源：journald（默认，journalctl 流式）| rsyslog（tail -F auth.log）。
 	Source string `json:"source"`
-	// VerboseFingerprint 是否要求 LogLevel VERBOSE 取公钥指纹（默认 true）。
-	// 【文档性字段】代码不读取（解析器不因该配置改变行为）；语义对应
-	// deploy/setup_system.sh 写入的 sshd LogLevel VERBOSE 设置（部署脚本硬编码行为）。
-	VerboseFingerprint bool `json:"verbose_fingerprint"`
 }
 
 // FWCfg 防火墙日志解析（M-04）。
@@ -74,9 +73,9 @@ type FWCfg struct {
 	Source string `json:"source"`
 	// Prefix 防火墙日志前缀，仅解析此前缀行（默认 SENTRY_FW:）。
 	Prefix string `json:"prefix"`
-	// RateLimitPktS 内核限速（包/秒），默认 5（采样性质，R-09）。
-	// 【文档性字段】代码不读取；规则由部署脚本写入 iptables/nftables（setup_firewall.sh）。
-	RateLimitPktS int `json:"rate_limit_pkt_s"`
+	// 2026-09 重构注记：原 fw.rate_limit_pkt_s 文档性字段已移除（代码从未读取）。
+	// 内核 LOG 限速由 setup_firewall.sh 硬编码写入（LIMIT 5/s burst 10）——
+	// 改配置不生效的双源漂移误导随字段删除一并消除；调整限速须改部署脚本。
 	// ExcludeInternal 是否排除内网/自身来源事件（默认 true；关掉恢复全量记录）。
 	ExcludeInternal bool `json:"exclude_internal"`
 	// InternalCIDRs 自定义内网网段列表（空 = 使用内置默认列表：127.0.0.0/8、
@@ -139,6 +138,11 @@ type ArchiveCfg struct {
 	GzipLevel int `json:"gzip_level"`
 	// CopyAfterDays 超过此天数的数据进入按月压缩副本（默认 60）；主库事件数据由
 	// RetentionDays 保留期清理（见上），归档副本为长期历史通道。
+	// P3-2 张力披露（2026-09 注记）：默认组合 retention_days=7 + copy_after_days=60 下，
+	// 事件表归档副本必然为空洞（早于保留期的数据在归档前已被清理；启动时
+	// store.warnRetentionArchiveGap 警告）；完整归档需 retention_days ≥ copy_after_days+30
+	// （如归档 60 天前数据则 retention_days ≥ 91）；cred_events 不参与归档（凭据仅留主库）。
+	// 代码不强制联动（B.5.1 裁定：避免隐性删除语义），仅启动 warn 提示，由运维按磁盘预算权衡。
 	CopyAfterDays int `json:"copy_after_days"`
 }
 
@@ -210,8 +214,8 @@ func Defaults() *Config {
 			FallbackIntervalS:    5,
 			Mode:                 "auto",
 		},
-		SSH: SSHCfg{Source: "journald", VerboseFingerprint: true},
-		FW:  FWCfg{Source: "journald-kernel", Prefix: "SENTRY_FW:", RateLimitPktS: 5, ExcludeInternal: true, SSHLearnEnabled: true, SSHLearnWindowDays: 30, SSHLearnIntervalMin: 10},
+		SSH: SSHCfg{Source: "journald"},
+		FW:  FWCfg{Source: "journald-kernel", Prefix: "SENTRY_FW:", ExcludeInternal: true, SSHLearnEnabled: true, SSHLearnWindowDays: 30, SSHLearnIntervalMin: 10},
 		F2B: F2BCfg{Enabled: true, LogPath: "/var/log/fail2ban.log", DBPath: "/var/lib/fail2ban/fail2ban.sqlite3"},
 		DB: DBCfg{
 			Path:              "/var/lib/sentry-agent/state.db",
