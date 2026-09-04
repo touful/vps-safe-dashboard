@@ -52,6 +52,9 @@ type Server struct {
 	// 与 mmdb 文件生命周期解耦：*geoip.Reader 由 main 创建（updater 原子替换内部句柄），
 	// API 仅持接口引用。
 	geo GeoLookuper
+	// bannedFn fail2ban 当前封禁名单快照取值函数（P3-1；main 注入，nil = f2b 未启用，
+	// bans/active 输出空名单）。
+	bannedFn func() ([]uint32, int64)
 }
 
 // NewServer 创建 API 服务。
@@ -145,6 +148,8 @@ func (s *Server) routes() {
 	// DEV-EXPORT-001：数据导出（30d 全量可能数万行 + 流式写），纳入 heavy 限流（1 rps / burst 6）。
 	mux.HandleFunc("/api/v1/export/csv", s.limitHeavy(s.hExportCSV))
 	mux.HandleFunc("/api/v1/bans", s.limitAPI(s.hBans))
+	// P3-1：fail2ban 当前封禁名单快照（内存读，无 SQL；与 bans 历史日志表互补）。
+	mux.HandleFunc("/api/v1/bans/active", s.limitAPI(s.hBansActive))
 	mux.HandleFunc("/api/v1/archive", s.limitAPI(s.hArchive))
 	mux.HandleFunc("/api/v1/snapshot", s.limitAPI(s.hSnapshot))
 	// DEV-HONEY-001：蜜罐凭据捕获查询（range/proto/limit；只读，普通限流档）。
@@ -253,6 +258,13 @@ func (s *Server) SetOverrunCounter(c *atomic.Uint64) {
 	}
 }
 
+// SetBannedList 注入 fail2ban 当前封禁名单快照取值函数（P3-1；main 经 atomic.Value
+// 中转 f2b.QueryBanned 60s 刷新结果，API 只读）。fn 为 nil 时 bans/active 输出空名单
+// （f2b 未启用场景）。注意：须在 Serve 之前调用（运行期不热更新）。
+func (s *Server) SetBannedList(fn func() ([]uint32, int64)) {
+	s.bannedFn = fn
+}
+
 // ---- JSON 工具 ----
 
 type errResp struct {
@@ -316,6 +328,30 @@ func parseUintParam(r *http.Request, key string, def uint64) uint64 {
 		n = n*10 + uint64(c-'0')
 	}
 	return n
+}
+
+// limitParam 解析 limit 参数并钳制上限（6 处 handler 样板收敛：parseUintParam + max 钳制）。
+// 默认值与上限由调用方显式传入，各端点历史口径不变（明细端点 200/1000，bans 100/500，
+// 蜜罐 events/creds 200/500）。
+func limitParam(r *http.Request, def, max uint64) uint64 {
+	n := parseUintParam(r, "limit", def)
+	if n > max {
+		n = max
+	}
+	return n
+}
+
+// rangeEcho range 参数回显口径（R-09）：合法值（1h/24h/7d/30d）原样返回，
+// 缺失/非法值回显默认 24h——与 rangeSeconds 的回退口径一致，避免响应回显
+// 与实际查询窗口不符。4 个带 range 回显的端点（firewall/timeline、attacks/geo、
+// honeypot events/creds）共用。
+func rangeEcho(r *http.Request) string {
+	switch v := r.URL.Query().Get("range"); v {
+	case "1h", "24h", "7d", "30d":
+		return v
+	default:
+		return "24h"
+	}
 }
 
 // eqConds 为指定查询参数生成 "key = ?" 等值条件与对应参数（缺失参数跳过）。
@@ -422,33 +458,31 @@ func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {
 	// 攻击端口 TOP（防火墙 DPT 口径，方案 3.4 强制：只允许 DPT；与 hTopPorts
 	// 同口径——统计所有防火墙事件，inbound 扫描探测/reject 拦截/drop 丢弃均计入）。
 	// PERF-FIX：INDEXED BY idx_fw_ts 强制时间过滤先行（生产大库实测 GROUP BY
-	// 计划可能选 dst_port 索引全表扫描+回表，单次数十秒拖死全部端点，见 topHits 注释）。
+	// 计划可能选 dst_port 索引全表扫描+回表，单次数十秒拖死全部端点）。
+	// SQL 单源化：直接复用 topHits（hTopPorts/hTopSources 同一公共查询），
+	// 强制计划修正只维护一处，杜绝双份拷贝漏改导致全表扫描复发。
+	hits, err := s.topHits(ctx, from, 5, "dst_port")
+	if err != nil {
+		writeDBErr(w, r, err)
+		return
+	}
 	type portHit struct {
 		DstPort int   `json:"dst_port"`
 		Hits    int64 `json:"hits"`
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT dst_port, COUNT(*) FROM firewall_events
-		INDEXED BY idx_fw_ts WHERE ts >= ? GROUP BY dst_port ORDER BY COUNT(*) DESC LIMIT 5`, from)
-	if err == nil {
-		defer rows.Close()
-		var top []portHit
-		for rows.Next() {
-			var p portHit
-			if rows.Scan(&p.DstPort, &p.Hits) == nil {
-				top = append(top, p)
-			}
-		}
-		writeJSON(w, 200, map[string]any{
-			"active_conns": s.activeConns(),
-			"fw_events":    fwCnt,
-			"ssh_fail":     sshFail,
-			"ssh_ok":       sshOK,
-			"top_ports":    top,
-			"disk_percent": s.diskPercent(),
-		})
-		return
+	// 与原实现一致：空结果保持 nil → JSON null（hSummary 历史输出形态）。
+	var top []portHit
+	for _, h := range hits {
+		top = append(top, portHit{DstPort: int(h.V), Hits: h.Hits})
 	}
-	writeDBErr(w, r, err)
+	writeJSON(w, 200, map[string]any{
+		"active_conns": s.activeConns(),
+		"fw_events":    fwCnt,
+		"ssh_fail":     sshFail,
+		"ssh_ok":       sshOK,
+		"top_ports":    top,
+		"disk_percent": s.diskPercent(),
+	})
 }
 
 // activeConns 活跃连接数（现场核查结论 8）：优先 conntrack count 文件值

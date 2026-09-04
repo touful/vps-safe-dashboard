@@ -83,6 +83,20 @@ func filterGeoRows(rows []geoRow, country string, minCount uint64) []geoRow {
 	return out
 }
 
+// geoRowsFromReq geo 双 handler（地图 /attacks/geo 与导出 /export/attacks_csv）共用取数前置：
+// range → from、country（ToUpper+TrimSpace）、min_count 解析，随后 queryGeoRows（上限 1000 IP 组）
+// + filterGeoRows。"地图与导出同口径同筛选"由代码结构强制（两调用方走同一函数，无第二份拷贝）。
+func (s *Server) geoRowsFromReq(ctx context.Context, r *http.Request) ([]geoRow, bool, error) {
+	from := rangeSeconds(r)
+	country := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("country")))
+	minCount := parseUintParam(r, "min_count", 0)
+	rows, mmdbOK, err := s.queryGeoRows(ctx, from, 1000)
+	if err != nil {
+		return nil, mmdbOK, err
+	}
+	return filterGeoRows(rows, country, minCount), mmdbOK, nil
+}
+
 // hGeoAttacks 全球攻击地图数据（DEV-GEO-001 B.1）。
 // GET /api/v1/attacks/geo?range=1h|24h|7d|30d&country=XX&min_count=N
 // 响应：{"range":"24h","mmdb_ok":true,"rows":[{ip,country_code,country_name,count}]}
@@ -90,42 +104,27 @@ func filterGeoRows(rows []geoRow, country string, minCount uint64) []geoRow {
 func (s *Server) hGeoAttacks(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	from := rangeSeconds(r)
-	country := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("country")))
-	minCount := parseUintParam(r, "min_count", 0)
-	rows, mmdbOK, err := s.queryGeoRows(ctx, from, 1000)
+	rows, mmdbOK, err := s.geoRowsFromReq(ctx, r)
 	if err != nil {
 		writeDBErr(w, r, err)
 		return
 	}
-	rows = filterGeoRows(rows, country, minCount)
-	// range 回显（R-09：非法值回显默认 24h，与 rangeSeconds 口径一致）
-	rng := r.URL.Query().Get("range")
-	switch rng {
-	case "1h", "24h", "7d", "30d":
-	default:
-		rng = "24h"
-	}
-	writeJSON(w, 200, map[string]any{"range": rng, "mmdb_ok": mmdbOK, "rows": rows})
+	writeJSON(w, 200, map[string]any{"range": rangeEcho(r), "mmdb_ok": mmdbOK, "rows": rows})
 }
 
 // hExportAttacksCSV 全球攻击地图 CSV 导出（DEV-GEO-001 B.2）。
 // GET /api/v1/export/attacks_csv?range=&country=&min_count=
-// 与 /attacks/geo 同口径同筛选；输出无表头三列：IP,国家或地区,累计攻击次数。
+// 与 /attacks/geo 同口径同筛选（geoRowsFromReq 结构强制）；输出无表头三列：IP,国家或地区,累计攻击次数。
 // 与既有 /api/v1/export/csv（IP,时间,端口）并存，勿混淆。
 // 限流：limitHeavy（同聚合导出成本）。
 func (s *Server) hExportAttacksCSV(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	from := rangeSeconds(r)
-	country := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("country")))
-	minCount := parseUintParam(r, "min_count", 0)
-	rows, _, err := s.queryGeoRows(ctx, from, 1000)
+	rows, _, err := s.geoRowsFromReq(ctx, r)
 	if err != nil {
 		writeDBErr(w, r, err)
 		return
 	}
-	rows = filterGeoRows(rows, country, minCount)
 	// CSV 头（查询成功后才写——查询失败须回 500 JSON）
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="sentry_attacks_geo_`+time.Now().Format("20060102_150405")+`.csv"`)

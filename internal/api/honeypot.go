@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"strings"
 	"time"
@@ -31,43 +32,29 @@ func (s *Server) hHoneypotEvents(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	from := rangeSeconds(r)
-	limit := parseUintParam(r, "limit", 200)
-	if limit > 500 {
-		limit = 500
-	}
+	limit := limitParam(r, 200, 500)
 	conds := []string{"ts >= ?"}
 	args := []any{from}
 	if proto := r.URL.Query().Get("proto"); proto != "" {
 		conds = append(conds, "proto = ?")
 		args = append(args, proto)
 	}
-	query := `SELECT ts, proto, src_ip, username, password, extra FROM cred_events
-		WHERE ` + strings.Join(conds, " AND ") + ` ORDER BY ts DESC LIMIT ?`
-	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	out, err := queryRowList(ctx, s.db, `SELECT ts, proto, src_ip, username, password, extra FROM cred_events`,
+		conds, args, limit, func(rows *sql.Rows) (honeypotRow, error) {
+			var row honeypotRow
+			var srcIP int64
+			err := rows.Scan(&row.TS, &row.Proto, &srcIP, &row.Username, &row.Password, &row.Extra)
+			if err == nil {
+				row.SrcIP = event.Uint32ToIPv4(uint32(srcIP))
+			}
+			return row, err
+		})
 	if err != nil {
 		writeDBErr(w, r, err)
 		return
 	}
-	defer rows.Close()
-	// 空结果输出 []（非 null）——前端三态与外部调用方规范性。
-	out := make([]honeypotRow, 0)
-	for rows.Next() {
-		var row honeypotRow
-		var srcIP int64
-		if rows.Scan(&row.TS, &row.Proto, &srcIP, &row.Username, &row.Password, &row.Extra) == nil {
-			row.SrcIP = event.Uint32ToIPv4(uint32(srcIP))
-			out = append(out, row)
-		}
-	}
-	// range 回显（与既有端点口径一致：非法值回显默认 24h）。
-	rng := r.URL.Query().Get("range")
-	switch rng {
-	case "1h", "24h", "7d", "30d":
-	default:
-		rng = "24h"
-	}
-	writeJSON(w, 200, map[string]any{"range": rng, "rows": out})
+	// 空结果输出 []（非 null）——前端三态与外部调用方规范性（m4 修复产物，nonNil 固化）。
+	writeJSON(w, 200, map[string]any{"range": rangeEcho(r), "rows": nonNil(out)})
 }
 
 // honeypotCredRow 凭据字典聚合行（DEV-HONEY-002：按 协议+用户名+密码 去重聚合）。
@@ -119,10 +106,7 @@ func (s *Server) hHoneypotCreds(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	from := rangeSeconds(r)
-	limit := parseUintParam(r, "limit", 200)
-	if limit > 500 {
-		limit = 500
-	}
+	limit := limitParam(r, 200, 500)
 	conds := []string{"ts >= ?"}
 	args := []any{from}
 	if proto := r.URL.Query().Get("proto"); proto != "" {
@@ -148,11 +132,6 @@ func (s *Server) hHoneypotCreds(w http.ResponseWriter, r *http.Request) {
 			out = append(out, row)
 		}
 	}
-	rng := r.URL.Query().Get("range")
-	switch rng {
-	case "1h", "24h", "7d", "30d":
-	default:
-		rng = "24h"
-	}
+	rng := rangeEcho(r)
 	writeJSON(w, 200, map[string]any{"range": rng, "rows": out})
 }

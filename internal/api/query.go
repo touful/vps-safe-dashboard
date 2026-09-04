@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"os"
 	"sort"
@@ -48,15 +49,46 @@ func (s *Server) hResources(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"points": out, "step_s": stepSec})
 }
 
+// nonNil 保证空切片序列化为 [] 而非 null（m4 修复语义固化：空结果输出 []，
+// 前端三态与外部调用方规范性；app.js 各 rows 消费点亦按 [] 兜底）。泛型写出器
+// 默认保持 nil 语义，须输出 [] 的端点显式调用本函数。
+func nonNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
+}
+
+// queryRowList 明细行查询公共骨架（hConnections/hSSH/hFirewall/hBans/hHoneypotEvents
+// 五端点统一）。selectFrom 为 "SELECT <cols> FROM <table>" 前缀（尾部不带 WHERE）；
+// conds 为完整 WHERE 条件列表（首条件由调用方给定，如 "ts >= ?" 或 "1=1"）；
+// limit 以 LIMIT ? 追加。既有语义逐字保留：
+//   - QueryContext 失败 → 返回 error（调用方统一 writeDBErr 500）；
+//   - scan 失败静默跳行不报错（单行 schema 异常不影响整体响应）；
+//   - 不检查 rows.Err()（与 topHits 一致的历史口径）。
+// 返回切片可能为 nil（空结果 → JSON null）；须输出 [] 的端点经 nonNil 转换。
+func queryRowList[T any](ctx context.Context, db *sql.DB, selectFrom string, conds []string, args []any, limit uint64, scan func(*sql.Rows) (T, error)) ([]T, error) {
+	query := selectFrom + " WHERE " + strings.Join(conds, " AND ") + ` ORDER BY ts DESC LIMIT ?`
+	rows, err := db.QueryContext(ctx, query, append(args, limit)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []T
+	for rows.Next() {
+		if v, serr := scan(rows); serr == nil {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
 // hConnections 连接事件查询（方案 3.7：limit/proto/dst_port/src_ip/since/until）。
 func (s *Server) hConnections(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	q := r.URL.Query()
-	limit := parseUintParam(r, "limit", 200)
-	if limit > 1000 {
-		limit = 1000
-	}
+	limit := limitParam(r, 200, 1000)
 	eqs, eqArgs := eqConds(q, []string{"proto", "dst_port", "src_ip"})
 	conds := append([]string{"1=1"}, eqs...)
 	args := append([]any{}, eqArgs...)
@@ -68,15 +100,6 @@ func (s *Server) hConnections(w http.ResponseWriter, r *http.Request) {
 		conds = append(conds, "ts <= ?")
 		args = append(args, p)
 	}
-	query := `SELECT ts, ev_type, proto, src_ip, src_port, dst_ip, dst_port, packets, bytes, mark, src_ip6, dst_ip6
-		FROM connections WHERE ` + strings.Join(conds, " AND ") + ` ORDER BY ts DESC LIMIT ?`
-	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		writeDBErr(w, r, err)
-		return
-	}
-	defer rows.Close()
 	type connRow struct {
 		TS      int64  `json:"ts"`
 		EvType  int    `json:"ev_type"`
@@ -91,15 +114,18 @@ func (s *Server) hConnections(w http.ResponseWriter, r *http.Request) {
 		SrcIP6  string `json:"src_ip6"`
 		DstIP6  string `json:"dst_ip6"`
 	}
-	var out []connRow
-	for rows.Next() {
+	out, err := queryRowList(ctx, s.db, `SELECT ts, ev_type, proto, src_ip, src_port, dst_ip, dst_port, packets, bytes, mark, src_ip6, dst_ip6
+		FROM connections`, conds, args, limit, func(rows *sql.Rows) (connRow, error) {
 		var c connRow
-		if rows.Scan(&c.TS, &c.EvType, &c.Proto, &c.SrcIP, &c.SrcPort, &c.DstIP, &c.DstPort,
-			&c.Packets, &c.Bytes, &c.Mark, &c.SrcIP6, &c.DstIP6) == nil {
-			out = append(out, c)
-		}
+		err := rows.Scan(&c.TS, &c.EvType, &c.Proto, &c.SrcIP, &c.SrcPort, &c.DstIP, &c.DstPort,
+			&c.Packets, &c.Bytes, &c.Mark, &c.SrcIP6, &c.DstIP6)
+		return c, err
+	})
+	if err != nil {
+		writeDBErr(w, r, err)
+		return
 	}
-	writeJSON(w, 200, map[string]any{"rows": out})
+	writeJSON(w, 200, map[string]any{"rows": nonNil(out)})
 }
 
 // hSSH SSH 登录尝试查询（range/src_ip/result/username）。
@@ -108,22 +134,10 @@ func (s *Server) hSSH(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	q := r.URL.Query()
 	from := rangeSeconds(r)
-	limit := parseUintParam(r, "limit", 200)
-	if limit > 1000 {
-		limit = 1000
-	}
+	limit := limitParam(r, 200, 1000)
 	eqs, eqArgs := eqConds(q, []string{"src_ip", "result", "username"})
 	conds := append([]string{"ts >= ?"}, eqs...)
 	args := append([]any{from}, eqArgs...)
-	query := `SELECT ts, src_ip, username, auth_method, result, fingerprint, detail
-		FROM ssh_attempts WHERE ` + strings.Join(conds, " AND ") + ` ORDER BY ts DESC LIMIT ?`
-	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		writeDBErr(w, r, err)
-		return
-	}
-	defer rows.Close()
 	type sshRow struct {
 		TS          int64  `json:"ts"`
 		SrcIP       int64  `json:"src_ip"`
@@ -133,14 +147,17 @@ func (s *Server) hSSH(w http.ResponseWriter, r *http.Request) {
 		Fingerprint string `json:"fingerprint"`
 		Detail      string `json:"detail"`
 	}
-	var out []sshRow
-	for rows.Next() {
-		var r sshRow
-		if rows.Scan(&r.TS, &r.SrcIP, &r.Username, &r.AuthMethod, &r.Result, &r.Fingerprint, &r.Detail) == nil {
-			out = append(out, r)
-		}
+	out, err := queryRowList(ctx, s.db, `SELECT ts, src_ip, username, auth_method, result, fingerprint, detail
+		FROM ssh_attempts`, conds, args, limit, func(rows *sql.Rows) (sshRow, error) {
+		var v sshRow
+		err := rows.Scan(&v.TS, &v.SrcIP, &v.Username, &v.AuthMethod, &v.Result, &v.Fingerprint, &v.Detail)
+		return v, err
+	})
+	if err != nil {
+		writeDBErr(w, r, err)
+		return
 	}
-	writeJSON(w, 200, map[string]any{"rows": out})
+	writeJSON(w, 200, map[string]any{"rows": nonNil(out)})
 }
 
 // hFirewall 防火墙事件查询（range/dst_port/action/src_ip）。
@@ -149,22 +166,10 @@ func (s *Server) hFirewall(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	q := r.URL.Query()
 	from := rangeSeconds(r)
-	limit := parseUintParam(r, "limit", 200)
-	if limit > 1000 {
-		limit = 1000
-	}
+	limit := limitParam(r, 200, 1000)
 	eqs, eqArgs := eqConds(q, []string{"dst_port", "action", "src_ip"})
 	conds := append([]string{"ts >= ?"}, eqs...)
 	args := append([]any{from}, eqArgs...)
-	query := `SELECT ts, chain, action, proto, src_ip, src_port, dst_ip, dst_port, raw
-		FROM firewall_events WHERE ` + strings.Join(conds, " AND ") + ` ORDER BY ts DESC LIMIT ?`
-	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		writeDBErr(w, r, err)
-		return
-	}
-	defer rows.Close()
 	type fwRow struct {
 		TS      int64  `json:"ts"`
 		Chain   string `json:"chain"`
@@ -176,14 +181,17 @@ func (s *Server) hFirewall(w http.ResponseWriter, r *http.Request) {
 		DstPort int    `json:"dst_port"`
 		Raw     string `json:"raw"`
 	}
-	var out []fwRow
-	for rows.Next() {
-		var f fwRow
-		if rows.Scan(&f.TS, &f.Chain, &f.Action, &f.Proto, &f.SrcIP, &f.SrcPort, &f.DstIP, &f.DstPort, &f.Raw) == nil {
-			out = append(out, f)
-		}
+	out, err := queryRowList(ctx, s.db, `SELECT ts, chain, action, proto, src_ip, src_port, dst_ip, dst_port, raw
+		FROM firewall_events`, conds, args, limit, func(rows *sql.Rows) (fwRow, error) {
+		var v fwRow
+		err := rows.Scan(&v.TS, &v.Chain, &v.Action, &v.Proto, &v.SrcIP, &v.SrcPort, &v.DstIP, &v.DstPort, &v.Raw)
+		return v, err
+	})
+	if err != nil {
+		writeDBErr(w, r, err)
+		return
 	}
-	writeJSON(w, 200, map[string]any{"rows": out})
+	writeJSON(w, 200, map[string]any{"rows": nonNil(out)})
 }
 
 // hTopPorts 被探测端口 TOP（方案 4.4 DPT 口径：统计所有防火墙事件，
@@ -334,7 +342,15 @@ func (s *Server) hSnapshot(w http.ResponseWriter, r *http.Request) {
 
 // hSSHTimeline SSH 失败时间线（每小时聚合，方案 4.4；前端"SSH 爆破时间线"用）。
 func (s *Server) hSSHTimeline(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	// 超时档对齐（与同 limitHeavy 档的 hFirewallTimeline 同口径，本批唯一行为修正）：
+	// 30d 视图 ssh_attempts 千万行级 GROUP BY 聚合与防火墙时间线同量级（生产实测
+	// 2-8s，SQLite 页缓存全冷的启动窗口更慢），原固定 5s 超时会周期性 500 导致
+	// SSH 时间线图失效——24h/30d 走 aggTimeout long=15s，30d 再放宽 30s。
+	timeout := aggTimeout(r, 15*time.Second)
+	if r.URL.Query().Get("range") == "30d" {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	from := rangeSeconds(r)
 	rows, err := s.db.QueryContext(ctx, `SELECT (ts/3600)*3600 AS hour, COUNT(*) FROM ssh_attempts
@@ -421,12 +437,8 @@ func (s *Server) hFirewallTimeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// range 回显（R-09：非法值回显默认 24h，与 rangeSeconds 口径一致，避免响应与实际查询不符；
-	// rng 已在函数头读取用于超时判定，此处复用并校验）。
-	switch rng {
-	case "1h", "24h", "7d", "30d":
-	default:
-		rng = "24h"
-	}
+	// 超时判定已在函数头读取原始 range，此处统一走 rangeEcho 回显口径）。
+	rng = rangeEcho(r)
 	writeJSON(w, 200, map[string]any{"range": rng, "granularity": "1h", "buckets": out})
 }
 
@@ -435,29 +447,22 @@ func (s *Server) hBans(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	from := rangeSeconds(r)
-	limit := parseUintParam(r, "limit", 100)
-	if limit > 500 {
-		limit = 500
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT ts, ip, type, jail FROM ban_events
-		WHERE ts >= ? ORDER BY ts DESC LIMIT ?`, from, limit)
-	if err != nil {
-		writeDBErr(w, r, err)
-		return
-	}
-	defer rows.Close()
+	limit := limitParam(r, 100, 500)
 	type banRow struct {
 		TS   int64  `json:"ts"`
 		IP   int64  `json:"ip"`
 		Type string `json:"type"`
 		Jail string `json:"jail"`
 	}
-	var out []banRow
-	for rows.Next() {
-		var b banRow
-		if rows.Scan(&b.TS, &b.IP, &b.Type, &b.Jail) == nil {
-			out = append(out, b)
-		}
+	out, err := queryRowList(ctx, s.db, `SELECT ts, ip, type, jail FROM ban_events`,
+		[]string{"ts >= ?"}, []any{from}, limit, func(rows *sql.Rows) (banRow, error) {
+			var b banRow
+			err := rows.Scan(&b.TS, &b.IP, &b.Type, &b.Jail)
+			return b, err
+		})
+	if err != nil {
+		writeDBErr(w, r, err)
+		return
 	}
-	writeJSON(w, 200, map[string]any{"rows": out})
+	writeJSON(w, 200, map[string]any{"rows": nonNil(out)})
 }
