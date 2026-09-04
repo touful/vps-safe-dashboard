@@ -62,26 +62,17 @@ if [ -d /var/log/journal ]; then
 fi
 
 # 6. 启动容器
+# docker compose 为硬性前置（不再提供 docker run 回退——手工复制 compose 配置必然漂移，
+# 历史回退路径曾因参数漂移导致事故，故统一由 compose 管理容器参数）
 echo "--- [6/6] docker compose 启动 ---"
 cd "$SCRIPT_DIR"
-if docker compose version >/dev/null 2>&1; then
-  docker compose -f docker-compose.yml up -d
-else
-  echo "[提示] 无 docker compose，使用 docker run（命令见部署手册 6.4.2）"
-  docker run -d --name sentry-agent --restart=unless-stopped \
-    --network host --cap-add NET_ADMIN --user 1000:1000 \
-    # R-06（reviewer）：docker run 回退路径补齐 F-03 纵深防御参数（与 compose 一致）
-    --memory 256m --security-opt no-new-privileges \
-    -v /var/lib/sentry-agent:/var/lib/sentry-agent \
-    # N-01（DEV-008 reviewer）：journal 挂载到容器内代码默认路径 /var/log/journal
-    # （与 compose 一致；/host/journal 仅为旧设计，代码未实现 -D 模式）
-    -v /var/log/journal:/var/log/journal:ro \
-    -v /etc/machine-id:/etc/machine-id:ro \
-    -v /var/log/fail2ban.log:/host/fail2ban.log:ro \
-    -v /var/lib/fail2ban/fail2ban.sqlite3:/host/fail2ban.sqlite3:ro \
-    -v "$CONFIG_PATH":/etc/sentry-agent/config.json:ro \
-    sentry-agent:latest
+if ! docker compose version >/dev/null 2>&1; then
+  echo "[FAIL] 未检测到 docker compose v2 插件（deploy 依赖 compose 统一管理容器参数，不再提供 docker run 回退——历史回退路径曾因参数漂移导致事故）"
+  echo "[提示] Debian/Ubuntu：sudo apt-get install docker-compose-plugin"
+  echo "[提示] 其他发行版参考官方文档：https://docs.docker.com/compose/install/linux/"
+  exit 1
 fi
+docker compose -f docker-compose.yml up -d
 
 echo "--- 启动后健康检查（30s 内） ---"
 HEALTH_OK=0
