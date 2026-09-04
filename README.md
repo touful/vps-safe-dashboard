@@ -14,7 +14,7 @@
 
 ## 架构概览
 
-Go 单进程（`sentry-agent`）：各采集通道以协程组织，统一写入 SQLite（WAL），对外提供 22 个只读 HTTP API（含 /api/v1/export/csv 数据导出、/api/v1/honeypot/events 蜜罐凭据查询、/api/v1/honeypot/creds 凭据字典聚合、/api/v1/export/creds 字典导出、/api/v1/bans/active 当前封禁名单与 /api/v1/ip 来源 IP 画像）+ 1 个 WebSocket 实时通道；前端为内嵌静态文件（index.html + app.js + 本地 echarts.min.js，零 CDN、零外部资源）。
+Go 单进程（`sentry-agent`）：各采集通道以协程组织，统一写入 SQLite（WAL），对外提供 23 个只读 HTTP API（含 /api/v1/export/csv 数据导出、/api/v1/export/table 六类明细 CSV 导出、/api/v1/honeypot/events 蜜罐凭据查询、/api/v1/honeypot/creds 凭据字典聚合、/api/v1/export/creds 字典导出、/api/v1/bans/active 当前封禁名单与 /api/v1/ip 来源 IP 画像）+ 1 个 WebSocket 实时通道；前端为内嵌静态文件（index.html + app.js + 本地 echarts.min.js，零 CDN、零外部资源）。
 
 ```
 采集通道（资源/连接/SSH/防火墙/fail2ban/蜜罐）
@@ -23,7 +23,7 @@ Go 单进程（`sentry-agent`）：各采集通道以协程组织，统一写入
 SQLite WAL（单写线程 + 批量事务）──► 归档（gzip，可配）
         │
         ▼
-HTTP API（22 只读端点）+ WS 实时推送 ──► 前端面板（原生 JS + ECharts）
+HTTP API（23 只读端点）+ WS 实时推送 ──► 前端面板（原生 JS + ECharts）
 ```
 
 外部组件仅限系统既有服务（journald/rsyslog、fail2ban、nftables/iptables），均位于宿主机；容器以只读挂载方式访问其数据。详细设计见 `docs/技术方案.md`。
@@ -33,7 +33,7 @@ HTTP API（22 只读端点）+ WS 实时推送 ──► 前端面板（原生 J
 ```
 ├── cmd/sentry-agent/      主程序入口（main.go + 测试）
 ├── internal/
-│   ├── api/               HTTP API + WebSocket（22 只读端点 + /ws）
+│   ├── api/               HTTP API + WebSocket（23 只读端点 + /ws）
 │   ├── archive/           归档模块（gzip 压缩、按月归档）
 │   ├── event/             事件队列（有界缓冲，采集→存储解耦）
 │   ├── honeypot/          蜜罐假服务（10 协议最小认证握手模拟 + 连接治理）
@@ -93,6 +93,6 @@ go run ./cmd/sentry-agent -config scripts/test_m1_b5_config.json
 - 防火墙模式 B（D-05 用户裁定）：DROP 规则前插 LOG，防火墙日志为限速采样视图（默认 5 包/s，面板已显著标注）。
 - 数据不出 VPS（单机部署），无多机集中管理。
 - 蜜罐默认关闭（`honeypot.enabled=false` 保守）；启用前须确认对应标准端口无真实服务，并运行 `deploy/setup_firewall.sh` 放行蜜罐端口（配置驱动，未启用时保持原 DROP 行为）；Docker 部署低端口绑定依赖文件能力 `cap_net_bind_service`（见 Dockerfile 注释，与 no-new-privileges 互斥已评估）。
-- **蜜罐启用后的公网暴露提示**：凭据查询/字典/导出端点（/api/v1/honeypot/*、/api/v1/export/creds）随 Web 面板一同暴露——面板经反代公开到公网时，任意访客可拉取捕获的凭据字典（内容为攻击者失败的尝试凭据，不含本机真实凭据，但会暴露蜜罐存在事实）。建议公网部署时在反代层（如 NPM Access List / basic auth）对面板整体加认证，或限制访问来源。
+- **蜜罐启用后的公网暴露提示**：凭据查询/字典/导出端点（/api/v1/honeypot/*、/api/v1/export/creds、/api/v1/export/table 的 hp 类型含明文密码）随 Web 面板一同暴露——面板经反代公开到公网时，任意访客可拉取捕获的凭据字典（内容为攻击者失败的尝试凭据，不含本机真实凭据，但会暴露蜜罐存在事实）。建议公网部署时在反代层（如 NPM Access List / basic auth）对面板整体加认证，或限制访问来源。
 - `config.exclude_ips` 为操作方自身 IP 白名单（运维配置），**不做脱敏处理**（用户裁定，2026-08-18）。
 
