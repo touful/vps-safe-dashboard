@@ -290,6 +290,23 @@ th .sort-arrow { color: var(--accent); font-size: 10px; margin-left: 3px; }
 .hpd-kind.plaintext { color: var(--danger); border-color: rgba(255, 99, 99, 0.35); }
 .hpd-kind.hash { color: var(--warn); border-color: rgba(230, 168, 60, 0.35); }
 .hpd-kind.none { color: var(--text-faint); }
+/* ===== 明细表折叠与卡头导出（T-EXPORT：四明细表默认折叠预览 + 6 处卡头 CSV 导出；排版参考 hpd-actions 先例） ===== */
+/* has-actions 卡头：按钮组 margin-left:auto 推右后，data-idx 编号不再用 auto 平分空隙（改跟按钮组之后） */
+.card h3.has-actions[data-idx]::after { margin-left: 0; }
+.tbl-actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.tbl-actions .export-btn { padding: 3px 12px; font-size: 12px; }
+/* 折叠切换小按钮（▸ 折叠态 / ▾ 展开态由 app.js 切换字符；aria-expanded 同步） */
+.fold-toggle {
+  background: none; border: 1px solid var(--border-soft); color: var(--text-dim);
+  border-radius: var(--radius-sm); width: 22px; height: 22px; padding: 0; flex: none;
+  cursor: pointer; font-size: 11px; line-height: 1; font-family: var(--font-num);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.fold-toggle:hover { color: var(--text); border-color: var(--border); }
+.fold-toggle:active { transform: translateY(1px); }
+.fold-toggle:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+/* 折叠态卡头摘要（"已折叠 · 展开预览最近 50 条"；显隐由 app.js 折叠状态驱动） */
+.fold-sum { margin-left: 8px; }
 /* ===== DEV-017 精修基线保留并升级 ===== */
 
 /* 字体层级：时间戳列 12px 等宽次级色（tabular-nums 对齐） */
@@ -869,9 +886,10 @@ tr.row-warn { color: var(--warn); }
     </details>
     <!-- T2：采集通道健康卡（renderChannels 独立 30s 轮询填充；复用 mini-top 榜样式无 bar） -->
     <div class="card" style="margin-top:12px;">
-      <h3 data-idx="09">采集通道健康
+      <h3 class="has-actions" data-idx="09">采集通道健康
         <span class="risk-note" id="channels-note">最近事件距此刻；受保留期约束</span>
-        <span id="channels-summary" class="fold-hint" style="margin-left:12px;"></span></h3>
+        <span id="channels-summary" class="fold-hint" style="margin-left:12px;"></span>
+        <span class="tbl-actions"><button type="button" class="export-btn" id="export-sys-events" title="导出系统事件 CSV（agent 采集告警/运行事件）">↓系统事件</button></span></h3>
       <ul id="channels-list" class="mini-top"></ul>
       <div class="chan-sub">近期告警</div>
       <ul id="syslog-list" class="syslog-list"></ul>
@@ -889,7 +907,12 @@ tr.row-warn { color: var(--warn); }
     <div class="card"><h3 class="panel-title" tabindex="-1" data-idx="01">当前连接（ss 快照 20s 采集 / 页面 5s 轮询）</h3>
       <div class="scroll"><table id="snap-table"><caption class="sr-only">当前连接快照</caption><thead><tr><th>协议</th><th>状态</th><th>源</th><th>目的</th><th>Pid</th></tr></thead><tbody></tbody></table></div>
     </div>
-    <div class="card" style="margin-top:12px;"><h3 data-idx="02">最近连接事件（NEW/UPDATE/DESTROY）</h3>
+    <div class="card" style="margin-top:12px;"><h3 class="has-actions" data-idx="02">最近连接事件（NEW/UPDATE/DESTROY）
+      <span class="fold-hint fold-sum" id="fold-sum-conn-table" style="display:none;">已折叠 · 展开预览最近 50 条</span>
+      <span class="tbl-actions">
+        <button type="button" class="fold-toggle" id="fold-toggle-conn-table" aria-expanded="false" aria-controls="conn-table" title="展开明细预览">▸</button>
+        <button type="button" class="export-btn" id="export-conn-table" title="导出连接事件明细 CSV（跟随当前时间范围）">↓CSV</button>
+      </span></h3>
       <div class="scroll"><table id="conn-table"><caption class="sr-only">最近连接事件</caption><thead><tr><th>时间</th><th>类型</th><th>协议</th><th>源</th><th>目的</th><th>包/字节</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
@@ -900,7 +923,8 @@ tr.row-warn { color: var(--warn); }
       <div class="card"><h3 data-accent="danger" data-idx="02">攻击源 IP TOP（点击柱条过滤）</h3><div id="chart-sources" class="chart" role="img" aria-label="攻击源 IP TOP 图：数据加载中"></div></div>
       <div class="card"><h3 data-accent="danger" data-idx="03">SSH 失败时间线（每小时）</h3><div id="chart-ssh" class="chart" role="img" aria-label="SSH 失败时间线图：数据加载中"></div></div>
       <!-- P3-1：fail2ban 当前封禁名单（60s 刷新内存快照；与下方 SSH 表/ban_events 历史记录互补） -->
-      <div class="card"><h3 data-idx="04">当前封禁名单（fail2ban 实时快照，60s 刷新）</h3><ul id="bans-active-mini" class="mini-top"></ul></div>
+      <div class="card"><h3 class="has-actions" data-idx="04">当前封禁名单（fail2ban 实时快照，60s 刷新）
+        <span class="tbl-actions"><button type="button" class="export-btn" id="export-bans-history" title="导出封禁历史 CSV（ban_events 含封禁/解封记录；本榜为当前在封实时快照）">↓封禁历史</button></span></h3><ul id="bans-active-mini" class="mini-top"></ul></div>
       <!-- DEV-GEO-001：全球攻击地图（SSH 失败按来源国家聚合；点击国家联动下方列表与导出） -->
       <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger" data-idx="05">全球攻击地图（SSH 失败来源国家聚合）
         <span class="risk-note">仅统计 SSH 失败次数（result=失败），按来源 IP 所属国家聚合</span></h3>
@@ -924,7 +948,7 @@ tr.row-warn { color: var(--warn); }
         <ul id="geo-sources-list" class="mini-top"></ul>
       </div>
       <!-- DEV-HONEY-001（M-B）：协议凭据捕获卡（蜜罐假服务）——独立全宽卡，位于地图与 SSH 表之间 -->
-      <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger" data-idx="06">协议凭据捕获（蜜罐）
+      <div class="card" style="grid-column: 1 / -1;"><h3 class="has-actions" data-accent="danger" data-idx="06">协议凭据捕获（蜜罐）
         <span class="risk-note">蜜罐对标准端口提供最小认证握手模拟，捕获攻击者尝试的登录凭据；【凭据数据仅本地存储】密码默认遮蔽，点击显示</span>
         <select id="hp-proto-filter" class="table-filter" title="按协议过滤">
           <option value="">全部协议</option>
@@ -939,7 +963,12 @@ tr.row-warn { color: var(--warn); }
           <option value="telnet">telnet</option>
           <option value="ftp">ftp</option>
         </select>
-        <span id="hp-total" class="fold-hint"></span></h3>
+        <span id="hp-total" class="fold-hint"></span>
+        <span class="fold-hint fold-sum" id="fold-sum-hp-table" style="display:none;">已折叠 · 展开预览最近 50 条</span>
+        <span class="tbl-actions">
+          <button type="button" class="fold-toggle" id="fold-toggle-hp-table" aria-expanded="false" aria-controls="hp-table" title="展开明细预览">▸</button>
+          <button type="button" class="export-btn" id="export-hp-table" title="导出蜜罐捕获明细 CSV（跟随当前时间范围）">↓CSV</button>
+        </span></h3>
         <div class="scroll">
           <table id="hp-table"><caption class="sr-only">蜜罐捕获的协议登录凭据</caption>
             <thead><tr>
@@ -968,24 +997,34 @@ tr.row-warn { color: var(--warn); }
           </table>
         </div>
       </div>
-      <div class="card" style="grid-column: 1 / -1;"><h3 data-idx="08">SSH 登录尝试（失败红色，点击时间列排序）
+      <div class="card" style="grid-column: 1 / -1;"><h3 class="has-actions" data-idx="08">SSH 登录尝试（失败红色，点击时间列排序）
         <select id="ssh-result-filter" class="table-filter" title="按结果过滤">
           <option value="">全部结果</option>
           <option value="0">仅失败</option>
           <option value="1">仅成功</option>
-        </select></h3>
+        </select>
+        <span class="fold-hint fold-sum" id="fold-sum-ssh-table" style="display:none;">已折叠 · 展开预览最近 50 条</span>
+        <span class="tbl-actions">
+          <button type="button" class="fold-toggle" id="fold-toggle-ssh-table" aria-expanded="false" aria-controls="ssh-table" title="展开明细预览">▸</button>
+          <button type="button" class="export-btn" id="export-ssh-table" title="导出 SSH 登录明细 CSV（跟随当前时间范围）">↓CSV</button>
+        </span></h3>
         <div class="scroll"><table id="ssh-table"><caption class="sr-only">SSH 登录尝试明细</caption><thead><tr>
           <th>时间</th><th>源 IP</th><th>用户名</th><th>认证方式</th><th>结果</th><th>指纹</th><th>详情</th>
         </tr></thead><tbody></tbody></table></div>
       </div>
-      <div class="card" style="grid-column: 1 / -1;"><h3 data-idx="09">外部威胁事件明细（拦截/丢弃红色，点击时间列排序）
+      <div class="card" style="grid-column: 1 / -1;"><h3 class="has-actions" data-idx="09">外部威胁事件明细（拦截/丢弃红色，点击时间列排序）
         <select id="fw-action-filter" class="table-filter" title="按动作过滤">
           <option value="">全部动作</option>
           <option value="inbound">仅入站探测</option>
           <option value="reject">仅拦截</option>
           <option value="drop">仅丢弃</option>
           <option value="accept">仅接受</option>
-        </select></h3>
+        </select>
+        <span class="fold-hint fold-sum" id="fold-sum-fw-table" style="display:none;">已折叠 · 展开预览最近 50 条</span>
+        <span class="tbl-actions">
+          <button type="button" class="fold-toggle" id="fold-toggle-fw-table" aria-expanded="false" aria-controls="fw-table" title="展开明细预览">▸</button>
+          <button type="button" class="export-btn" id="export-fw-table" title="导出外部威胁事件明细 CSV（跟随当前时间范围）">↓CSV</button>
+        </span></h3>
         <div class="scroll"><table id="fw-table"><caption class="sr-only">外部威胁事件明细</caption><thead><tr>
           <th>时间</th><th>动作</th><th>链</th><th>协议</th><th>源</th><th>目的</th><th>raw</th>
         </tr></thead><tbody></tbody></table></div>

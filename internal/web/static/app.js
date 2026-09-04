@@ -2,7 +2,7 @@
 // 分区导航（按代码顺序）：
 //   1 常量与全局状态 state｜2 通用工具函数｜3 图表主题与渲染（ECharts，含 3.5 全球攻击地图）
 //   4 非表格渲染（KPI/态势/TOP/事件流）｜5 表格行级 diff 渲染框架
-//   6 数据拉取（轮询与 WS 共用）｜7 交互与联动｜8 WS 实时推送（8.5 数据导出）｜9 初始化
+//   6 数据拉取（轮询与 WS 共用）｜7 交互与联动（含四明细表折叠组件）｜8 WS 实时推送（8.5 数据导出与卡头 CSV 导出）｜9 初始化
 // 迭代历史见 git log 与 docs/verification/。
 (function () {
   'use strict';
@@ -1232,6 +1232,7 @@
   }
   // 各表渲染入口：三态 → 排序 → 分页 → 计算行 key → 行级 diff
   function renderSSH() {
+    if (isFolded('ssh-table')) { return; } // 折叠态跳过表体渲染（rows 缓存照常更新，事件流不受影响）
     var rows = prepTable('ssh-table', state.tables['ssh-table'].rows, {
       visKey: 'attack', emptyText: '暂无 SSH 登录尝试',
       keyBase: function (r) { return r.ts + '|' + r.src_ip + '|' + r.result + '|' + r.username + '|' + r.auth_method; }
@@ -1256,6 +1257,7 @@
     });
   }
   function renderFW() {
+    if (isFolded('fw-table')) { return; } // 折叠态跳过表体渲染（rows 缓存照常更新，事件流不受影响）
     var rows = prepTable('fw-table', state.tables['fw-table'].rows, {
       visKey: 'attack', emptyText: '暂无外部威胁事件',
       keyBase: function (r) { return r.ts + '|' + r.src_ip + '|' + r.dst_port + '|' + r.action + '|' + (r.raw || '').slice(0, 16); }
@@ -1286,6 +1288,7 @@
   // 封禁记录表已随 DEV-GEO-001 移除（renderBans/gotoBanIp 删除；后端 /api/v1/bans 保留不动）
   // DEV-HONEY-001：蜜罐凭据表渲染（三态 + 行级 diff + 密码遮蔽点击切换 + 捕获小计）。
   function renderHoneypot() {
+    if (isFolded('hp-table')) { return; } // 折叠态跳过表体渲染（fetch 已整体门控，此处兜底切页补渲染路径）
     var rows = prepTable('hp-table', state.tables['hp-table'].rows, {
       visKey: 'attack', emptyText: '暂无蜜罐捕获记录',
       keyBase: function (r) { return r.ts + '|' + r.proto + '|' + r.src_ip + '|' + r.username + '|' + (r.password || '').slice(0, 8); },
@@ -1372,6 +1375,7 @@
     });
   }
   function renderConns() {
+    if (isFolded('conn-table')) { return; } // 折叠态跳过表体渲染（fetch 已整体门控，此处兜底切页补渲染路径）
     var rows = prepTable('conn-table', state.tables['conn-table'].rows, {
       visKey: 'conn', emptyText: '暂无连接事件',
       keyBase: function (c) { return c.ts + '|' + c.src_ip + '|' + c.src_port + '|' + c.dst_port + '|' + c.ev_type; }
@@ -1418,13 +1422,28 @@
   }
   // DEV-FE-003 MA-1：connections 查询逻辑收敛（原 pollConns 与 applyFilter 双处重复，MA-01 修复）
   function fetchConns() {
-    var connQS = '/api/v1/connections?limit=100&' + sinceQS();
+    // 折叠门控（T-EXPORT）：conn-table 折叠时不拉取不渲染，展开切换时 toggleFold 强制补拉一次
+    if (isFolded('conn-table')) { return; }
+    // 预览量 100→50：明细数据走 /api/v1/export/table 离线导出，表格仅保留最近 50 条预览
+    var connQS = '/api/v1/connections?limit=50&' + sinceQS();
     if (state.filter && state.filter.type === 'port') { connQS += '&dst_port=' + state.filter.value; }
     if (state.filter && state.filter.type === 'src') { connQS += '&src_ip=' + state.filter.value; }
     fetchJSON(connQS, function (d) {
       state.tables['conn-table'].rows = d.rows || [];
       renderConns();
     }, function () { noteFailure(); setTableState('conn-table', 'error-row', '加载失败，请稍后重试'); });
+  }
+  // 蜜罐凭据捕获明细（原 pollAttack 内联段提取；T-EXPORT：hp-table 折叠时不拉取，
+  // 展开切换时 toggleFold 强制补拉；hpd 凭据字典聚合路不受折叠影响，仍在 pollAttack 内联）
+  function fetchHpEvents() {
+    if (isFolded('hp-table')) { return; }
+    // 预览量 200→50（明细走导出）
+    var hpQS = '/api/v1/honeypot/events?limit=50&' + rangeQS();
+    if (state.hp.proto !== '') { hpQS += '&proto=' + state.hp.proto; }
+    fetchJSON(hpQS, function (d) {
+      state.tables['hp-table'].rows = d.rows || [];
+      renderHoneypot();
+    }, function () { noteFailure(); setTableState('hp-table', 'error-row', '加载失败，请稍后重试'); });
   }
 
   function pollOverview() {
@@ -1553,8 +1572,10 @@
       state.attack.bans = null;
       renderBansActive();
     });
-    // SSH 尝试明细（跟随 range + src_ip 联动过滤；result=0 失败）
-    var sshQS = '/api/v1/ssh?limit=200&' + rangeQS();
+    // SSH 尝试明细（跟随 range + src_ip 联动过滤；result=0 失败）。
+    // T-EXPORT：轮询保留（总览事件流 renderEventStream 依赖 rows 混排，不能停拉），
+    // limit 200→50；折叠时 renderSSH 内部跳过表体渲染
+    var sshQS = '/api/v1/ssh?limit=50&' + rangeQS();
     if (state.filter && state.filter.type === 'src') { sshQS += '&src_ip=' + state.filter.value; }
     if (state.sshResult !== '') { sshQS += '&result=' + state.sshResult; }
     fetchJSON(sshQS, function (d) {
@@ -1562,13 +1583,8 @@
       renderSSH();
       renderEventStream();
     }, function () { noteFailure(); setTableState('ssh-table', 'error-row', '加载失败，请稍后重试'); });
-    // 蜜罐凭据捕获（DEV-HONEY-001；跟随 range + proto 下拉过滤；失败置三态错误行）
-    var hpQS = '/api/v1/honeypot/events?limit=200&' + rangeQS();
-    if (state.hp.proto !== '') { hpQS += '&proto=' + state.hp.proto; }
-    fetchJSON(hpQS, function (d) {
-      state.tables['hp-table'].rows = d.rows || [];
-      renderHoneypot();
-    }, function () { noteFailure(); setTableState('hp-table', 'error-row', '加载失败，请稍后重试'); });
+    // 蜜罐凭据捕获（DEV-HONEY-001；已提取为 fetchHpEvents——hp-table 折叠时整体跳过不拉取）
+    fetchHpEvents();
     // 凭据字典聚合（DEV-HONEY-002；与明细卡同一 range/proto 口径；失败置三态错误行）
     var hpdQS = '/api/v1/honeypot/creds?limit=500&' + rangeQS();
     if (state.hp.proto !== '') { hpdQS += '&proto=' + state.hp.proto; }
@@ -1586,8 +1602,9 @@
       }
       lastCredTotal = total;
     }, function () { noteFailure(); setTableState('hpd-table', 'error-row', '加载失败，请稍后重试'); });
-    // 防火墙明细（跟随 range + dst_port/src_ip 联动过滤 + action 下拉）
-    var fwQS = '/api/v1/firewall?limit=200&' + rangeQS();
+    // 防火墙明细（跟随 range + dst_port/src_ip 联动过滤 + action 下拉）。
+    // T-EXPORT：轮询保留（事件流依赖 rows），limit 200→50；折叠时 renderFW 内部跳过表体渲染
+    var fwQS = '/api/v1/firewall?limit=50&' + rangeQS();
     if (state.filter && state.filter.type === 'port') { fwQS += '&dst_port=' + state.filter.value; }
     if (state.filter && state.filter.type === 'src') { fwQS += '&src_ip=' + state.filter.value; }
     if (state.fwAction !== '') { fwQS += '&action=' + state.fwAction; }
@@ -1698,6 +1715,52 @@
 
 
   // ===== 模块 7：交互与联动 =====
+  // ===== 明细表折叠组件（T-EXPORT：四明细表默认折叠 + localStorage 记忆 + 按需拉取） =====
+  // 设计（用户已拍板）：前端定位"统计+展示"，明细数据走 /api/v1/export/table CSV 离线查看；
+  // 四表（ssh/fw/hp/conn）默认折叠、展开预览最近 50 条。snap-table / hpd-table 不参与折叠。
+  // localStorage 值约定：'1'=展开（用户选择），'0' 或无记录=折叠（默认态）。
+  var FOLD_TABLES = ['ssh-table', 'fw-table', 'hp-table', 'conn-table'];
+  function isFolded(id) {
+    var v = null;
+    try { v = localStorage.getItem('sentry-fold-' + id); } catch (e) {}
+    return v !== '1';
+  }
+  // 折叠态视觉同步：表体容器（.scroll）显隐 + 卡头摘要 + 切换按钮箭头/aria-expanded。
+  // 不触碰 state.tables[id]（rows/sort/page）——排序/筛选状态跨折叠保留。
+  function setFoldVisual(id, folded) {
+    var tb = document.getElementById(id);
+    if (!tb) { return; }
+    var wrap = tb.parentElement; // index.html 固定结构：.scroll > table#id
+    if (wrap) { wrap.style.display = folded ? 'none' : ''; }
+    var sum = document.getElementById('fold-sum-' + id);
+    if (sum) { sum.style.display = folded ? '' : 'none'; }
+    var btn = document.getElementById('fold-toggle-' + id);
+    if (btn) {
+      btn.textContent = folded ? '▸' : '▾';
+      btn.setAttribute('aria-expanded', folded ? 'false' : 'true');
+      btn.title = folded ? '展开明细预览' : '折叠明细预览';
+    }
+  }
+  function toggleFold(id) {
+    var folded = !isFolded(id); // 旧状态取反 = 新状态
+    try { localStorage.setItem('sentry-fold-' + id, folded ? '0' : '1'); } catch (e) {}
+    setFoldVisual(id, folded);
+    if (!folded) {
+      // 展开即强制补拉/补渲染：conn/hp 折叠期间完全不拉取，先渲染占位（rows null → loading 行）再补拉；
+      // ssh/fw 轮询常拉，补渲染即可
+      if (id === 'conn-table') { renderConns(); fetchConns(); }
+      else if (id === 'hp-table') { renderHoneypot(); fetchHpEvents(); }
+      else if (id === 'ssh-table') { renderSSH(); }
+      else if (id === 'fw-table') { renderFW(); }
+    }
+  }
+  function initFolds() {
+    FOLD_TABLES.forEach(function (id) {
+      setFoldVisual(id, isFolded(id));
+      var btn = document.getElementById('fold-toggle-' + id);
+      if (btn) { btn.addEventListener('click', function () { toggleFold(id); }); }
+    });
+  }
   function filterText() {
     if (!state.filter) return '';
     var src = state.filter.from ? '（来自' + state.filter.from + '）' : '';
@@ -2162,6 +2225,45 @@
     });
   }
 
+  // ===== 卡头明细 CSV 导出（T-EXPORT：/api/v1/export/table，heavy 档 1 rps） =====
+  // 6 处卡头按钮共用：type 为常量白名单（无用户输入入 URL）；range 跟随全局 state.range
+  // （页面全局仅四档 range；导出页自定义起止为该页局部状态，无全局 from/to 口径，不做降级拼接）。
+  // 流程：fetch 校验 ok + Content-Type 含 csv → blob 本地命名下载（参考 doExport blob 变体，
+  // 文件名 sentry-<type>-<yyyymmdd-hhmmss>.csv 本地生成）；429 → warn toast（文案对齐 doExport）；
+  // 其他错误 → danger toast 透传后端 error 字段。按钮 disabled 1.5s 防连点。
+  var EXPORT_TYPES = ['ssh', 'fw', 'hp', 'conn', 'bans', 'sys'];
+  function exportTableCsv(type, btn) {
+    if (EXPORT_TYPES.indexOf(type) < 0) { return; }
+    var url = '/api/v1/export/table?type=' + type + '&' + rangeQS();
+    if (btn) { btn.disabled = true; }
+    fetch(url).then(function (r) {
+      if (r.status === 429) { throw { code: 429 }; }
+      if (!r.ok) {
+        return r.json().then(function (d) {
+          throw { code: r.status, msg: (d && d.error) ? d.error : '导出失败（HTTP ' + r.status + '）' };
+        });
+      }
+      var ct = r.headers.get('Content-Type') || '';
+      if (ct.indexOf('csv') < 0) { throw { code: r.status, msg: '导出响应格式异常（非 CSV）' }; }
+      return r.blob();
+    }).then(function (blob) {
+      if (!blob || !blob.size) { showToast('导出为空：该范围无记录', 'warn'); return; }
+      var objUrl = URL.createObjectURL(blob);
+      var d = new Date();
+      var fname = 'sentry-' + type + '-' + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) +
+        '-' + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds()) + '.csv';
+      triggerDownload(objUrl, fname); // blob 场景 Content-Disposition 不生效，文件名本地生成
+      URL.revokeObjectURL(objUrl);
+      showToast('已开始下载：' + fname, 'info');
+    }).catch(function (e) {
+      if (e && e.code === 429) { showToast('导出请求过于频繁，请稍候重试', 'warn'); }
+      else if (e && e.msg) { showToast(e.msg, 'danger'); }
+      else { showToast('导出失败，请稍后重试', 'danger'); }
+    }).finally(function () {
+      if (btn) { setTimeout(function () { btn.disabled = false; }, 1500); }
+    });
+  }
+
   // ===== 模块 9：初始化 =====
   connectWS();
   setInterval(pollAll, POLL_MS);
@@ -2329,12 +2431,10 @@
   initFold('fold-resources');
   initFold('fold-events');
 
-  // DOM 规模控制：滚动到底加载下一批（每表首屏 TABLE_PAGE 行；行级 diff 下追加批次走复用路径）
-  bindScrollLoad('ssh-table', renderSSH);
-  bindScrollLoad('fw-table', renderFW);
-  bindScrollLoad('conn-table', renderConns);
+  // DOM 规模控制：滚动到底加载下一批（每表首屏 TABLE_PAGE 行；行级 diff 下追加批次走复用路径）。
+  // T-EXPORT：四明细表（ssh/fw/hp/conn）预览量固定 50 条 < TABLE_PAGE(60)，滚动加载无意义，
+  // 已移除绑定（明细走导出离线查看）；snap-table / hpd-table 保留滚动加载不动。
   bindScrollLoad('snap-table', renderSnap);
-  bindScrollLoad('hp-table', renderHoneypot); // DEV-HONEY-001
   bindScrollLoad('hpd-table', renderHoneyCredDict); // DEV-HONEY-002
 
   // 列头排序绑定（keys 与表头列一一对应；null 列不可排）
@@ -2398,6 +2498,21 @@
     var v = el.getAttribute('data-ip');
     if (v) { openIpProfile(v); }
   });
+  // ===== T-EXPORT 初始化绑定 =====
+  // 四明细表折叠（默认折叠 + localStorage 记忆 + 展开强制补拉）
+  initFolds();
+  // 6 处卡头导出按钮（type 白名单常量见 exportTableCsv；heavy 档 1 rps，内置 1.5s 防连点）
+  var bindTblExport = function (btnId, type) {
+    var b = document.getElementById(btnId);
+    if (b) { b.addEventListener('click', function () { exportTableCsv(type, b); }); }
+  };
+  bindTblExport('export-ssh-table', 'ssh');
+  bindTblExport('export-fw-table', 'fw');
+  bindTblExport('export-hp-table', 'hp');
+  bindTblExport('export-conn-table', 'conn');
+  bindTblExport('export-bans-history', 'bans');
+  bindTblExport('export-sys-events', 'sys');
+
   // T2：通道健康独立 30s 轮询（vis('overview') 门控；首轮立即；切回总览由 switchPanel 补拉）
   setInterval(pollChannels, 30000);
   pollChannels();
