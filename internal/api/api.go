@@ -158,6 +158,8 @@ func (s *Server) routes() {
 	// （与 export/csv 同档 heavy 限流）。导出为本地敏感数据（用户裁定 2026-09-02 开放）。
 	mux.HandleFunc("/api/v1/honeypot/creds", s.limitAPI(s.hHoneypotCreds))
 	mux.HandleFunc("/api/v1/export/creds", s.limitHeavy(s.hExportCreds))
+	mux.HandleFunc("/api/v1/ip", s.limitAPI(s.hIPProfile))          // P3-2：来源 IP 画像（跨表聚合，只读）
+	mux.HandleFunc("/api/v1/channels", s.limitAPI(s.hChannels))     // P3-3：采集通道健康（读侧聚合，只读）
 	// m-3 加固：/ws 握手纳入全局令牌桶（原仅 wsMaxConns + 5s 握手 deadline 兜底，
 	// 高频建断连接可消耗升级握手 CPU；升级成功后的长连接不再消耗令牌，正常面板
 	// 单连接不受影响）。
@@ -382,12 +384,7 @@ func (s *Server) hHealth(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "数据库不可用（详情见服务端日志）")
 		return
 	}
-	var dbSize int64
-	if s.dbPath != "" {
-		if fi, err := os.Stat(s.dbPath); err == nil {
-			dbSize = fi.Size()
-		}
-	}
+	dbSize := s.dbSizeBytes() // health 与 channels 共用口径（dbSizeBytes 单一来源）
 	var seCount int64
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM system_events`).Scan(&seCount)
 	writeJSON(w, 200, map[string]any{
@@ -406,6 +403,18 @@ func (s *Server) hHealth(w http.ResponseWriter, r *http.Request) {
 // SetDBPath 设置主库路径（health 的 db_size_mb 使用）。
 // 注意：须在 Serve 之前调用（运行期不热更新）。
 func (s *Server) SetDBPath(p string) { s.dbPath = p }
+
+// dbSizeBytes 主库文件大小（字节；dbPath 未注入或 stat 失败返回 0）。
+// health 与 channels 同口径（单一来源，勿在调用方复制 os.Stat 逻辑）。
+func (s *Server) dbSizeBytes() int64 {
+	if s.dbPath == "" {
+		return 0
+	}
+	if fi, err := os.Stat(s.dbPath); err == nil {
+		return fi.Size()
+	}
+	return 0
+}
 
 // SetRetentionDays 注入数据保留天数（health 返回，前端 range 提示）。
 // 注意：须在 Serve 之前调用（运行期不热更新）。
