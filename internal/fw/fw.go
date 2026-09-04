@@ -7,7 +7,6 @@
 package fw
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"sentry-agent/internal/event"
+	"sentry-agent/internal/logstream"
 )
 
 // RunFwParser 流式解析内核日志（方案 3.4 签名 + sys 通道）。
@@ -49,19 +49,10 @@ func runJournaldKernel(ctx context.Context, prefix string, filter FwFilter, stat
 	}
 	cmd := exec.CommandContext(ctx, journalctl, "-f", "-n", "0", "-o", "json", "-k")
 	// 注：-n 0 防止启动时重放历史内核日志（避免历史 SENTRY_FW 行重复入流）。
-	pipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("journalctl stdout 管道创建失败: %w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("journalctl 启动失败: %w", err)
-	}
-	scanner := bufio.NewScanner(pipe)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
+	return logstream.Run(ctx, cmd, "journalctl -k", func(line []byte) {
 		var e journalKernelEntry
-		if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
-			continue
+		if err := json.Unmarshal(line, &e); err != nil {
+			return
 		}
 		// 时间戳：journal 微秒转 Unix 秒；空串/非数字回退当前时间。
 		ts := time.Now().Unix()
@@ -69,12 +60,7 @@ func runJournaldKernel(ctx context.Context, prefix string, filter FwFilter, stat
 			ts = v
 		}
 		handleLine(ctx, sink, sys, rep, e.Message, ts, prefix, filter, stats)
-	}
-	waitErr := cmd.Wait()
-	if ctx.Err() != nil {
-		return nil
-	}
-	return fmt.Errorf("journalctl -k 流提前结束: %w", waitErr)
+	})
 }
 
 // runKmsg 直接读取 /dev/kmsg（分支 B1，非 systemd 环境；需特权访问）。

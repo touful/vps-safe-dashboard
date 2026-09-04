@@ -88,7 +88,7 @@ func (t *connStartTracker) record(isStartErr bool) (giveUp bool, fails int) {
 // 健壮性设计（V2 压测实测驱动）：netlink 缓冲溢出（ENOBUFS）时 go-conntrack 库会终止
 // receive 循环（监听死亡）；本实现检测到监听终止后自动重启（退避 2s→30s），
 // 并在每次重启时尝试扩大缓冲（上限 8MB），避免事件流静默中断。
-func RunConntrackListener(ctx context.Context, cfg config.ConntrackCfg, sink chan<- event.ConnEvent, overrun chan<- event.OverrunInfo, sys chan<- event.SystemEvent, counter *atomic.Uint64) error {
+func RunConntrackListener(ctx context.Context, cfg config.ConntrackCfg, sink chan<- event.ConnEvent, sys chan<- event.SystemEvent, counter *atomic.Uint64) error {
 	// 现场核查结论 7：nf_conntrack 模块依赖链自动加载（无需 modprobe、
 	// 无需 /etc/modules-load.d）；/proc/net/nf_conntrack 不存在是内核编译配置
 	// （CONFIG_NF_CONNTRACK_PROCFS not set），与模块可用性无关——因此不做 procfs 存在性
@@ -109,20 +109,20 @@ func RunConntrackListener(ctx context.Context, cfg config.ConntrackCfg, sink cha
 	// B.4.3（评审整改）：启动失败连续计数，达阈值放弃主通道——
 	// 修复"前置检查通过但 Open/Register 失败（如 NET_ADMIN 缺失）→ 无限重启空转、
 	// B5 降级永不触发"的现状缺陷。once 注入便于单测 mock。
-	return runConntrackLoop(ctx, cfg, bufSize, sink, overrun, sys, counter, runConntrackOnce)
+	return runConntrackLoop(ctx, cfg, bufSize, sink, sys, counter, runConntrackOnce)
 }
 
 // runConntrackLoop 主通道运行循环（启动失败状态机，可注入 once 供单测 mock）。
 // 返回错误语义：ctx 取消 → nil；连续 maxConntrackStartFails 次启动类错误 → 放弃主通道错误
 // （调用方切换 B5 降级）；运行类错误 → 无限重启+扩容（R-10 恢复路径）。
-func runConntrackLoop(ctx context.Context, cfg config.ConntrackCfg, bufSize int, sink chan<- event.ConnEvent, overrun chan<- event.OverrunInfo, sys chan<- event.SystemEvent, counter *atomic.Uint64, once func(context.Context, config.ConntrackCfg, int, chan<- event.ConnEvent, chan<- event.OverrunInfo, chan<- event.SystemEvent, *atomic.Uint64) error) error {
+func runConntrackLoop(ctx context.Context, cfg config.ConntrackCfg, bufSize int, sink chan<- event.ConnEvent, sys chan<- event.SystemEvent, counter *atomic.Uint64, once func(context.Context, config.ConntrackCfg, int, chan<- event.ConnEvent, chan<- event.SystemEvent, *atomic.Uint64) error) error {
 	backoff := 2 * time.Second
 	// 重启告警限频（5 分钟）——持续溢出场景下重启频繁，
 	// 未限频将产生告警风暴淹没 system_events。
 	restartRep := event.NewRateLimiter(5 * time.Minute)
 	var tracker connStartTracker
 	for {
-		err := once(ctx, cfg, bufSize, sink, overrun, sys, counter)
+		err := once(ctx, cfg, bufSize, sink, sys, counter)
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -157,7 +157,7 @@ func runConntrackLoop(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 }
 
 // runConntrackOnce 执行一轮 conntrack 监听；仅在 ctx 取消时返回 nil。
-func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int, sink chan<- event.ConnEvent, overrun chan<- event.OverrunInfo, sys chan<- event.SystemEvent, counter *atomic.Uint64) error {
+func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int, sink chan<- event.ConnEvent, sys chan<- event.SystemEvent, counter *atomic.Uint64) error {
 	nfct, err := conntrack.Open(&conntrack.Config{
 		AddConntrackInformation: true, // 需要 Con.Info.NetlinkGroup 区分 NEW/UPDATE/DESTROY
 		DisableNSLockThread:     true, // 本进程始终处于目标 netns，关闭 OS 线程锁以降低开销
@@ -260,9 +260,7 @@ func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 			// 事件计数未推进 = 停滞；结合 conntrack 表连接数变化判级（见 checkFreshness）。
 			checkFreshness(sys, &evts, &lastEvts, &lastCnt, staleRep, staleWarnRep)
 		case <-ticker.C:
-			if !checkOverrun(ctx, sys, nfct, &bufSize, overrun, counter, &lastDrops, &first) {
-				return nil
-			}
+			checkOverrun(sys, nfct, &bufSize, counter, &lastDrops, &first)
 		}
 	}
 }
@@ -288,38 +286,31 @@ func checkFreshness(sys chan<- event.SystemEvent, evts *atomic.Uint64, lastEvts 
 }
 
 // checkOverrun 溢出监控（R-10）：检查本进程 netfilter 套接字 Drops 累计差值，
-// 有溢出时留痕 + 累加共享计数 + 投递 overrun 通道（store 单消费者）+ 动态扩容（上限 8MB）。
-// 返回 false 表示 ctx 取消（调用方应结束监听循环）；其余情况返回 true（continue 语义）。
+// 有溢出时留痕（system_events 单一留痕出口）+ 累加共享计数 + 动态扩容（上限 8MB）。
 // 状态（lastDrops/first/bufSize）由调用方持有，本函数无状态。
-func checkOverrun(ctx context.Context, sys chan<- event.SystemEvent, nfct *conntrack.Nfct, bufSize *int, overrun chan<- event.OverrunInfo, counter *atomic.Uint64, lastDrops *uint64, first *bool) bool {
+func checkOverrun(sys chan<- event.SystemEvent, nfct *conntrack.Nfct, bufSize *int, counter *atomic.Uint64, lastDrops *uint64, first *bool) {
 	drops, err := netlinkDrops()
 	if err != nil {
 		event.ReportSys(sys, "conntrack", "warn", "读取 netlink 溢出计数失败: "+err.Error())
-		return true
+		return
 	}
 	if *first {
 		*first = false
 		*lastDrops = drops
-		return true
+		return
 	}
 	diff := drops - *lastDrops // 计数器单调不减，无回绕场景
 	*lastDrops = drops
 	if diff == 0 {
-		return true
+		return
 	}
 	// 溢出留痕（永留存，符合"只记录"精神：记录丢了什么也是记录）。
+	// 原独立 overrun 通道（store 二次落 system_events）已删除：同一次溢出曾双写
+	// 两行逐字相同的留痕，ReportSys 立即提交路径为唯一出口。
 	event.ReportSys(sys, "conntrack", "warn", fmt.Sprintf("netlink 缓冲溢出，丢弃 %d 条事件（R-10 留痕）", diff))
-	// 共享 atomic 计数（main 注入，API health 直接读取），
-	// overrun 通道保持 store 单消费者（防止双消费者竞争导致计数/留痕减半）。
+	// 共享 atomic 计数（main 注入，API health 直接读取）。
 	if counter != nil {
 		counter.Add(diff)
-	}
-	if overrun != nil {
-		select {
-		case overrun <- event.OverrunInfo{TS: time.Now().Unix(), Dropped: diff}:
-		case <-ctx.Done():
-			return false
-		}
 	}
 	// 动态扩容（上限 8MB）；失败维持现状，下轮继续告警。
 	if *bufSize < netlinkBufferMax {
@@ -333,7 +324,6 @@ func checkOverrun(ctx context.Context, sys chan<- event.SystemEvent, nfct *connt
 			event.ReportSys(sys, "conntrack", "info", fmt.Sprintf("netlink 缓冲已扩容至 %d B", *bufSize))
 		}
 	}
-	return true
 }
 
 // connEventFromCon 将 go-conntrack 的 Con 转换为业务事件 ConnEvent。

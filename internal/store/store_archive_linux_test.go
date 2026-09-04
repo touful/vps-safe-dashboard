@@ -26,7 +26,7 @@ func TestExecArchiveSystemEvents(t *testing.T) {
 	start := time.Date(prev.Year(), prev.Month(), 1, 0, 0, 0, 0, time.Local).Unix()
 	month := prev.Format("2006-01")
 	for i := 0; i < 5; i++ {
-		if err := st.writeBatch([]eventItem{{kind: "resource", v: event.ResourceSample{
+		if err := st.writeBatch([]eventItem{{kind: event.KindResource, v: event.ResourceSample{
 			TS: start + int64(i), CPUPercent: 1, MemUsedMB: 1, MemPercent: 1, DiskUsedMB: 1, DiskPercent: 1,
 		}}}); err != nil {
 			t.Fatal(err)

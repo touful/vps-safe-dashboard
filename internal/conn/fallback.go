@@ -2,7 +2,6 @@ package conn
 
 import (
 	"context"
-	"os/exec"
 	"strconv"
 	"time"
 
@@ -41,14 +40,10 @@ func runFallbackConnListener(ctx context.Context, interval time.Duration, sink c
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			out, err := exec.Command("ss", "-tanup").Output()
+			conns, err := runSS()
 			if err != nil {
-				event.ReportSys(sys, "conntrack", "warn", "降级模式执行 ss -tanup 失败: "+err.Error())
-				continue
-			}
-			conns, err := ParseSSOutput(string(out))
-			if err != nil {
-				event.ReportSys(sys, "conntrack", "warn", "降级模式解析 ss 输出失败: "+err.Error())
+				// runSS 错误已含"执行/解析 ss -tanup 失败"阶段文案，此处补场景前缀。
+				event.ReportSys(sys, "conntrack", "warn", "降级模式"+err.Error())
 				continue
 			}
 			cur := make(map[string]event.SnapConn, len(conns))

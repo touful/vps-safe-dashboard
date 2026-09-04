@@ -13,6 +13,7 @@ import (
 
 	"sentry-agent/internal/config"
 	"sentry-agent/internal/event"
+	"sentry-agent/internal/f2b"
 )
 
 // TestIsLoopbackListen（R-01）：空 host/非回环/回环判定。
@@ -125,7 +126,8 @@ func TestRefreshBannedImmediate(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sys := make(chan event.SystemEvent, 16)
-	go refreshBanned(ctx, dbPath, sys)
+	var bannedList atomic.Value
+	go refreshBanned(ctx, dbPath, sys, &bannedList)
 
 	// 60s ticker 未触发前应已有首条查询留痕（启动立即执行）。
 	select {
@@ -135,5 +137,20 @@ func TestRefreshBannedImmediate(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("启动后应立即查询（60s ticker 未触发前应有首条留痕）")
+	}
+
+	// P3-1：查询结果应写入快照（升序），供 API bans/active 只读展示。
+	snap, ok := bannedList.Load().(*f2b.BannedSnapshot)
+	if !ok {
+		t.Fatal("查询成功后快照应已写入")
+	}
+	if len(snap.IPs) != 2 {
+		t.Errorf("快照 IP 数错误: got %d want 2", len(snap.IPs))
+	}
+	if snap.IPs[0] >= snap.IPs[1] {
+		t.Errorf("快照应按 uint32 升序: %v", snap.IPs)
+	}
+	if snap.TS == 0 {
+		t.Error("快照时刻不应为 0")
 	}
 }

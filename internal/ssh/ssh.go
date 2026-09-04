@@ -3,7 +3,6 @@
 package ssh
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,14 +10,16 @@ import (
 	"time"
 
 	"sentry-agent/internal/event"
+	"sentry-agent/internal/logstream"
 )
 
 // RunSSHParser 流式解析 SSH 认证日志，产出每次登录尝试（方案 3.3 签名 + sys 通道）。
 // source: journald | rsyslog。journald 模式依赖 journalctl 二进制（纯 Go journal 解析器
 // 为容器形态 V1b-2 验证项，M4 前按方案 6.4.4 排期实现或引入解析库，接口不变）。
 //
-// 配置联动说明：config 的 ssh.verbose_fingerprint（默认 true）为部署侧要求
-// （sshd LogLevel VERBOSE，部署脚本写入 /etc/ssh/sshd_config.d/99-verbose.conf），
+// 配置联动说明：指纹记录依赖部署侧 sshd LogLevel VERBOSE
+// （部署脚本写入 /etc/ssh/sshd_config.d/99-verbose.conf；原 ssh.verbose_fingerprint
+// 配置字段已于 2026-09 移除——代码从不读取，属部署侧行为），
 // 解析器本身不因该配置改变行为——日志中无指纹时 Fingerprint 字段自然留空
 // （用户拒绝 VERBOSE 时指纹恒为空，结果/用户/方式仍记录，符合方案 3.3）。
 func RunSSHParser(ctx context.Context, source string, sink chan<- event.SSHAttempt, sys chan<- event.SystemEvent) error {
@@ -41,27 +42,13 @@ func runJournald(ctx context.Context, sink chan<- event.SSHAttempt, sys chan<- e
 	}
 	cmd := exec.CommandContext(ctx, journalctl, "-f", "-n", "0", "-o", "json", "SYSLOG_IDENTIFIER=sshd")
 	// 注：-n 0 防止启动时重放历史条目（M2 落库防重复入库）；若需启动补历史应显式设计 cursor 续读。
-	pipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("journalctl stdout 管道创建失败: %w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("journalctl 启动失败: %w", err)
-	}
-	scanner := bufio.NewScanner(pipe)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		entry, err := parseJournalLine(scanner.Bytes())
+	return logstream.Run(ctx, cmd, "journalctl", func(line []byte) {
+		entry, err := parseJournalLine(line)
 		if err != nil {
-			continue // 非 JSON 行（如 journalctl 自身输出），跳过
+			return // 非 JSON 行（如 journalctl 自身输出），跳过
 		}
 		handleLine(ctx, sink, sys, rep, entry.Message, entry.ts())
-	}
-	waitErr := cmd.Wait()
-	if ctx.Err() != nil {
-		return nil // 正常退出（ctx 取消）
-	}
-	return fmt.Errorf("journalctl 流提前结束: %w", waitErr)
+	})
 }
 
 // runRsyslog 通过 tail -F -n 0 /var/log/auth.log 流式读取（分支 B1，rsyslog/syslogd 落盘）。
@@ -72,28 +59,14 @@ func runRsyslog(ctx context.Context, sink chan<- event.SSHAttempt, sys chan<- ev
 		return fmt.Errorf("rsyslog 模式需要 tail 二进制: %w", err)
 	}
 	cmd := exec.CommandContext(ctx, tail, "-F", "-n", "0", "/var/log/auth.log")
-	pipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("tail stdout 管道创建失败: %w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("tail 启动失败: %w", err)
-	}
-	scanner := bufio.NewScanner(pipe)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
+	return logstream.Run(ctx, cmd, "tail", func(line []byte) {
+		s := string(line)
 		ts := time.Now().Unix()
-		if t, ok := parseSyslogTimestamp(line); ok {
+		if t, ok := parseSyslogTimestamp(s); ok {
 			ts = t // 使用日志行内时间戳（rsyslog 模式；journald 模式由条目时间戳提供）
 		}
-		handleLine(ctx, sink, sys, rep, line, ts)
-	}
-	waitErr := cmd.Wait()
-	if ctx.Err() != nil {
-		return nil
-	}
-	return fmt.Errorf("tail 流提前结束: %w", waitErr)
+		handleLine(ctx, sink, sys, rep, s, ts)
+	})
 }
 
 // handleLine 对单行做匹配解析；匹配则发送，不匹配限频上报（方案 3.3：限频 1/分钟）。

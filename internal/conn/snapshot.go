@@ -3,6 +3,7 @@ package conn
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net"
 	"os/exec"
 	"regexp"
@@ -12,36 +13,41 @@ import (
 	"time"
 
 	"sentry-agent/internal/event"
+	"sentry-agent/internal/util"
 )
 
 // RunConnSnapshotter 每 interval 执行一次 `ss -tanup` 并解析为当前连接列表（方案 3.2.3）。
 // latest 保存最新 *event.ConnSnapshot（atomic.Value），仅供面板"当前连接列表"与"活跃连接数"使用，
 // 不落库（全量记录由 conntrack 通道承担）。快照会漏短连接（已知，SEA-001），由 conntrack 补偿。
 func RunConnSnapshotter(ctx context.Context, interval time.Duration, latest *atomic.Value, sys chan<- event.SystemEvent) error {
-	// 启动即取一次快照，避免首帧为空。
-	_ = snapshotOnce(latest, sys)
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			_ = snapshotOnce(latest, sys)
-		}
+	// 启动即取一次快照，避免首帧为空 + 周期刷新（骨架统一经 util.Periodic）。
+	util.Periodic(ctx, interval, true, func(_ time.Time) {
+		_ = snapshotOnce(latest, sys)
+	})
+	return nil
+}
+
+// runSS 执行一次 `ss -tanup` 并解析为连接列表（快照展示通道与 B5 降级通道共用执行单元；
+// 两协程生命周期不同——快照恒跑 20s 展示 vs 降级 5s 落库，审计已裁定不合并协程，仅共用此处）。
+// 返回错误已带阶段文案（"执行 ss -tanup 失败"/"解析 ss 输出失败"），调用方直接以 warn 留痕；
+// 降级通道调用方在文案前补"降级模式"前缀区分场景（拼接后与原留痕文案逐字一致）。
+func runSS() ([]event.SnapConn, error) {
+	out, err := exec.Command("ss", "-tanup").Output()
+	if err != nil {
+		return nil, fmt.Errorf("执行 ss -tanup 失败: %w", err)
 	}
+	conns, err := ParseSSOutput(string(out))
+	if err != nil {
+		return nil, fmt.Errorf("解析 ss 输出失败: %w", err)
+	}
+	return conns, nil
 }
 
 // snapshotOnce 执行一次 ss 快照并写入 latest。
 func snapshotOnce(latest *atomic.Value, sys chan<- event.SystemEvent) error {
-	out, err := exec.Command("ss", "-tanup").Output()
+	conns, err := runSS()
 	if err != nil {
-		event.ReportSys(sys, "conntrack", "warn", "执行 ss -tanup 失败: "+err.Error())
-		return err
-	}
-	conns, err := ParseSSOutput(string(out))
-	if err != nil {
-		event.ReportSys(sys, "conntrack", "warn", "解析 ss 输出失败: "+err.Error())
+		event.ReportSys(sys, "conntrack", "warn", err.Error())
 		return err
 	}
 	// 现场核查结论 8：活跃连接数改读 count 文件（/proc/net/nf_conntrack

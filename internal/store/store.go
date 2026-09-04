@@ -158,34 +158,59 @@ type Store struct {
 	archiveReq chan string
 }
 
+// Options NewStore 配置项（字段与部署配置键一一对应，main.go 装配时显式赋值；
+// 取代原 11 个同型位置参数——3 个语义相近的天数参数相邻，编译器无法拦截错位）。
+type Options struct {
+	// Path 主库文件路径（db.path）。
+	Path string
+	// ArchiveDir 归档目录（db.archive_dir）。
+	ArchiveDir string
+	// BatchIntervalMS 批量提交间隔毫秒（db.batch_interval_ms）。
+	BatchIntervalMS int
+	// BatchSize 单批事件数阈值（db.batch_size）。
+	BatchSize int
+	// GzipLevel 归档 gzip 压缩级别（archive.gzip_level）。
+	GzipLevel int
+	// RetentionDays 事件数据保留天数（db.retention_days；<=0 禁用清理）。
+	RetentionDays int
+	// CredRetentionDays 蜜罐凭据独立保留天数（db.cred_retention_days，M-1 修复；
+	// <=0 禁用清理，默认 90 天 > 事件表保留期——凭据为取证数据保留更久）。
+	CredRetentionDays int
+	// CopyAfterDays 归档跨度（archive.copy_after_days，归档空洞语义 warn 检测用，B.5.1）。
+	CopyAfterDays int
+	// ArchiveCriticalPct 归档跳过磁盘水位阈值（disk.critical_percent，R-01 与 diskmon 共用）。
+	ArchiveCriticalPct float64
+}
+
 // NewStore 打开主库并初始化 DDL。
 // VS-01（DEV-P1-001，AUD-VPS-001）：数据目录 MkdirAll 0700（原 0755）——同机其他本地
 // 用户/被攻破的低权限服务账号不可读安全数据（SSH 指纹/用户名/防火墙 raw）。
 // 目录权限为 Linux 语义：Windows 上 mode 参数被忽略（无权限位模型），功能不回归。
 // 新增 retentionDays（<=0 禁用清理）与 copyAfterDays（归档空洞 warn 检测）。
 // M-1 修复新增 credRetentionDays：蜜罐凭据独立保留天数（<=0 禁用清理）。
-func NewStore(dbPath, archiveDir string, batchIntervalMS, batchSize, gzipLevel, retentionDays, credRetentionDays, copyAfterDays int, archiveCriticalPct float64, ch *event.Channels, producers *sync.WaitGroup) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+// 配置参数经 Options 结构显式命名传递（字段语义见 Options 注释）。
+func NewStore(opts Options, ch *event.Channels, producers *sync.WaitGroup) (*Store, error) {
+	if err := os.MkdirAll(filepath.Dir(opts.Path), 0o700); err != nil {
 		return nil, fmt.Errorf("创建主库目录失败: %w", err)
 	}
 	// 归档目录必须存在：execArchive 的磁盘水位检查（statfs）依赖目录可达，
 	// 否则归档会因"目录不存在→水位检查失败→保守跳过"而永久失效（实测发现）。
-	if err := os.MkdirAll(archiveDir, 0o700); err != nil {
+	if err := os.MkdirAll(opts.ArchiveDir, 0o700); err != nil {
 		return nil, fmt.Errorf("创建归档目录失败: %w", err)
 	}
 	// 启动自愈（方案 4.6）：清理归档目录残留 .tmp（中断恢复续跑语义）。
-	if err := archive.CleanStaleTmp(archiveDir); err != nil {
+	if err := archive.CleanStaleTmp(opts.ArchiveDir); err != nil {
 		return nil, fmt.Errorf("清理归档残留失败: %w", err)
 	}
-	db, err := openDB(dbPath)
+	db, err := openDB(opts.Path)
 	if err != nil {
-		return nil, fmt.Errorf("打开主库 %s 失败: %w", dbPath, err)
+		return nil, fmt.Errorf("打开主库 %s 失败: %w", opts.Path, err)
 	}
 	// VS-01：库文件权限收敛 0600（创建时 mode 受 umask 影响，Open 后显式 Chmod；
 	// WAL/SHM 伴随文件存在时一并收权——WAL 含未 checkpoint 数据，权限缺口同主文件）。
 	// Chmod 失败仅留 system_event warn 不阻塞（Windows 上为受限 no-op，无权限语义）。
-	if err := chmodDataFiles(dbPath); err != nil {
-		event.ReportSys(ch.System, "store", "warn", "数据文件权限收敛失败（"+dbPath+"）: "+err.Error())
+	if err := chmodDataFiles(opts.Path); err != nil {
+		event.ReportSys(ch.System, "store", "warn", "数据文件权限收敛失败（"+opts.Path+"）: "+err.Error())
 	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
@@ -197,17 +222,17 @@ func NewStore(dbPath, archiveDir string, batchIntervalMS, batchSize, gzipLevel, 
 	}
 	return &Store{
 		db:                 db,
-		dbPath:             dbPath,
+		dbPath:             opts.Path,
 		ch:                 ch,
 		producers:          producers,
-		batchEvery:         time.Duration(batchIntervalMS) * time.Millisecond,
-		batchSize:          batchSize,
-		archiveDir:         archiveDir,
-		gzipLevel:          gzipLevel,
-		archiveCriticalPct: archiveCriticalPct,
-		retentionDays:      retentionDays,
-		credRetentionDays:  credRetentionDays,
-		copyAfterDays:      copyAfterDays,
+		batchEvery:         time.Duration(opts.BatchIntervalMS) * time.Millisecond,
+		batchSize:          opts.BatchSize,
+		archiveDir:         opts.ArchiveDir,
+		gzipLevel:          opts.GzipLevel,
+		archiveCriticalPct: opts.ArchiveCriticalPct,
+		retentionDays:      opts.RetentionDays,
+		credRetentionDays:  opts.CredRetentionDays,
+		copyAfterDays:      opts.CopyAfterDays,
 		archiveReq:         make(chan string, 8),
 	}, nil
 }
@@ -361,22 +386,20 @@ func (s *Store) Run(ctx context.Context) error {
 			// os.Exit(1) 退出语义仅适用于 Run 主写路径错误（flush/writeBatch 失败）。
 			_ = s.execArchive(req)
 		case v := <-s.ch.Resource:
-			enqueue(&pending, &nInBatch, "resource", v)
+			enqueue(&pending, &nInBatch, event.KindResource, v)
 		case v := <-s.ch.Conn:
-			enqueue(&pending, &nInBatch, "conn", v)
-		case v := <-s.ch.Overrun:
-			enqueue(&pending, &nInBatch, "overrun", v)
+			enqueue(&pending, &nInBatch, event.KindConn, v)
 		case v := <-s.ch.SSH:
-			enqueue(&pending, &nInBatch, "ssh", v)
+			enqueue(&pending, &nInBatch, event.KindSSH, v)
 		case v := <-s.ch.FW:
-			enqueue(&pending, &nInBatch, "fw", v)
+			enqueue(&pending, &nInBatch, event.KindFW, v)
 		case v := <-s.ch.F2B:
-			enqueue(&pending, &nInBatch, "f2b", v)
+			enqueue(&pending, &nInBatch, event.KindF2B, v)
 		case v := <-s.ch.Cred:
-			enqueue(&pending, &nInBatch, "cred", v)
+			enqueue(&pending, &nInBatch, event.KindCred, v)
 		case v := <-s.ch.System:
 			// 高优先：system 事件立即提交（方案 3.6"立即批"，防丢失）。
-			if err := s.writeBatch([]eventItem{{kind: "system", v: v}}); err != nil {
+			if err := s.writeBatch([]eventItem{{kind: event.KindSystem, v: v}}); err != nil {
 				return fmt.Errorf("system 事件写入失败: %w", err)
 			}
 		}
@@ -389,29 +412,11 @@ func (s *Store) Run(ctx context.Context) error {
 }
 
 // drainInto 排空全部通道在途事件到 pending（生产者已退出的前提下）。
+// 通道遍历清单统一经 event.Channels.Drain（新增通道单一改动点）。
 func (s *Store) drainInto(pending *[]eventItem, n *int) {
-	for {
-		select {
-		case v := <-s.ch.Resource:
-			enqueue(pending, n, "resource", v)
-		case v := <-s.ch.Conn:
-			enqueue(pending, n, "conn", v)
-		case v := <-s.ch.Overrun:
-			enqueue(pending, n, "overrun", v)
-		case v := <-s.ch.SSH:
-			enqueue(pending, n, "ssh", v)
-		case v := <-s.ch.FW:
-			enqueue(pending, n, "fw", v)
-		case v := <-s.ch.F2B:
-			enqueue(pending, n, "f2b", v)
-		case v := <-s.ch.Cred:
-			enqueue(pending, n, "cred", v)
-		case v := <-s.ch.System:
-			enqueue(pending, n, "system", v)
-		default:
-			return
-		}
-	}
+	s.ch.Drain(func(kind string, v any) {
+		enqueue(pending, n, kind, v)
+	})
 }
 
 // RequestArchive 投递归档请求（写线程内同步执行；非阻塞）。

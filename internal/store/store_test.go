@@ -13,12 +13,21 @@ import (
 )
 
 // newTestStore 创建临时目录上的 Store（不启动 Run）。
-// NewStore 的 retentionDays/copyAfterDays 参数（7/60 默认组合）。
+// Options 的 retentionDays/copyAfterDays 等字段（7/90/60 默认组合）。
 func newTestStore(t *testing.T, ch *event.Channels, producers *sync.WaitGroup) *Store {
 	t.Helper()
 	dir := t.TempDir()
-	st, err := NewStore(filepath.Join(dir, "state.db"), filepath.Join(dir, "archive"),
-		1000, 500, 6, 7, 90, 60, 90, ch, producers)
+	st, err := NewStore(Options{
+		Path:               filepath.Join(dir, "state.db"),
+		ArchiveDir:         filepath.Join(dir, "archive"),
+		BatchIntervalMS:    1000,
+		BatchSize:          500,
+		GzipLevel:          6,
+		RetentionDays:      7,
+		CredRetentionDays:  90,
+		CopyAfterDays:      60,
+		ArchiveCriticalPct: 90,
+	}, ch, producers)
 	if err != nil {
 		t.Fatalf("NewStore 失败: %v", err)
 	}
@@ -55,18 +64,18 @@ func TestWriteBatch(t *testing.T) {
 	defer st.Close()
 
 	items := []eventItem{
-		{kind: "resource", v: event.ResourceSample{TS: 100, CPUPercent: 1.5, MemUsedMB: 10, MemPercent: 5, DiskUsedMB: 20, DiskPercent: 8, NetRxBps: 100, NetTxBps: 50}},
-		{kind: "conn", v: event.ConnEvent{TS: 101, EvType: event.EvNew, Proto: event.ProtoTCP, SrcIP: 0xCB007105, SrcPort: 50022, DstIP: 0x0A000002, DstPort: 22, Packets: 1, Bytes: 40, Mark: 1}},
-		{kind: "ssh", v: event.SSHAttempt{TS: 102, SrcIP: 0xCB007105, Username: "root", AuthMethod: "password", Result: 0, Detail: "x"}},
-		{kind: "fw", v: event.FirewallEvent{TS: 103, Chain: "input", Action: "drop", Proto: event.ProtoTCP, SrcIP: 0xCB007105, SrcPort: 50022, DstIP: 0x0A000002, DstPort: 22, Raw: "SENTRY_FW:input:drop IN=lo"}},
-		{kind: "f2b", v: event.BanEvent{TS: 104, IP: 0xCB007105, Type: "ban", Jail: "sshd"}},
-		{kind: "system", v: event.SystemEvent{TS: 105, Source: "test", Level: "info", Message: "m"}},
-		{kind: "overrun", v: event.OverrunInfo{TS: 106, Dropped: 3}},
+		{kind: event.KindResource, v: event.ResourceSample{TS: 100, CPUPercent: 1.5, MemUsedMB: 10, MemPercent: 5, DiskUsedMB: 20, DiskPercent: 8, NetRxBps: 100, NetTxBps: 50}},
+		{kind: event.KindConn, v: event.ConnEvent{TS: 101, EvType: event.EvNew, Proto: event.ProtoTCP, SrcIP: 0xCB007105, SrcPort: 50022, DstIP: 0x0A000002, DstPort: 22, Packets: 1, Bytes: 40, Mark: 1}},
+		{kind: event.KindSSH, v: event.SSHAttempt{TS: 102, SrcIP: 0xCB007105, Username: "root", AuthMethod: "password", Result: 0, Detail: "x"}},
+		{kind: event.KindFW, v: event.FirewallEvent{TS: 103, Chain: "input", Action: "drop", Proto: event.ProtoTCP, SrcIP: 0xCB007105, SrcPort: 50022, DstIP: 0x0A000002, DstPort: 22, Raw: "SENTRY_FW:input:drop IN=lo"}},
+		{kind: event.KindF2B, v: event.BanEvent{TS: 104, IP: 0xCB007105, Type: "ban", Jail: "sshd"}},
+		{kind: event.KindSystem, v: event.SystemEvent{TS: 105, Source: "test", Level: "info", Message: "m"}},
 	}
 	if err := st.writeBatch(items); err != nil {
 		t.Fatalf("writeBatch 失败: %v", err)
 	}
-	// overrun 落 system_events（R-10 留痕）。
+	// 注：原 overrun kind 测试项已随独立 overrun 通道删除（溢出留痕单一出口为
+	// conn.checkOverrun 的 ReportSys 立即提交路径）。
 	counts := map[string]int64{
 		"resources": 1, "connections": 1, "ssh_attempts": 1,
 		"firewall_events": 1, "ban_events": 1,
@@ -84,8 +93,8 @@ func TestWriteBatch(t *testing.T) {
 	if err := st.db.QueryRow(`SELECT COUNT(*) FROM system_events`).Scan(&sysN); err != nil {
 		t.Fatal(err)
 	}
-	if sysN != 2 {
-		t.Errorf("system_events 行数 = %d, 期望 2（system + overrun）", sysN)
+	if sysN != 1 {
+		t.Errorf("system_events 行数 = %d, 期望 1（system）", sysN)
 	}
 }
 
@@ -95,7 +104,7 @@ func TestWriteBatchIPv6(t *testing.T) {
 	st := newTestStore(t, ch, &sync.WaitGroup{})
 	defer st.Close()
 	items := []eventItem{
-		{kind: "conn", v: event.ConnEvent{TS: 1, EvType: event.EvNew, Proto: event.ProtoTCP,
+		{kind: event.KindConn, v: event.ConnEvent{TS: 1, EvType: event.EvNew, Proto: event.ProtoTCP,
 			SrcIP: 0, SrcPort: 443, DstIP: 0, DstPort: 22, SrcIP6: "2001:db8::1", DstIP6: "2001:db8::2"}},
 	}
 	if err := st.writeBatch(items); err != nil {
@@ -116,7 +125,11 @@ func TestStoreRunDrainNoLoss(t *testing.T) {
 	var producers sync.WaitGroup
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "state.db")
-	st, err := NewStore(dbPath, filepath.Join(dir, "archive"), 500, 10, 6, 7, 90, 60, 90, ch, &producers)
+	st, err := NewStore(Options{
+		Path: dbPath, ArchiveDir: filepath.Join(dir, "archive"),
+		BatchIntervalMS: 500, BatchSize: 10, GzipLevel: 6,
+		RetentionDays: 7, CredRetentionDays: 90, CopyAfterDays: 60, ArchiveCriticalPct: 90,
+	}, ch, &producers)
 	if err != nil {
 		t.Fatalf("NewStore 失败: %v", err)
 	}
@@ -186,7 +199,7 @@ func TestBatchLatency(t *testing.T) {
 	const n = 1000
 	items := make([]eventItem, 0, n)
 	for i := 0; i < n; i++ {
-		items = append(items, eventItem{kind: "conn", v: event.ConnEvent{
+		items = append(items, eventItem{kind: event.KindConn, v: event.ConnEvent{
 			TS: int64(i), EvType: event.EvNew, Proto: event.ProtoTCP,
 			SrcIP: 0xCB007105, SrcPort: uint16(1000 + i), DstIP: 0x0A000002, DstPort: 22,
 		}})
@@ -218,12 +231,12 @@ func TestQuerySuccessfulSSHIPs(t *testing.T) {
 	now := time.Now().Unix()
 	// 写入混合数据：成功/失败、publickey/password、窗口内/窗口外、重复 IP。
 	items := []eventItem{
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893F4, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},     // 182.136.147.244 publickey 成功（窗口内）
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 7200, SrcIP: 0xB68893F4, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},     // 同 IP 重复成功（去重）
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893A1, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},     // 182.136.147.161 publickey 成功（窗口内）
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007105, Username: "root", AuthMethod: "password", Result: event.ResultFail}},    // 203.0.113.5 失败（不学习）
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007109, Username: "root", AuthMethod: "password", Result: event.ResultOK}},      // 203.0.113.9 密码成功（A-01：不学习）
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 31*86400, SrcIP: 0xCB007106, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}}, // 203.0.113.6 成功但超窗口
+		{kind: event.KindSSH, v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893F4, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},     // 182.136.147.244 publickey 成功（窗口内）
+		{kind: event.KindSSH, v: event.SSHAttempt{TS: now - 7200, SrcIP: 0xB68893F4, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},     // 同 IP 重复成功（去重）
+		{kind: event.KindSSH, v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893A1, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},     // 182.136.147.161 publickey 成功（窗口内）
+		{kind: event.KindSSH, v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007105, Username: "root", AuthMethod: "password", Result: event.ResultFail}},    // 203.0.113.5 失败（不学习）
+		{kind: event.KindSSH, v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007109, Username: "root", AuthMethod: "password", Result: event.ResultOK}},      // 203.0.113.9 密码成功（A-01：不学习）
+		{kind: event.KindSSH, v: event.SSHAttempt{TS: now - 31*86400, SrcIP: 0xCB007106, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}}, // 203.0.113.6 成功但超窗口
 	}
 	if err := st.writeBatch(items); err != nil {
 		t.Fatalf("writeBatch 失败: %v", err)
@@ -275,9 +288,9 @@ func TestSSHLearnerIntegration(t *testing.T) {
 	// 写入成功登录数据（182.136.147.244 publickey 成功 + 203.0.113.9 密码成功 + 203.0.113.5 失败）。
 	now := time.Now().Unix()
 	items := []eventItem{
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893F4, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007109, Username: "root", AuthMethod: "password", Result: event.ResultOK}}, // A-01：密码成功不学习
-		{kind: "ssh", v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007105, Username: "root", AuthMethod: "password", Result: event.ResultFail}},
+		{kind: event.KindSSH, v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xB68893F4, Username: "root", AuthMethod: "publickey", Result: event.ResultOK}},
+		{kind: event.KindSSH, v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007109, Username: "root", AuthMethod: "password", Result: event.ResultOK}}, // A-01：密码成功不学习
+		{kind: event.KindSSH, v: event.SSHAttempt{TS: now - 3600, SrcIP: 0xCB007105, Username: "root", AuthMethod: "password", Result: event.ResultFail}},
 	}
 	if err := st.writeBatch(items); err != nil {
 		t.Fatalf("writeBatch 失败: %v", err)

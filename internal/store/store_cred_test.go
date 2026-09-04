@@ -35,9 +35,9 @@ func TestWriteBatchCred(t *testing.T) {
 	defer st.Close()
 
 	items := []eventItem{
-		{kind: "cred", v: event.CredEvent{TS: 200, Proto: "telnet", SrcIP: 0xCB007105, Username: "root", Password: "toor123", Extra: ""}},
-		{kind: "cred", v: event.CredEvent{TS: 201, Proto: "mysql", SrcIP: 0xCB007106, Username: "admin", Password: "d41d8cd98f00b204e9800998ecf8427e", Extra: "密码 hash（mysql_native_password），不可逆"}},
-		{kind: "cred", v: event.CredEvent{TS: 202, Proto: "memcached", SrcIP: 0xCB007107, Username: "", Password: "", Extra: "协议无认证机制，仅命令概览"}},
+		{kind: event.KindCred, v: event.CredEvent{TS: 200, Proto: "telnet", SrcIP: 0xCB007105, Username: "root", Password: "toor123", Extra: ""}},
+		{kind: event.KindCred, v: event.CredEvent{TS: 201, Proto: "mysql", SrcIP: 0xCB007106, Username: "admin", Password: "d41d8cd98f00b204e9800998ecf8427e", Extra: "密码 hash（mysql_native_password），不可逆"}},
+		{kind: event.KindCred, v: event.CredEvent{TS: 202, Proto: "memcached", SrcIP: 0xCB007107, Username: "", Password: "", Extra: "协议无认证机制，仅命令概览"}},
 	}
 	if err := st.writeBatch(items); err != nil {
 		t.Fatalf("writeBatch 失败: %v", err)
@@ -68,7 +68,11 @@ func TestCredChannelDrain(t *testing.T) {
 	ch := event.NewChannels(16)
 	producers := &sync.WaitGroup{}
 	dir := t.TempDir()
-	st, err := NewStore(dir+"/state.db", dir+"/archive", 500, 10, 6, 7, 90, 60, 90, ch, producers)
+	st, err := NewStore(Options{
+		Path: dir + "/state.db", ArchiveDir: dir + "/archive",
+		BatchIntervalMS: 500, BatchSize: 10, GzipLevel: 6,
+		RetentionDays: 7, CredRetentionDays: 90, CopyAfterDays: 60, ArchiveCriticalPct: 90,
+	}, ch, producers)
 	if err != nil {
 		t.Fatalf("NewStore 失败: %v", err)
 	}

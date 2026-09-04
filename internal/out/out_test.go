@@ -114,9 +114,6 @@ func TestTsOf(t *testing.T) {
 	if got := tsOf(event.ConnEvent{TS: 2}); got != 2 {
 		t.Fatalf("ConnEvent ts = %d", got)
 	}
-	if got := tsOf(event.OverrunInfo{TS: 3}); got != 3 {
-		t.Fatalf("OverrunInfo ts = %d", got)
-	}
 	if got := tsOf(event.SSHAttempt{TS: 4}); got != 4 {
 		t.Fatalf("SSHAttempt ts = %d", got)
 	}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"sentry-agent/internal/event"
+	"sentry-agent/internal/util"
 )
 
 // SuccessfulSSHIPSource 成功登录 IP 数据源接口（由 store.Store 实现）。
@@ -46,17 +47,10 @@ func RunSSHLearner(ctx context.Context, src SuccessfulSSHIPSource, windowDays in
 		event.ReportSys(sys, "fw", "info",
 			fmt.Sprintf("SSH 密钥认证成功动态白名单已更新: %d 个 IP（近 %d 天）", len(parsed), windowDays))
 	}
-	learn() // 启动立即学习一次（验收标准 4：启动时加载近 N 天成功登录 IP）
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			learn() // 定期轮询增量更新（验收标准 5）
-		}
-	}
+	// 启动立即学习一次（验收标准 4：启动时加载近 N 天成功登录 IP）
+	// + 每 interval 轮询增量更新（验收标准 5）；骨架统一经 util.Periodic。
+	util.Periodic(ctx, interval, true, func(_ time.Time) { learn() })
+	return nil
 }
 
 // ipv4ToNetIP 将 uint32 转为 4 字节 net.IP（与 ParseExcludeIPs 输出格式一致）。

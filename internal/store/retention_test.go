@@ -142,8 +142,11 @@ func TestNextRetentionTime(t *testing.T) {
 // TestRunRetentionOnce 集成：预插旧数据 → 启动首轮清理 + meta.last_retention_ts + system 留痕。
 func TestRunRetentionOnce(t *testing.T) {
 	dir := t.TempDir()
-	st, err := NewStore(filepath.Join(dir, "state.db"), filepath.Join(dir, "archive"),
-		1000, 500, 6, 7, 90, 60, 90, event.NewChannels(16), &sync.WaitGroup{})
+	st, err := NewStore(Options{
+		Path: filepath.Join(dir, "state.db"), ArchiveDir: filepath.Join(dir, "archive"),
+		BatchIntervalMS: 1000, BatchSize: 500, GzipLevel: 6,
+		RetentionDays: 7, CredRetentionDays: 90, CopyAfterDays: 60, ArchiveCriticalPct: 90,
+	}, event.NewChannels(16), &sync.WaitGroup{})
 	if err != nil {
 		t.Fatalf("NewStore 失败: %v", err)
 	}
@@ -222,8 +225,11 @@ func TestWarnRetentionArchiveGap(t *testing.T) {
 // 断言 cred 仅清 100 天那条、且 30 天前凭据不受事件表 7 天保留期影响。
 func TestRunRetentionOnceCredTable(t *testing.T) {
 	dir := t.TempDir()
-	st, err := NewStore(filepath.Join(dir, "state.db"), filepath.Join(dir, "archive"),
-		1000, 500, 6, 7, 90, 60, 90, event.NewChannels(16), &sync.WaitGroup{})
+	st, err := NewStore(Options{
+		Path: filepath.Join(dir, "state.db"), ArchiveDir: filepath.Join(dir, "archive"),
+		BatchIntervalMS: 1000, BatchSize: 500, GzipLevel: 6,
+		RetentionDays: 7, CredRetentionDays: 90, CopyAfterDays: 60, ArchiveCriticalPct: 90,
+	}, event.NewChannels(16), &sync.WaitGroup{})
 	if err != nil {
 		t.Fatalf("NewStore 失败: %v", err)
 	}
@@ -260,8 +266,11 @@ func TestRunRetentionOnceCredTable(t *testing.T) {
 // cred_events 不参与清理（即使事件表保留期启用）。
 func TestRunRetentionOnceCredDisabled(t *testing.T) {
 	dir := t.TempDir()
-	st, err := NewStore(filepath.Join(dir, "state.db"), filepath.Join(dir, "archive"),
-		1000, 500, 6, 7, 0, 60, 90, event.NewChannels(16), &sync.WaitGroup{})
+	st, err := NewStore(Options{
+		Path: filepath.Join(dir, "state.db"), ArchiveDir: filepath.Join(dir, "archive"),
+		BatchIntervalMS: 1000, BatchSize: 500, GzipLevel: 6,
+		RetentionDays: 7, CredRetentionDays: 0, CopyAfterDays: 60, ArchiveCriticalPct: 90,
+	}, event.NewChannels(16), &sync.WaitGroup{})
 	if err != nil {
 		t.Fatalf("NewStore 失败: %v", err)
 	}

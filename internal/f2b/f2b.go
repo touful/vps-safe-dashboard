@@ -3,7 +3,6 @@
 package f2b
 
 import (
-	"bufio"
 	"context"
 	"database/sql"
 	"errors"
@@ -16,6 +15,7 @@ import (
 
 	"sentry-agent/internal/dbdsn"
 	"sentry-agent/internal/event"
+	"sentry-agent/internal/logstream"
 )
 
 // RunF2BListener 流式读取 fail2ban 日志，产出封禁事件（方案 3.5 签名 + sys 通道）。
@@ -28,35 +28,21 @@ func RunF2BListener(ctx context.Context, logPath string, sink chan<- event.BanEv
 		return fmt.Errorf("f2b 监听需要 tail 二进制: %w", err)
 	}
 	cmd := exec.CommandContext(ctx, tail, "-F", "-n", "0", logPath)
-	pipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("tail stdout 管道创建失败: %w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("tail 启动失败: %w", err)
-	}
-	scanner := bufio.NewScanner(pipe)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
+	return logstream.Run(ctx, cmd, "fail2ban 日志", func(line []byte) {
+		s := string(line)
 		ts := time.Now().Unix()
-		if t, ok := ParseF2BTime(line); ok {
+		if t, ok := ParseF2BTime(s); ok {
 			ts = t // 使用日志行内时间戳（auditor m-01：与 ssh/fw 口径一致）
 		}
-		ev, ok := ParseF2BLine(line, ts)
+		ev, ok := ParseF2BLine(s, ts)
 		if !ok {
-			continue // fail2ban.log 含大量非 Ban/Unban/Found 行，正常忽略
+			return // fail2ban.log 含大量非 Ban/Unban/Found 行，正常忽略
 		}
 		select {
 		case sink <- ev:
 		case <-ctx.Done():
 		}
-	}
-	waitErr := cmd.Wait()
-	if ctx.Err() != nil {
-		return nil
-	}
-	return fmt.Errorf("fail2ban 日志流提前结束: %w", waitErr)
+	})
 }
 
 // BannedQueryError 封禁名单查询分类错误（探测式适配，按根因分类）。
@@ -90,6 +76,14 @@ const readonlyRecoveryCode = 264
 //   - timeofban + bantime > ?：未过期保留（now 为 Unix 秒参数）
 //   - 其余（已过期/异常残留）：过滤。bans 非历史表（unban 即删行，结论 6），bips 同理双删。
 const bipsActiveWhere = `bantime = -1 OR bantime IS NULL OR timeofban IS NULL OR (timeofban + bantime) > ?`
+
+// BannedSnapshot 当前封禁名单快照（P3-1 增值产出：名单查询链路原仅留痕条数，
+// 现将结果存入快照供 API /api/v1/bans/active 只读展示；main 经 atomic.Value 持有，
+// 查询失败时保留上一次快照，ts 可辨新旧）。
+type BannedSnapshot struct {
+	TS  int64    // 快照生成时刻（Unix 秒）
+	IPs []uint32 // 当前封禁 IPv4 升序（IPv6 已在查询层跳过）
+}
 
 // QueryBanned 探测式查询 fail2ban.sqlite3 当前封禁名单（方案 3.5，每 60s 刷新）。
 // 只读打开（mode=ro + busy_timeout=5000，缓解 fail2ban 写库瞬间 SQLITE_BUSY）。

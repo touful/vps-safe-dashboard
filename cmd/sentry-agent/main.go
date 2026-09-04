@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -30,6 +31,7 @@ import (
 	"sentry-agent/internal/out"
 	"sentry-agent/internal/ssh"
 	"sentry-agent/internal/store"
+	"sentry-agent/internal/util"
 )
 
 func main() {
@@ -101,6 +103,8 @@ func main() {
 	var latest atomic.Value
 	// M-01：conntrack 溢出累计（conn 模块直接累加；API health 只读展示；无通道竞争）。
 	var overrunTotal atomic.Uint64
+	// P3-1：fail2ban 当前封禁名单快照（refreshBanned 60s 刷新；API bans/active 只读展示）。
+	var bannedList atomic.Value
 
 	// 消费端：默认 Store 落库；-stdout 时输出器（debug）。
 	var st *store.Store
@@ -116,7 +120,19 @@ func main() {
 		})
 	} else {
 		var err error
-		st, err = store.NewStore(cfg.DB.Path, cfg.DB.ArchiveDir, cfg.DB.BatchIntervalMS, cfg.DB.BatchSize, cfg.Archive.GzipLevel, cfg.DB.RetentionDays, cfg.DB.CredRetentionDays, cfg.Archive.CopyAfterDays, float64(cfg.Disk.CriticalPercent), ch, &producers)
+		// NewStore 配置参数经 Options 显式命名（字段语义与来源配置键见 store.Options 注释），
+		// 消除原 11 个同型位置参数的错位风险（retention/cred/copy 三个天数参数相邻）。
+		st, err = store.NewStore(store.Options{
+			Path:               cfg.DB.Path,
+			ArchiveDir:         cfg.DB.ArchiveDir,
+			BatchIntervalMS:    cfg.DB.BatchIntervalMS,
+			BatchSize:          cfg.DB.BatchSize,
+			GzipLevel:          cfg.Archive.GzipLevel,
+			RetentionDays:      cfg.DB.RetentionDays,
+			CredRetentionDays:  cfg.DB.CredRetentionDays,
+			CopyAfterDays:      cfg.Archive.CopyAfterDays,
+			ArchiveCriticalPct: float64(cfg.Disk.CriticalPercent),
+		}, ch, &producers)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "存储模块初始化失败: %v\n", err)
 			os.Exit(1)
@@ -206,6 +222,15 @@ func main() {
 			})
 			// M-01：共享溢出计数（conn 模块直接累加，无通道竞争；health 只读展示）。
 			srv.SetOverrunCounter(&overrunTotal)
+			// P3-1：注入封禁名单快照取值函数（bans/active 只读展示；f2b 未启用时
+			// bannedList 恒空，端点输出空名单，前端展示空态）。
+			srv.SetBannedList(func() ([]uint32, int64) {
+				if v := bannedList.Load(); v != nil {
+					s := v.(*f2b.BannedSnapshot)
+					return s.IPs, s.TS
+				}
+				return nil, 0
+			})
 			// WS 推送循环（1s/5s/30s 帧）。
 			startService(func() {
 				srv.PushLoop(ctx)
@@ -301,7 +326,7 @@ func main() {
 			}
 		})
 		startProducer(func() {
-			refreshBanned(ctx, cfg.F2B.DBPath, ch.System)
+			refreshBanned(ctx, cfg.F2B.DBPath, ch.System, &bannedList)
 		})
 	}
 
@@ -332,7 +357,7 @@ func runConnChannel(ctx context.Context, cfg *config.Config, ch *event.Channels,
 		}
 		return
 	}
-	if err := conn.RunConntrackListener(ctx, cfg.Conntrack, ch.Conn, ch.Overrun, ch.System, counter); err != nil {
+	if err := conn.RunConntrackListener(ctx, cfg.Conntrack, ch.Conn, ch.System, counter); err != nil {
 		event.ReportSys(ch.System, "conntrack", "warn", "conntrack 通道不可用，切换 B5 降级: "+err.Error())
 		if err2 := conn.RunFallbackConnListener(ctx, time.Duration(cfg.Conntrack.FallbackIntervalS)*time.Second, ch.Conn, ch.System); err2 != nil && ctx.Err() == nil {
 			event.ReportSys(ch.System, "conntrack", "error", "降级通道退出: "+err2.Error())
@@ -342,7 +367,9 @@ func runConnChannel(ctx context.Context, cfg *config.Config, ch *event.Channels,
 
 // refreshBanned 查询 fail2ban 当前封禁名单（M-05 联调，方案 3.5）。
 // 启动后立即执行一次（不等 60s 周期）；结果经 system_event 记录（条数变化信息/查询失败告警，限频）。
-func refreshBanned(ctx context.Context, dbPath string, sys chan<- event.SystemEvent) {
+// P3-1：成功结果升序排序后写入 snapshot（atomic.Value，API bans/active 只读展示——
+// 原链路仅留痕条数、名单被丢弃；失败时不清空旧快照，面板保持上一次已知名单，ts 可辨新旧）。
+func refreshBanned(ctx context.Context, dbPath string, sys chan<- event.SystemEvent, snapshot *atomic.Value) {
 	rep := event.NewRateLimiter(5 * time.Minute)
 	query := func() {
 		banned, err := f2b.QueryBanned(ctx, dbPath)
@@ -358,19 +385,14 @@ func refreshBanned(ctx context.Context, dbPath string, sys chan<- event.SystemEv
 			rep.Report(sys, "f2b", "warn", "封禁名单查询失败: "+err.Error())
 			return
 		}
+		// 升序排序（uint32 升序即 IP 升序）：读侧（API）零排序成本，展示顺序稳定。
+		sort.Slice(banned, func(i, j int) bool { return banned[i] < banned[j] })
+		snapshot.Store(&f2b.BannedSnapshot{TS: time.Now().Unix(), IPs: banned})
 		event.ReportSys(sys, "f2b", "info", fmt.Sprintf("当前封禁 IP 数: %d", len(banned)))
 	}
-	query() // 启动后立即执行一次（首次封禁名单不再等 60s）
-	ticker := time.NewTicker(60 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			query()
-		}
-	}
+	// 启动后立即执行一次（首次封禁名单不再等 60s）+ 每 60s 周期刷新
+	// （周期骨架统一经 util.Periodic）。
+	util.Periodic(ctx, 60*time.Second, true, func(_ time.Time) { query() })
 }
 
 // isLoopbackListen 判断监听地址是否为回环（127.0.0.1/localhost/::1）。

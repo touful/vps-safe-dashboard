@@ -14,6 +14,7 @@ import (
 
 	"sentry-agent/internal/diskutil"
 	"sentry-agent/internal/event"
+	"sentry-agent/internal/util"
 )
 
 // Level 水位分级。
@@ -55,49 +56,48 @@ func RunDiskMonitor(ctx context.Context, interval time.Duration, dir string, war
 
 // RunDiskMonitorWithUsage 可注入使用率函数的变体（单测用 mock 水位）。
 func RunDiskMonitorWithUsage(ctx context.Context, interval time.Duration, usageFn func() (float64, error), warn, critical, emergency int, sys chan<- event.SystemEvent) error {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
 	var lastLevel Level = LevelOK
 	// 限频：每级别 10 分钟内最多一条（按级别独立计时）。
 	lastReport := map[Level]time.Time{}
 	// 首轮立即检查（M-03：同步 lastLevel/lastReport，防重复告警）。
-	if usage, err := usageFn(); err != nil {
-		event.ReportSys(sys, "disk", "warn", "磁盘水位检查失败: "+err.Error())
-	} else {
-		lastLevel = Classify(usage, warn, critical, emergency)
-		if lastLevel != LevelOK {
-			report(sys, lastLevel, usage)
-			lastReport[lastLevel] = time.Now()
+	// 首轮与周期轮语义不同：首轮只同步状态并上报非 OK 级，不触发
+	// "级别回落恢复"与"同级别限频"判定；首轮读取失败仅留痕，后续轮次
+	// 进入完整状态机（与原实现逐行为一致）。
+	first := true
+	util.Periodic(ctx, interval, true, func(now time.Time) {
+		usage, err := usageFn()
+		if err != nil {
+			event.ReportSys(sys, "disk", "warn", "磁盘水位检查失败: "+err.Error())
+			first = false
+			return
 		}
-	}
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			usage, err := usageFn()
-			if err != nil {
-				event.ReportSys(sys, "disk", "warn", "磁盘水位检查失败: "+err.Error())
-				continue
+		level := Classify(usage, warn, critical, emergency)
+		if first {
+			first = false
+			lastLevel = level
+			if lastLevel != LevelOK {
+				report(sys, lastLevel, usage)
+				lastReport[lastLevel] = now
 			}
-			level := Classify(usage, warn, critical, emergency)
-			if level != lastLevel {
-				// 级别变化（升级或回落）：立即上报。
-				report(sys, level, usage)
-				if level == LevelOK {
-					event.ReportSys(sys, "disk", "info", "磁盘水位已回落至正常")
-				}
-				lastLevel = level
-				lastReport[level] = time.Now()
-				continue
-			}
-			// 同级别持续：限频上报。
-			if level != LevelOK && time.Since(lastReport[level]) >= 10*time.Minute {
-				report(sys, level, usage)
-				lastReport[level] = time.Now()
-			}
+			return
 		}
-	}
+		if level != lastLevel {
+			// 级别变化（升级或回落）：立即上报。
+			report(sys, level, usage)
+			if level == LevelOK {
+				event.ReportSys(sys, "disk", "info", "磁盘水位已回落至正常")
+			}
+			lastLevel = level
+			lastReport[level] = now
+			return
+		}
+		// 同级别持续：限频上报。
+		if level != LevelOK && now.Sub(lastReport[level]) >= 10*time.Minute {
+			report(sys, level, usage)
+			lastReport[level] = now
+		}
+	})
+	return nil
 }
 
 // report 按级别输出告警事件。

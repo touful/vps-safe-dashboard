@@ -19,26 +19,24 @@ func enqueue(pending *[]eventItem, n *int, kind string, v any) {
 	*n++
 }
 
-// insertStmts 各表 INSERT 语句（与方案 4.2 DDL 字段一一对应）。
+// insertStmts 各表 INSERT 语句（与方案 4.2 DDL 字段一一对应；kind 统一用 event.Kind* 常量）。
 var insertStmts = map[string]string{
-	"resource": `INSERT INTO resources
+	event.KindResource: `INSERT INTO resources
 		(ts, cpu_percent, mem_used_mb, mem_percent, disk_used_mb, disk_percent, net_rx_bps, net_tx_bps)
 		VALUES (?,?,?,?,?,?,?,?)`,
-	"conn": `INSERT INTO connections
+	event.KindConn: `INSERT INTO connections
 		(ts, ev_type, proto, src_ip, src_port, dst_ip, dst_port, packets, bytes, mark, src_ip6, dst_ip6)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-	"ssh": `INSERT INTO ssh_attempts
+	event.KindSSH: `INSERT INTO ssh_attempts
 		(ts, src_ip, username, auth_method, result, fingerprint, detail)
 		VALUES (?,?,?,?,?,?,?)`,
-	"fw": `INSERT INTO firewall_events
+	event.KindFW: `INSERT INTO firewall_events
 		(ts, chain, action, proto, src_ip, src_port, dst_ip, dst_port, raw)
 		VALUES (?,?,?,?,?,?,?,?,?)`,
-	"f2b":    `INSERT INTO ban_events (ts, ip, type, jail) VALUES (?,?,?,?)`,
-	"system": `INSERT INTO system_events (ts, source, level, message) VALUES (?,?,?,?)`,
-	// overrun（R-10 溢出）落 system_events 留痕（source=conntrack, level=warn）。
-	"overrun": `INSERT INTO system_events (ts, source, level, message) VALUES (?,?,?,?)`,
+	event.KindF2B:    `INSERT INTO ban_events (ts, ip, type, jail) VALUES (?,?,?,?)`,
+	event.KindSystem: `INSERT INTO system_events (ts, source, level, message) VALUES (?,?,?,?)`,
 	// DEV-HONEY-001：蜜罐凭据捕获。
-	"cred": `INSERT INTO cred_events (ts, proto, src_ip, username, password, extra) VALUES (?,?,?,?,?,?)`,
+	event.KindCred: `INSERT INTO cred_events (ts, proto, src_ip, username, password, extra) VALUES (?,?,?,?,?,?)`,
 }
 
 // writeBatch 将一批事件写入主库（单事务，BEGIN IMMEDIATE，方案 4.5）。
@@ -84,50 +82,43 @@ func (s *Store) writeBatch(items []eventItem) error {
 // panic，改为带 ok 断言防御——当前调用方 kind/类型严格配对，属防御性缺口封堵）。
 func itemArgs(it eventItem) ([]any, error) {
 	switch it.kind {
-	case "resource":
+	case event.KindResource:
 		v, ok := it.v.(event.ResourceSample)
 		if !ok {
 			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
 		}
 		return []any{v.TS, v.CPUPercent, v.MemUsedMB, v.MemPercent, v.DiskUsedMB, v.DiskPercent, v.NetRxBps, v.NetTxBps}, nil
-	case "conn":
+	case event.KindConn:
 		v, ok := it.v.(event.ConnEvent)
 		if !ok {
 			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
 		}
 		return []any{v.TS, v.EvType, int(v.Proto), int(v.SrcIP), v.SrcPort, int(v.DstIP), v.DstPort, v.Packets, v.Bytes, v.Mark, v.SrcIP6, v.DstIP6}, nil
-	case "ssh":
+	case event.KindSSH:
 		v, ok := it.v.(event.SSHAttempt)
 		if !ok {
 			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
 		}
 		return []any{v.TS, int(v.SrcIP), v.Username, v.AuthMethod, v.Result, v.Fingerprint, v.Detail}, nil
-	case "fw":
+	case event.KindFW:
 		v, ok := it.v.(event.FirewallEvent)
 		if !ok {
 			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
 		}
 		return []any{v.TS, v.Chain, v.Action, int(v.Proto), int(v.SrcIP), v.SrcPort, int(v.DstIP), v.DstPort, v.Raw}, nil
-	case "f2b":
+	case event.KindF2B:
 		v, ok := it.v.(event.BanEvent)
 		if !ok {
 			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
 		}
 		return []any{v.TS, int(v.IP), v.Type, v.Jail}, nil
-	case "system":
+	case event.KindSystem:
 		v, ok := it.v.(event.SystemEvent)
 		if !ok {
 			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
 		}
 		return []any{v.TS, v.Source, v.Level, v.Message}, nil
-	case "overrun":
-		v, ok := it.v.(event.OverrunInfo)
-		if !ok {
-			return nil, fmt.Errorf("事件类型与 kind 不匹配: %s", it.kind)
-		}
-		msg := fmt.Sprintf("netlink 缓冲溢出，丢弃 %d 条事件（R-10 留痕）", v.Dropped)
-		return []any{v.TS, "conntrack", "warn", msg}, nil
-	case "cred":
+	case event.KindCred:
 		// DEV-HONEY-001：蜜罐凭据捕获（敏感信息：明文密码仅落本地 SQLite，禁止日志）。
 		v, ok := it.v.(event.CredEvent)
 		if !ok {

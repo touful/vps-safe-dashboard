@@ -211,8 +211,8 @@ func TestConnStartErrorWrap(t *testing.T) {
 }
 
 // mockOnce 构造可注入的 once 执行器（测试辅助）。
-func mockOnce(fn func() error) func(context.Context, config.ConntrackCfg, int, chan<- event.ConnEvent, chan<- event.OverrunInfo, chan<- event.SystemEvent, *atomic.Uint64) error {
-	return func(context.Context, config.ConntrackCfg, int, chan<- event.ConnEvent, chan<- event.OverrunInfo, chan<- event.SystemEvent, *atomic.Uint64) error {
+func mockOnce(fn func() error) func(context.Context, config.ConntrackCfg, int, chan<- event.ConnEvent, chan<- event.SystemEvent, *atomic.Uint64) error {
+	return func(context.Context, config.ConntrackCfg, int, chan<- event.ConnEvent, chan<- event.SystemEvent, *atomic.Uint64) error {
 		return fn()
 	}
 }
@@ -227,7 +227,7 @@ func TestRunConntrackLoopGiveUp(t *testing.T) {
 	})
 	// 退避 2s→4s：3 次启动失败总等待 = 2+4 = 6s（可接受）。
 	start := time.Now()
-	err := runConntrackLoop(ctx, config.ConntrackCfg{}, 2048, nil, nil, sys, nil, once)
+	err := runConntrackLoop(ctx, config.ConntrackCfg{}, 2048, nil, sys, nil, once)
 	if err == nil {
 		t.Fatal("连续 3 次启动失败应返回错误（触发降级）")
 	}
@@ -270,7 +270,7 @@ func TestRunConntrackLoopRuntimeReset(t *testing.T) {
 			return nil
 		}
 	})
-	err := runConntrackLoop(ctx, config.ConntrackCfg{}, 2048, nil, nil, sys, nil, once)
+	err := runConntrackLoop(ctx, config.ConntrackCfg{}, 2048, nil, sys, nil, once)
 	if err != nil {
 		t.Fatalf("运行类错误清零后不应放弃主通道，实际: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestRunConntrackLoopCtxCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	once := mockOnce(func() error { return nil })
-	if err := runConntrackLoop(ctx, config.ConntrackCfg{}, 2048, nil, nil, nil, nil, once); err != nil {
+	if err := runConntrackLoop(ctx, config.ConntrackCfg{}, 2048, nil, nil, nil, once); err != nil {
 		t.Errorf("ctx 取消应返回 nil: %v", err)
 	}
 }

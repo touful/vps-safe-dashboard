@@ -4,7 +4,7 @@
 // 时间戳口径（M2 落库固化）：
 //   - 日志类通道（ssh/fw/f2b）：TS = 日志源时间戳（journal 条目时间戳 / 行首时间解析），
 //     源时间戳缺失时回退为处理时刻；
-//   - 事件类通道（conn/overrun）：TS = 处理时刻（内核事件无源时间戳语义，netlink 消息
+//   - 事件类通道（conn）：TS = 处理时刻（内核事件无源时间戳语义，netlink 消息
 //     不带内核时间，采用接收时刻；误差为处理延迟，毫秒级）；
 //   - 资源采样：TS = 采样时刻。
 //
@@ -70,11 +70,18 @@ type ConnEvent struct {
 	Mark    uint32 // 防火墙 mark，用于识别被标记的连接
 }
 
-// OverrunInfo netlink 溢出信息（R-10 留痕，方案 3.2.1）。
-type OverrunInfo struct {
-	TS      int64  // Unix 秒
-	Dropped uint64 // 本次检查周期内的溢出丢弃数
-}
+// 事件 kind 常量（store 写入队列 eventItem.kind / out 输出 channel 名共用）。
+// 消费/写入侧的 kind 标识统一经此出口，拼写错误由编译期拦截；
+// 手工直写保持类型安全可读（审计反面结论：不做反射/代码生成级统一）。
+const (
+	KindResource = "resource"
+	KindConn     = "conn"
+	KindSSH      = "ssh"
+	KindFW       = "fw"
+	KindF2B      = "f2b"
+	KindSystem   = "system"
+	KindCred     = "cred"
+)
 
 // SnapConn ss 快照中的单条连接（展示通道，不落库，方案 3.2.3）。
 type SnapConn struct {
@@ -193,7 +200,6 @@ func MicrosToUnix(s string) (int64, bool) {
 type Channels struct {
 	Resource chan ResourceSample
 	Conn     chan ConnEvent
-	Overrun  chan OverrunInfo
 	SSH      chan SSHAttempt
 	FW       chan FirewallEvent
 	F2B      chan BanEvent
@@ -206,13 +212,89 @@ func NewChannels(buf int) *Channels {
 	return &Channels{
 		Resource: make(chan ResourceSample, buf),
 		Conn:     make(chan ConnEvent, buf),
-		Overrun:  make(chan OverrunInfo, buf),
 		SSH:      make(chan SSHAttempt, buf),
 		FW:       make(chan FirewallEvent, buf),
 		F2B:      make(chan BanEvent, buf),
 		Cred:     make(chan CredEvent, buf),
 		System:   make(chan SystemEvent, buf),
 	}
+}
+
+// Drain 非阻塞排空全部通道在途事件（前提：生产者已退出，drain 到空即完成）。
+// 每条事件以 (kind, v) 回调 fn；kind 为 Kind* 常量。
+// 多通道消费者的排空清单统一由此出口，防止新增通道漏改一处
+// （阻塞消费清单因泛型通道类型差异仍由各消费者自持，见 out.consume）。
+func (c *Channels) Drain(fn func(kind string, v any)) {
+	for {
+		got := false
+		select {
+		case v := <-c.Resource:
+			fn(KindResource, v)
+			got = true
+		default:
+		}
+		select {
+		case v := <-c.Conn:
+			fn(KindConn, v)
+			got = true
+		default:
+		}
+		select {
+		case v := <-c.SSH:
+			fn(KindSSH, v)
+			got = true
+		default:
+		}
+		select {
+		case v := <-c.FW:
+			fn(KindFW, v)
+			got = true
+		default:
+		}
+		select {
+		case v := <-c.F2B:
+			fn(KindF2B, v)
+			got = true
+		default:
+		}
+		select {
+		case v := <-c.Cred:
+			fn(KindCred, v)
+			got = true
+		default:
+		}
+		select {
+		case v := <-c.System:
+			fn(KindSystem, v)
+			got = true
+		default:
+		}
+		if !got {
+			return
+		}
+	}
+}
+
+// TSOf 提取事件时间戳（全部事件类型统一带 TS 字段，口径见包注释）。
+// ok=false 表示未知类型（调用方决定回退策略，如处理时刻）。
+func TSOf(v any) (int64, bool) {
+	switch e := v.(type) {
+	case ResourceSample:
+		return e.TS, true
+	case ConnEvent:
+		return e.TS, true
+	case SSHAttempt:
+		return e.TS, true
+	case FirewallEvent:
+		return e.TS, true
+	case BanEvent:
+		return e.TS, true
+	case SystemEvent:
+		return e.TS, true
+	case CredEvent:
+		return e.TS, true
+	}
+	return 0, false
 }
 
 // ReportSys 非阻塞上报 system_event（通道满时丢弃，避免阻塞采集主路径）。

@@ -52,8 +52,11 @@ func TestRunRetentionStartupConcurrentWrites(t *testing.T) {
 	dbPath := filepath.Join(dir, "state.db")
 	ch := event.NewChannels(64) // 小容量模拟真实 4096 满场景（更易暴露阻塞）
 	var producers sync.WaitGroup
-	st, err := NewStore(dbPath, filepath.Join(dir, "archive"),
-		200, 50, 6, 7, 90, 60, 90, ch, &producers)
+	st, err := NewStore(Options{
+		Path: dbPath, ArchiveDir: filepath.Join(dir, "archive"),
+		BatchIntervalMS: 200, BatchSize: 50, GzipLevel: 6,
+		RetentionDays: 7, CredRetentionDays: 90, CopyAfterDays: 60, ArchiveCriticalPct: 90,
+	}, ch, &producers)
 	if err != nil {
 		t.Fatalf("NewStore 失败: %v", err)
 	}

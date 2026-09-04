@@ -36,14 +36,13 @@ type statsLine struct {
 	FW            int64  `json:"fw"`
 	F2B           int64  `json:"f2b"`
 	System        int64  `json:"system"`
-	Overrun       int64  `json:"overrun"`
 	SnapshotTS    int64  `json:"snapshot_ts"`
 	SnapshotConns int    `json:"snapshot_conns"`
 }
 
 // counters 各通道累计计数。
 type counters struct {
-	resource, conn, overrun, ssh, fw, f2b, system atomic.Int64
+	resource, conn, ssh, fw, f2b, system atomic.Int64
 }
 
 // Run 启动 stdout 输出器：消费全部采集 channel，输出 JSON 行；每 60s 输出统计行。
@@ -67,13 +66,12 @@ func Run(ctx context.Context, w io.Writer, ch *event.Channels, producers *sync.W
 
 	var cnt counters
 	dones := []<-chan struct{}{
-		consume(ctx, producers, ch.Resource, &cnt.resource, write, convResource, "resource"),
-		consume(ctx, producers, ch.Conn, &cnt.conn, write, convConn, "conn"),
-		consume(ctx, producers, ch.Overrun, &cnt.overrun, write, func(v event.OverrunInfo) any { return v }, "overrun"),
-		consume(ctx, producers, ch.SSH, &cnt.ssh, write, convSSH, "ssh"),
-		consume(ctx, producers, ch.FW, &cnt.fw, write, convFW, "fw"),
-		consume(ctx, producers, ch.F2B, &cnt.f2b, write, convF2B, "f2b"),
-		consume(ctx, producers, ch.System, &cnt.system, write, func(v event.SystemEvent) any { return v }, "system"),
+		consume(ctx, producers, ch.Resource, &cnt.resource, write, convResource, event.KindResource),
+		consume(ctx, producers, ch.Conn, &cnt.conn, write, convConn, event.KindConn),
+		consume(ctx, producers, ch.SSH, &cnt.ssh, write, convSSH, event.KindSSH),
+		consume(ctx, producers, ch.FW, &cnt.fw, write, convFW, event.KindFW),
+		consume(ctx, producers, ch.F2B, &cnt.f2b, write, convF2B, event.KindF2B),
+		consume(ctx, producers, ch.System, &cnt.system, write, func(v event.SystemEvent) any { return v }, event.KindSystem),
 	}
 
 	// 统计行（60s 周期）。
@@ -94,7 +92,6 @@ func Run(ctx context.Context, w io.Writer, ch *event.Channels, producers *sync.W
 				TS: now, Channel: "stats", IntervalS: now - last.TS,
 				Resource: cnt.resource.Load(), Conn: cnt.conn.Load(), SSH: cnt.ssh.Load(),
 				FW: cnt.fw.Load(), F2B: cnt.f2b.Load(), System: cnt.system.Load(),
-				Overrun: cnt.overrun.Load(),
 			}
 			if snapshotFn != nil {
 				cur.SnapshotTS, cur.SnapshotConns = snapshotFn()
@@ -143,23 +140,11 @@ func consume[T any](ctx context.Context, producers *sync.WaitGroup, src <-chan T
 	return done
 }
 
-// tsOf 提取事件时间戳（全部事件类型统一带 TS 字段）。
+// tsOf 提取事件时间戳（薄封装：类型判定逻辑统一经 event.TSOf 单一来源；
+// 未知类型回退处理时刻——原口径保持）。
 func tsOf(v any) int64 {
-	switch e := v.(type) {
-	case event.ResourceSample:
-		return e.TS
-	case event.ConnEvent:
-		return e.TS
-	case event.OverrunInfo:
-		return e.TS
-	case event.SSHAttempt:
-		return e.TS
-	case event.FirewallEvent:
-		return e.TS
-	case event.BanEvent:
-		return e.TS
-	case event.SystemEvent:
-		return e.TS
+	if ts, ok := event.TSOf(v); ok {
+		return ts
 	}
 	return time.Now().Unix()
 }
