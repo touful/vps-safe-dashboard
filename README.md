@@ -1,6 +1,6 @@
 # sentry-agent：轻量化 VPS 安全态势感知面板
 
-单进程 Go 二进制，面向 1 核 1GB 低配 VPS：全量采集连接、SSH、防火墙、fail2ban 与资源指标，SQLite 本地持久化，Web 面板（纯原生 JS + ECharts，零 CDN）实时展示攻击态势。**只记录、不过滤、不耗资源**。
+单进程 Go 二进制，面向 1 核 1GB 低配 VPS：全量采集连接、SSH、防火墙、fail2ban、资源指标与蜜罐凭据捕获，SQLite 本地持久化，Web 面板（纯原生 JS + ECharts，零 CDN）实时展示攻击态势。**只记录、不过滤、不耗资源**。
 
 ## 核心特性
 

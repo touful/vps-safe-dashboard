@@ -137,7 +137,8 @@ type ArchiveCfg struct {
 	MonthlyHour string `json:"monthly_hour"`
 	// GzipLevel gzip 压缩级别（1-9，默认 6）。
 	GzipLevel int `json:"gzip_level"`
-	// CopyAfterDays 超过此天数的数据进入按月压缩副本（默认 60）；主库永久保留（D-04）。
+	// CopyAfterDays 超过此天数的数据进入按月压缩副本（默认 60）；主库事件数据由
+	// RetentionDays 保留期清理（见上），归档副本为长期历史通道。
 	CopyAfterDays int `json:"copy_after_days"`
 }
 

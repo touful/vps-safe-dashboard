@@ -2,7 +2,7 @@
 
 - 基线：`e8e06e9`（main；DEV-HONEY-002 功能提交 `82808d1`，部署链 `1efd38c`~`ad6a999`，生产镜像 sentry-agent:2.2.1 = 46b9425a2baa）
 - 日期：2026-09-03
-- 结论：**PASS_WITH_NOTES**（2 Note：公网凭据端点无认证待用户裁定、低端口绑定依赖文件能力已文档化）
+- 结论：**PASS_WITH_NOTES**（2 Note：公网凭据端点无认证待用户裁定、前端协议下拉为静态清单未纳入单一来源）
 - 测试脚本：`scripts/dev_honey_creds_e2e.py`（已入库）
 
 ## 1. 任务范围

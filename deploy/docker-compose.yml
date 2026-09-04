@@ -46,7 +46,8 @@ services:
       - /etc/sentry-agent/config.json:/etc/sentry-agent/config.json:ro
     environment:
       - TZ=Asia/Shanghai
-    # F-03（DEV-009）：纵深防御——内存上限 + no-new-privileges
+    # F-03（DEV-009）：纵深防御——内存上限（原 no-new-privileges 已于 2026-09-03 移除：
+    # 与镜像内 setcap 文件能力互斥，见下方 VS-13 注记）
     # 2.1.1 生产实测（2026-09）：256m 在蜜罐启用 + 30d 聚合查询下偏紧，放宽至 512m；
     # CPU 0.8 → 1.6（宿主 2C，留余量同时避免重查询排队超时）。
     mem_limit: 512m
