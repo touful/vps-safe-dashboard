@@ -14,7 +14,7 @@
 
 ## 架构概览
 
-Go 单进程（`sentry-agent`）：各采集通道以协程组织，统一写入 SQLite（WAL），对外提供 23 个只读 HTTP API（含 /api/v1/export/csv 数据导出、/api/v1/export/table 六类明细 CSV 导出、/api/v1/honeypot/events 蜜罐凭据查询、/api/v1/honeypot/creds 凭据字典聚合、/api/v1/export/creds 字典导出、/api/v1/bans/active 当前封禁名单与 /api/v1/ip 来源 IP 画像）+ 1 个 WebSocket 实时通道；前端为内嵌静态文件（index.html + app.js + 本地 echarts.min.js，零 CDN、零外部资源）。
+Go 单进程（`sentry-agent`）：各采集通道以协程组织，统一写入 SQLite（WAL），对外提供 23 个只读 HTTP API（含 /api/v1/export/csv 数据导出、/api/v1/export/table 六类明细 CSV 导出、/api/v1/honeypot/events 蜜罐凭据查询、/api/v1/honeypot/creds 凭据字典聚合、/api/v1/export/creds 字典导出、/api/v1/bans/active 当前封禁名单、/api/v1/ip 来源 IP 画像与 /api/v1/channels 采集通道健康）+ 1 个 WebSocket 实时通道；前端为内嵌静态文件（index.html + app.js + 本地 echarts.min.js，零 CDN、零外部资源）。
 
 ```
 采集通道（资源/连接/SSH/防火墙/fail2ban/蜜罐）
@@ -37,7 +37,7 @@ HTTP API（23 只读端点）+ WS 实时推送 ──► 前端面板（原生 J
 │   ├── archive/           归档模块（gzip 压缩、按月归档）
 │   ├── event/             事件队列（有界缓冲，采集→存储解耦）
 │   ├── honeypot/          蜜罐假服务（10 协议最小认证握手模拟 + 连接治理）
-│   ├── web/static/        前端静态文件（index.html / app.js / echarts.min.js，go:embed 内嵌）
+│   ├── web/static/        前端静态文件（index.html / app.js / echarts.min.js / world.json 全球攻击地图 geojson，go:embed 内嵌）
 ├── deploy/                Docker 部署资产（Dockerfile、compose、部署/防火墙/fail2ban 脚本）
 ├── scripts/               长期资产：测试库种子与验证脚本（dev015/dev017 系列、dev_honey_creds_e2e 蜜罐端到端、honeypot_concurrency/governance 连接治理、dev030 清理 SQL 等）
 ├── tools/archive-trigger/ 归档触发辅助工具（独立小工具）
@@ -84,7 +84,7 @@ go run ./cmd/sentry-agent -config scripts/test_m1_b5_config.json
 
 ## 验证档案
 
-全部验证/回归/审计报告归档于 **[docs/verification/README.md](docs/verification/README.md)**（索引表：V1-V4 里程碑验证、TEST-001~007 测试与回归、AUD-006 审计、evidence/ 执行证据）。
+全部验证/回归/审计报告归档于 **[docs/verification/README.md](docs/verification/README.md)**（索引表：V1-V4 里程碑验证、TEST 系列测试与回归（TEST-001~007、TEST-FE-001~004、TEST-AUDIT-001/GEO-001/HONEY-001~002）、AUD 系列审计（AUD-006、AUD-FE-001~004、AUD-VPS-001）、evidence/ 执行证据）。
 
 ## 关键约束
 
