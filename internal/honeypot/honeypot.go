@@ -9,8 +9,9 @@
 //   - 凭据仅落本地 SQLite（cred_events），禁止写入日志与 system_events；
 //   - system_events 只记录连接/IP/协议（限频防刷屏）。
 //
-// 已知限制（诚实降级）：rdp 后续 TLS 加密无法解析、memcached 协议无认证机制、
-// 加密/哈希协议（mysql/mongodb/mssql/smb）仅能捕获不可逆摘要（Extra 注明 hash 类型）。
+// 已知限制（诚实降级）：rdp 后续 TLS 加密无法解析、memcached 协议无认证机制；
+// 加密/哈希协议（mysql/mongodb/smb）仅能捕获不可逆摘要（Extra 注明 hash 类型）；
+// mssql TDS 混淆可逆（nibble-swap + XOR 0xA5），捕获时还原明文（还原失败回退 hex 摘要）。
 package honeypot
 
 import (
@@ -66,6 +67,69 @@ var protoHandlers = map[string]protoHandler{
 	"smb":       handleSMB,
 	"rdp":       handleRDP,
 	"memcached": handleMemcached,
+}
+
+// CaptureKind 蜜罐凭据捕获类型（协议级静态分类；api 层字典分类与前端展示依据）。
+type CaptureKind string
+
+const (
+	// KindPlaintext 捕获即明文（含 mssql：TDS 混淆可逆，捕获时已还原明文；
+	// 运行期还原失败由 api 层按 extra 的"还原失败"标注降级为 hash）。
+	KindPlaintext CaptureKind = "plaintext"
+	// KindHash 不可逆摘要（Extra 注明 hash 类型）。
+	KindHash CaptureKind = "hash"
+	// KindNone 协议无认证机制，无凭据可捕获。
+	KindNone CaptureKind = "none"
+)
+
+// ProtoKinds 协议清单与捕获分类的单一来源（m3 修复）：protoHandlers 的键集合须与
+// 本表一致（由 honeypot_meta_test.go 双向守卫）；config.Validate 协议校验与 api 层
+// kind 分类均以本表为准。index.html 协议下拉为静态内嵌资源，属已知例外。
+var ProtoKinds = map[string]CaptureKind{
+	// 明文：telnet/ftp/redis/postgres 捕获即明文；mssql TDS 混淆可逆
+	// （nibble-swap + XOR 0xA5），捕获时还原明文（运行期还原失败由 api 层按
+	// extra 降级为 hash，见 api.credKind 的 mssql 特判）。
+	"telnet":   KindPlaintext,
+	"ftp":      KindPlaintext,
+	"redis":    KindPlaintext,
+	"postgres": KindPlaintext,
+	"mssql":    KindPlaintext,
+	// 不可逆摘要：mysql（SHA1 链）/ mongodb（SCRAM 证明）/ smb（NTLMv2）。
+	"mysql":   KindHash,
+	"mongodb": KindHash,
+	"smb":     KindHash,
+	// 无认证：rdp（后续 TLS 加密无法解析）/ memcached（协议无认证机制）。
+	"rdp":       KindNone,
+	"memcached": KindNone,
+}
+
+// IsValidProto 判断 p 是否为蜜罐支持的协议（config.Validate 协议校验入口）。
+func IsValidProto(p string) bool {
+	_, ok := ProtoKinds[p]
+	return ok
+}
+
+// KindOf 返回 p 的捕获分类；未知协议第二返回值为 false（调用方自行决定兜底口径）。
+func KindOf(p string) (CaptureKind, bool) {
+	k, ok := ProtoKinds[p]
+	return k, ok
+}
+
+// DefaultListen 返回标准端口默认监听配置的副本（config.Defaults 引用；
+// 返回副本防调用方修改污染默认值）。值为空字符串 = 禁用该协议（部署配置覆盖）。
+func DefaultListen() map[string]string {
+	return map[string]string{
+		"mysql":     "0.0.0.0:3306",
+		"redis":     "0.0.0.0:6379",
+		"memcached": "0.0.0.0:11211",
+		"mssql":     "0.0.0.0:1433",
+		"mongodb":   "0.0.0.0:27017",
+		"postgres":  "0.0.0.0:5432",
+		"rdp":       "0.0.0.0:3389",
+		"smb":       "0.0.0.0:445",
+		"telnet":    "0.0.0.0:23",
+		"ftp":       "0.0.0.0:21",
+	}
 }
 
 // Stats 蜜罐运行统计（连接治理与容量观测）。

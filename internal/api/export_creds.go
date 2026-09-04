@@ -46,10 +46,8 @@ func (s *Server) hExportCreds(w http.ResponseWriter, r *http.Request) {
 		conds = append(conds, "proto = ?")
 		args = append(args, proto)
 	}
-	query := `SELECT proto, username, password, MAX(extra), COUNT(*), MIN(ts), MAX(ts),
-		COUNT(DISTINCT src_ip) FROM cred_events
-		WHERE ` + strings.Join(conds, " AND ") + `
-		GROUP BY proto, username, password ORDER BY COUNT(*) DESC`
+	// 聚合 SQL 单一来源（m4 修复）：与 hHoneypotCreds 共用 credAggQuery。
+	query := credAggQuery(strings.Join(conds, " AND "))
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		writeDBErr(w, r, err)

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"sentry-agent/internal/event"
+	"sentry-agent/internal/honeypot"
 )
 
 // honeypotRow 蜜罐凭据捕获行（API 展示口径）。
@@ -82,34 +83,31 @@ type honeypotCredRow struct {
 	Extra    string `json:"extra"`
 }
 
-// 明文协议集合：password 字段为攻击者提交的明文（telnet/ftp/redis/postgres 捕获即明文；
-// mssql TDS 混淆可逆、捕获时已还原——还原失败条目的 extra 含还原失败标注，降级为 hash）。
-var credPlaintextProtos = map[string]bool{
-	"telnet":   true,
-	"ftp":      true,
-	"redis":    true,
-	"postgres": true,
-	"mssql":    true,
-}
-
-// 无认证协议：协议本身无凭据概念，无密码可捕获。
-var credNoAuthProtos = map[string]bool{
-	"rdp":       true,
-	"memcached": true,
-}
-
-// credKind 凭据条目类型判定（协议级静态分类 + mssql 逐条降级）。
+// credKind 凭据条目类型判定（协议级分类取自 honeypot.ProtoKinds 单一来源 + mssql 逐条降级）。
 func credKind(proto, extra string) string {
-	if credNoAuthProtos[proto] {
-		return "none"
+	kind, ok := honeypot.KindOf(proto)
+	if !ok {
+		return "hash" // 未分类兜底（历史/未知协议条目按摘要处理，不入明文字典）
 	}
-	if credPlaintextProtos[proto] {
+	switch kind {
+	case honeypot.KindNone:
+		return "none"
+	case honeypot.KindPlaintext:
+		// mssql 降级特判：还原失败条目（非标准客户端，畸形/非可打印）extra 含
+		// "还原失败"标注，实为 hex 摘要——降级 hash，不污染明文字典。
 		if proto == "mssql" && strings.Contains(extra, "还原失败") {
-			return "hash" // mssql 非标准客户端（畸形/非可打印）回退 hex 摘要的条目
+			return "hash"
 		}
 		return "plaintext"
 	}
 	return "hash" // mysql（SHA1 链）/ smb（NTLMv2）/ mongodb（SCRAM 证明）均为不可逆摘要
+}
+
+// credAggQuery 凭据字典聚合 SQL 单一来源（m4 修复）：hHoneypotCreds 与 hExportCreds
+// 共用同一聚合口径（按 proto,username,password GROUP BY 去重，次数降序），
+// whereSQL 为完整 WHERE 条件（如 "ts >= ? AND proto = ?"，占位符由调用方按序绑定）。
+func credAggQuery(whereSQL string) string {
+	return `SELECT proto, username, password, MAX(extra), COUNT(*), MIN(ts), MAX(ts), COUNT(DISTINCT src_ip) FROM cred_events WHERE ` + whereSQL + ` GROUP BY proto, username, password ORDER BY COUNT(*) DESC`
 }
 
 // hHoneypotCreds 凭据字典聚合查询（DEV-HONEY-002）。
@@ -133,10 +131,7 @@ func (s *Server) hHoneypotCreds(w http.ResponseWriter, r *http.Request) {
 	}
 	// extra 取 MAX 作代表标注（同组 extra 可能不一——redis AUTH 与 HELLO；
 	// kind 判定仅需 mssql 的还原失败标记，MAX 不影响语义）。
-	query := `SELECT proto, username, password, MAX(extra), COUNT(*), MIN(ts), MAX(ts),
-		COUNT(DISTINCT src_ip) FROM cred_events
-		WHERE ` + strings.Join(conds, " AND ") + `
-		GROUP BY proto, username, password ORDER BY COUNT(*) DESC LIMIT ?`
+	query := credAggQuery(strings.Join(conds, " AND ")) + " LIMIT ?"
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {

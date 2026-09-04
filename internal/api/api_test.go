@@ -27,32 +27,8 @@ func newTestServer(t *testing.T) (*Server, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.Exec(`
-CREATE TABLE resources (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, cpu_percent REAL NOT NULL,
-    mem_used_mb REAL NOT NULL, mem_percent REAL NOT NULL, disk_used_mb REAL NOT NULL,
-    disk_percent REAL NOT NULL, net_rx_bps INTEGER NOT NULL DEFAULT 0, net_tx_bps INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE connections (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, ev_type INTEGER NOT NULL,
-    proto INTEGER NOT NULL, src_ip INTEGER NOT NULL, src_port INTEGER NOT NULL,
-    dst_ip INTEGER NOT NULL, dst_port INTEGER NOT NULL,
-    packets INTEGER NOT NULL DEFAULT 0, bytes INTEGER NOT NULL DEFAULT 0, mark INTEGER NOT NULL DEFAULT 0,
-    src_ip6 TEXT NOT NULL DEFAULT '', dst_ip6 TEXT NOT NULL DEFAULT '');
-CREATE TABLE ssh_attempts (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, src_ip INTEGER NOT NULL,
-    username TEXT NOT NULL DEFAULT '', auth_method TEXT NOT NULL DEFAULT '', result INTEGER NOT NULL,
-    fingerprint TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '');
-CREATE TABLE firewall_events (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, chain TEXT NOT NULL,
-    action TEXT NOT NULL, proto INTEGER NOT NULL, src_ip INTEGER NOT NULL, src_port INTEGER NOT NULL,
-    dst_ip INTEGER NOT NULL, dst_port INTEGER NOT NULL, raw TEXT NOT NULL DEFAULT '');
-CREATE INDEX idx_fw_ts ON firewall_events(ts);
-CREATE TABLE ban_events (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, ip INTEGER NOT NULL,
-    type TEXT NOT NULL, jail TEXT NOT NULL DEFAULT '');
-CREATE TABLE system_events (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, source TEXT NOT NULL,
-    level TEXT NOT NULL, message TEXT NOT NULL);
-CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-INSERT INTO meta(key, value) VALUES('schema_version', '1');
-`)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// 表结构统一走 createTestSchema（m5 单一来源，对齐 store schema；含 meta 种子行）。
+	createTestSchema(t, db)
 	now := time.Now().Unix()
 	// 数据：5 条资源、5 条连接（2 NEW + 2 UPDATE + 1 DESTROY）、3 条 SSH 失败、4 条防火墙 drop。
 	// 资源时间对齐到 60s 桶边界（R-11：避免 now%60<4 时跨桶导致 flaky）。
@@ -591,31 +567,8 @@ func newTestServerWithNoOrigin(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.Exec(`CREATE TABLE resources (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, cpu_percent REAL NOT NULL,
-    mem_used_mb REAL NOT NULL, mem_percent REAL NOT NULL, disk_used_mb REAL NOT NULL,
-    disk_percent REAL NOT NULL, net_rx_bps INTEGER NOT NULL DEFAULT 0, net_tx_bps INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE connections (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, ev_type INTEGER NOT NULL,
-    proto INTEGER NOT NULL, src_ip INTEGER NOT NULL, src_port INTEGER NOT NULL,
-    dst_ip INTEGER NOT NULL, dst_port INTEGER NOT NULL,
-    packets INTEGER NOT NULL DEFAULT 0, bytes INTEGER NOT NULL DEFAULT 0, mark INTEGER NOT NULL DEFAULT 0,
-    src_ip6 TEXT NOT NULL DEFAULT '', dst_ip6 TEXT NOT NULL DEFAULT '');
-CREATE TABLE ssh_attempts (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, src_ip INTEGER NOT NULL,
-    username TEXT NOT NULL DEFAULT '', auth_method TEXT NOT NULL DEFAULT '', result INTEGER NOT NULL,
-    fingerprint TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '');
-CREATE TABLE firewall_events (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, chain TEXT NOT NULL,
-    action TEXT NOT NULL, proto INTEGER NOT NULL, src_ip INTEGER NOT NULL, src_port INTEGER NOT NULL,
-    dst_ip INTEGER NOT NULL, dst_port INTEGER NOT NULL, raw TEXT NOT NULL DEFAULT '');
-CREATE INDEX idx_fw_ts ON firewall_events(ts);
-CREATE TABLE ban_events (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, ip INTEGER NOT NULL,
-    type TEXT NOT NULL, jail TEXT NOT NULL DEFAULT '');
-CREATE TABLE system_events (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, source TEXT NOT NULL,
-    level TEXT NOT NULL, message TEXT NOT NULL);
-CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-INSERT INTO meta(key, value) VALUES('schema_version', '1');
-`)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// 表结构统一走 createTestSchema（m5 单一来源，对齐 store schema；含 meta 种子行）。
+	createTestSchema(t, db)
 	db.Close()
 	srv, err := NewServer(dbPath, filepath.Join(dir, "archive"), "http://127.0.0.1:8080", true, nil)
 	if err != nil {

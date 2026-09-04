@@ -143,15 +143,16 @@ type SystemEvent struct {
 // 敏感信息：Username/Password 为攻击者提交的登录尝试凭据，明文存储于本地 SQLite
 // （本地单机工具定位，任务书已裁定）；【安全红线】凭据内容禁止写入日志与
 // system_events（system_events 只记录连接/IP/协议，限频防刷屏）。
-// Password 语义：明文协议（telnet/ftp/redis/postgres）为攻击者提交的明文密码；
-// 加密/哈希协议（mysql/mongodb/mssql/smb）为不可逆摘要（Extra 注明 hash 类型）；
+// Password 语义：明文协议（telnet/ftp/redis/postgres/mssql）为攻击者提交的明文密码
+// （mssql TDS 混淆可逆，捕获时还原明文，还原失败回退 hex 摘要并在 Extra 注明）；
+// 加密/哈希协议（mysql/mongodb/smb）为不可逆摘要（Extra 注明 hash 类型）；
 // rdp/memcached 无认证捕获能力（Extra 注明限制）。
 type CredEvent struct {
 	TS       int64  // Unix 秒
 	Proto    string // mysql/redis/memcached/mssql/mongodb/postgres/rdp/smb/telnet/ftp
 	SrcIP    uint32 // IPv4 源地址（IPv6 连接记 0，字段限制，见方案说明）
 	Username string
-	Password string // 明文或不可逆摘要（Extra 注明）
+	Password string // 明文（含 mssql 还原）或不可逆摘要（Extra 注明）
 	Extra    string // 补充信息：hash 类型/协议限制说明/命令概览
 }
 

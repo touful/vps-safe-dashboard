@@ -23,16 +23,8 @@ func newHoneypotTestServer(t *testing.T) (*Server, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.Exec(`CREATE TABLE cred_events (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL,
-		proto TEXT NOT NULL, src_ip INTEGER NOT NULL, username TEXT NOT NULL DEFAULT '',
-		password TEXT NOT NULL DEFAULT '', extra TEXT NOT NULL DEFAULT '');
-		CREATE INDEX idx_cred_ts ON cred_events(ts);
-		CREATE INDEX idx_cred_proto ON cred_events(proto);
-		CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-		INSERT INTO meta(key, value) VALUES('schema_version', '1');`)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// 表结构统一走 createTestSchema（m5 单一来源，对齐 store schema；含 meta 种子行）。
+	createTestSchema(t, db)
 	now := time.Now().Unix()
 	// 种子：2 条 telnet（明文密码）+ 1 条 mysql（hash）+ 1 条超窗（30d 外，验证 range 过滤）。
 	rows := [][]any{
@@ -151,16 +143,8 @@ func newHoneyCredsTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.Exec(`CREATE TABLE cred_events (id INTEGER PRIMARY KEY, ts INTEGER NOT NULL,
-		proto TEXT NOT NULL, src_ip INTEGER NOT NULL, username TEXT NOT NULL DEFAULT '',
-		password TEXT NOT NULL DEFAULT '', extra TEXT NOT NULL DEFAULT '');
-		CREATE INDEX idx_cred_ts ON cred_events(ts);
-		CREATE INDEX idx_cred_proto ON cred_events(proto);
-		CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-		INSERT INTO meta(key, value) VALUES('schema_version', '1');`)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// 表结构统一走 createTestSchema（m5 单一来源，对齐 store schema；含 meta 种子行）。
+	createTestSchema(t, db)
 	now := time.Now().Unix()
 	const ipA, ipB = 0xCB007105, 0xCB007106 // 203.0.113.5 / 203.0.113.6
 	rows := [][]any{

@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
+
+	"sentry-agent/internal/honeypot"
 )
 
 // Config 采集配置（M3 起含 web/disk 全量项，与方案 6.6 对应）。
@@ -194,20 +197,6 @@ type HoneypotCfg struct {
 	Listen  map[string]string `json:"listen"`
 }
 
-// honeypotDefaultListen 蜜罐默认监听（标准端口，任务书定稿）。
-var honeypotDefaultListen = map[string]string{
-	"mysql":     "0.0.0.0:3306",
-	"redis":     "0.0.0.0:6379",
-	"memcached": "0.0.0.0:11211",
-	"mssql":     "0.0.0.0:1433",
-	"mongodb":   "0.0.0.0:27017",
-	"postgres":  "0.0.0.0:5432",
-	"rdp":       "0.0.0.0:3389",
-	"smb":       "0.0.0.0:445",
-	"telnet":    "0.0.0.0:23",
-	"ftp":       "0.0.0.0:21",
-}
-
 // Defaults 返回全部配置项默认值（与方案 6.6 一致）。
 func Defaults() *Config {
 	return &Config{
@@ -238,7 +227,8 @@ func Defaults() *Config {
 		Honeypot: HoneypotCfg{
 			// DEV-HONEY-001：默认关闭——蜜罐占用标准端口，须部署时显式启用（防误开）。
 			Enabled: false,
-			Listen:  honeypotDefaultListen,
+			// 标准端口默认监听取自 honeypot.DefaultListen（协议清单单一来源，m3 修复）。
+			Listen: honeypot.DefaultListen(),
 		},
 	}
 }
@@ -482,8 +472,9 @@ func (c *Config) validateHoneypot() error {
 		return nil
 	}
 	for proto, addr := range c.Honeypot.Listen {
-		if !knownHoneypotProto(proto) {
-			return fmt.Errorf("honeypot.listen 含未知协议 %q（支持：mysql/redis/memcached/mssql/mongodb/postgres/rdp/smb/telnet/ftp）", proto)
+		if !honeypot.IsValidProto(proto) {
+			// 协议清单单一来源（m3 修复）：支持范围由 honeypot.ProtoKinds 枚举生成。
+			return fmt.Errorf("honeypot.listen 含未知协议 %q（支持：%s，见 honeypot.ProtoKinds）", proto, honeypotProtoList())
 		}
 		if addr == "" {
 			continue // 空串 = 禁用该协议
@@ -501,13 +492,15 @@ func (c *Config) validateHoneypot() error {
 	return nil
 }
 
-// knownHoneypotProto 判断是否为蜜罐支持的协议名。
-func knownHoneypotProto(proto string) bool {
-	switch proto {
-	case "mysql", "redis", "memcached", "mssql", "mongodb", "postgres", "rdp", "smb", "telnet", "ftp":
-		return true
+// honeypotProtoList 返回排序后的支持协议清单（由 honeypot.ProtoKinds 枚举生成，
+// 单一来源——新增协议时错误文案自动跟随，无需同步本包）。
+func honeypotProtoList() string {
+	names := make([]string, 0, len(honeypot.ProtoKinds))
+	for p := range honeypot.ProtoKinds {
+		names = append(names, p)
 	}
-	return false
+	sort.Strings(names)
+	return strings.Join(names, "/")
 }
 
 // ParseHourMinute 解析 "HH:MM" 时刻（归档执行时刻校验用；DEV-ARCH-002 D8 导出，

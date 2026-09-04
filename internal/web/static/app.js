@@ -1,17 +1,9 @@
-// sentry-agent 前端逻辑：WS 实时 + 轮询兜底（WS 断线时降级轮询，方案 3.8）。
-// DEV-015：时间范围选择（全局）、TOP 点击联动过滤、SSH 尝试表、防火墙明细表、
-// 表格列头排序、三态（加载/空/错误）、总览被攻击端口 TOP5 迷你榜。
-// DEV-FE-002（P0，方案 8.1）：信息架构重组、刷新分级（connections 按页签激活拉取）、
-// 可见性门控（隐藏面板不 setOption）、表格行点击过滤、setRange/applyFilter 竞态缓解
-// （请求序号 state.reqSeq + fwTimeline range 回显校验，RB-01/N-1）、summary 失败路径
-// （errCb + summaryFailed，RB-02）、数据新鲜度指示、30d 降频提示、DOM 规模控制
-// （TABLE_PAGE=60 + 滚动加载，PF-04）、态势头提权、chrome 压缩、零攻击徽章去遮罩、
-// TI.chart 6→4 色收敛。
-// DEV-FE-003（P1，方案 8.2）：视觉系统收敛（字体 D1~D6 全尺度化 + --accent-strong/--text-code
-// 完整引用 + tooltip 十字线/单位 marker + 7d/30d dataZoom + 图表 aria 降级）、状态完备
-// （KPI 骨架加载 + KPI 失败分支 + 全局错误横幅连续失败计数 + system 帧独立浮条 + 页签淡入）、
-// 可访问性（表格 caption/aria-sort/焦点管理）、可维护性重构（模块化分区 + fetchConns 收敛）、
-// 表格行级 diff 渲染（PF-3：首轮建行 + 后续轮按行 key 复用更新文本节点）、favicon（index.html data URI）。
+// sentry-agent 前端逻辑：WS 实时推送 + 轮询兜底（WS 断线时降级轮询，方案 3.8）。
+// 分区导航（按代码顺序）：
+//   1 常量与全局状态 state｜2 通用工具函数｜3 图表主题与渲染（ECharts，含 3.5 全球攻击地图）
+//   4 非表格渲染（KPI/态势/TOP/事件流）｜5 表格行级 diff 渲染框架
+//   6 数据拉取（轮询与 WS 共用）｜7 交互与联动｜8 WS 实时推送（8.5 数据导出）｜9 初始化
+// 迭代历史见 git log 与 docs/verification/。
 (function () {
   'use strict';
 
