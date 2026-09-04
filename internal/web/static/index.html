@@ -762,8 +762,10 @@ tr.row-warn { color: var(--warn); }
       <div class="card"><h3 class="panel-title" tabindex="-1" data-accent="danger" data-idx="01">被攻击端口 TOP（外部威胁 DPT 口径，点击柱条过滤）</h3><div id="chart-ports" class="chart" role="img" aria-label="被攻击端口 TOP 图：数据加载中"></div></div>
       <div class="card"><h3 data-accent="danger" data-idx="02">攻击源 IP TOP（点击柱条过滤）</h3><div id="chart-sources" class="chart" role="img" aria-label="攻击源 IP TOP 图：数据加载中"></div></div>
       <div class="card"><h3 data-accent="danger" data-idx="03">SSH 失败时间线（每小时）</h3><div id="chart-ssh" class="chart" role="img" aria-label="SSH 失败时间线图：数据加载中"></div></div>
+      <!-- P3-1：fail2ban 当前封禁名单（60s 刷新内存快照；与下方 SSH 表/ban_events 历史记录互补） -->
+      <div class="card"><h3 data-idx="04">当前封禁名单（fail2ban 实时快照，60s 刷新）</h3><ul id="bans-active-mini" class="mini-top"></ul></div>
       <!-- DEV-GEO-001：全球攻击地图（SSH 失败按来源国家聚合；点击国家联动下方列表与导出） -->
-      <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger" data-idx="04">全球攻击地图（SSH 失败来源国家聚合）
+      <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger" data-idx="05">全球攻击地图（SSH 失败来源国家聚合）
         <span class="risk-note">仅统计 SSH 失败次数（result=失败），按来源 IP 所属国家聚合</span></h3>
         <div class="geo-toolbar">
           <select id="geo-country-filter" class="table-filter" title="按国家/地区过滤（与地图点击联动）">
@@ -785,7 +787,7 @@ tr.row-warn { color: var(--warn); }
         <ul id="geo-sources-list" class="mini-top"></ul>
       </div>
       <!-- DEV-HONEY-001（M-B）：协议凭据捕获卡（蜜罐假服务）——独立全宽卡，位于地图与 SSH 表之间 -->
-      <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger" data-idx="05">协议凭据捕获（蜜罐）
+      <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger" data-idx="06">协议凭据捕获（蜜罐）
         <span class="risk-note">蜜罐对标准端口提供最小认证握手模拟，捕获攻击者尝试的登录凭据；【凭据数据仅本地存储】密码默认遮蔽，点击显示</span>
         <select id="hp-proto-filter" class="table-filter" title="按协议过滤">
           <option value="">全部协议</option>
@@ -812,7 +814,7 @@ tr.row-warn { color: var(--warn); }
       </div>
       <!-- DEV-HONEY-002：凭据字典（去重聚合 + 导出）——按 协议+用户名+密码 聚合去重，
            导出跟随当前时间范围与协议过滤（与上方明细卡共用协议下拉） -->
-      <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger" data-idx="06">凭据字典（去重聚合）
+      <div class="card" style="grid-column: 1 / -1;"><h3 data-accent="danger" data-idx="07">凭据字典（去重聚合）
         <span class="risk-note">按 协议+用户名+密码 去重聚合；明文协议可直接入爆破字典，mysql/smb/mongodb 为不可逆摘要，rdp/memcached 协议无认证；密码默认遮蔽，点击显示</span>
         <span id="hpd-total" class="fold-hint"></span>
         <span class="hpd-actions">
@@ -829,7 +831,7 @@ tr.row-warn { color: var(--warn); }
           </table>
         </div>
       </div>
-      <div class="card" style="grid-column: 1 / -1;"><h3 data-idx="07">SSH 登录尝试（失败红色，点击时间列排序）
+      <div class="card" style="grid-column: 1 / -1;"><h3 data-idx="08">SSH 登录尝试（失败红色，点击时间列排序）
         <select id="ssh-result-filter" class="table-filter" title="按结果过滤">
           <option value="">全部结果</option>
           <option value="0">仅失败</option>
@@ -839,7 +841,7 @@ tr.row-warn { color: var(--warn); }
           <th>时间</th><th>源 IP</th><th>用户名</th><th>认证方式</th><th>结果</th><th>指纹</th><th>详情</th>
         </tr></thead><tbody></tbody></table></div>
       </div>
-      <div class="card" style="grid-column: 1 / -1;"><h3 data-idx="08">外部威胁事件明细（拦截/丢弃红色，点击时间列排序）
+      <div class="card" style="grid-column: 1 / -1;"><h3 data-idx="09">外部威胁事件明细（拦截/丢弃红色，点击时间列排序）
         <select id="fw-action-filter" class="table-filter" title="按动作过滤">
           <option value="">全部动作</option>
           <option value="inbound">仅入站探测</option>

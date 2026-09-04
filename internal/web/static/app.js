@@ -59,8 +59,18 @@
     ws: null, wsMode: false,
     range: '24h',
     filter: null,            // null 或 { type:'port'|'src', value }（TOP 点击联动）
-    attack: { ports: null, sources: null, ssh: null },
-    sort: {},                // { 表 id: { key, dir } }
+    attack: { ports: null, sources: null, ssh: null, bans: null }, // bans：P3-1 封禁名单（不随 range 变化）
+    // T2 重构：各表状态收敛 state.tables[id] = { rows, sort, page }（rows 数据缓存 /
+    // sort 排序 { key, dir } / page 滚动加载当前页数），按 index.html 全部表 id 显式声明，
+    // 消除原 state.xxxRows 运行期隐式挂载与 id.replace('-table','Rows') 字符串耦合
+    tables: {
+      'snap-table': { rows: null, sort: null, page: 0 },
+      'conn-table': { rows: null, sort: null, page: 0 },
+      'hp-table': { rows: null, sort: null, page: 0 },
+      'hpd-table': { rows: null, sort: null, page: 0 },
+      'ssh-table': { rows: null, sort: null, page: 0 },
+      'fw-table': { rows: null, sort: null, page: 0 }
+    },
     sshResult: '',           // SSH 表结果过滤：'' 全部 / 0 失败 / 1 成功
     fwAction: '',            // 防火墙表动作过滤：'' 全部 / inbound / reject / drop / accept
     summary: null,           // summary 缓存（态势条/KPI/风险评分）
@@ -68,10 +78,10 @@
     // DEV-GEO-001：全球攻击地图状态（rows 全量缓存，country/min 前端本地过滤——交互零延迟、
     // 不消耗 heavy 限流桶；导出请求携带过滤参数走后端同口径）
     geo: { rows: null, country: '', min: 0, mmdbOk: false },
-    // DEV-HONEY-001：蜜罐凭据捕获状态（rows 全量缓存，proto 前端筛选走后端参数；
-    // revealed 密码显示集合按行唯一键 __k 记忆——行对象每轮重建，须独立持久化）
-    // DEV-HONEY-002：dict 凭据字典聚合缓存（rows 跟随同一 proto 过滤与 range）。
-    hp: { rows: null, dict: null, proto: '', revealed: {} },
+    // DEV-HONEY-001/002：蜜罐凭据捕获状态（rows/dict 数据缓存已收敛至 state.tables 的
+    // hp-table/hpd-table；proto 前端筛选走后端参数；revealed 密码显示集合按行唯一键 __k
+    // 记忆——行对象每轮重建，须独立持久化）。
+    hp: { proto: '', revealed: {} },
     worldLoaded: false,      // world.json 已注册标志（一次性 fetch/registerMap）
     attackDataFailed: false, // 攻击数据源失败标志——每轮 pollAttack 开头重置，成功回调不覆盖
     sshTimelineOk: true,     // ssh/timeline 独立就绪标志（fwTimeline 成功不覆盖它）
@@ -89,9 +99,10 @@
     failStreak: 0            // 连续失败事件累计计数——≥2 显示错误横幅，summary 成功清零
   };
   var statusEl = document.getElementById('conn-status');
-  var tablePage = {};        // 各表滚动加载当前页数（resetTablePages 重置）
 
   // ===== 模块 2：通用工具 =====
+  // 零填充两位数（各时间格式化共用；原 5 处内联 p(n) 收敛单点，T3 重构）
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
   function ip(v) {
     if (v <= 0) return '-';
     return [(v >>> 24), (v >>> 16) & 255, (v >>> 8) & 255, v & 255].join('.');
@@ -105,14 +116,12 @@
   }
   function fmtTime(ts) {
     var d = new Date(ts * 1000);
-    function p(n) { return n < 10 ? '0' + n : '' + n; }
-    return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    return pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
   }
   // 带日期时间（7d/30d 范围需要）
   function fmtTimeFull(ts) {
     var d = new Date(ts * 1000);
-    function p(n) { return n < 10 ? '0' + n : '' + n; }
-    return p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    return pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
   }
   // 可见性门控——document.hidden 或非激活面板时跳过渲染（态势条为全局 chrome 不受门控）
   function vis(panel) { return !document.hidden && state.activePanel === panel; }
@@ -142,7 +151,9 @@
     var el = document.getElementById(id);
     if (el) { el.setAttribute('aria-label', label); }
   }
-  function resetTablePages() { tablePage = {}; }
+  function resetTablePages() {
+    Object.keys(state.tables).forEach(function (id) { state.tables[id].page = 0; });
+  }
   // 滚动到底加载下一批（轻量分页：每表首轮 TABLE_PAGE 行；MAX_TABLE_PAGE 上限保护防 DOM 无限增长）
   function bindScrollLoad(id, renderFn) {
     var tb = document.getElementById(id);
@@ -152,11 +163,11 @@
     sc.__scrollBound = true;
     sc.addEventListener('scroll', function () {
       if (sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 60) {
-        var cur = tablePage[id] || TABLE_PAGE;
-        var rowsKey = id.replace('-table', 'Rows');
-        var total = state[rowsKey] ? state[rowsKey].length : 0;
+        var t = state.tables[id];
+        var cur = (t && t.page) || TABLE_PAGE;
+        var total = (t && t.rows) ? t.rows.length : 0;
         if (total <= cur) { return; }
-        tablePage[id] = Math.min(cur + TABLE_PAGE, MAX_TABLE_PAGE);
+        t.page = Math.min(cur + TABLE_PAGE, MAX_TABLE_PAGE);
         renderFn();
       }
     });
@@ -167,8 +178,7 @@
     var el = document.getElementById('freshness');
     if (!el) return;
     var d = new Date();
-    function p(n) { return n < 10 ? '0' + n : '' + n; }
-    var t = p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    var t = pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
     el.textContent = (state.wsMode ? '' : '降级轮询 · ') + '更新于 ' + t;
     el.classList.toggle('warn', !state.wsMode);
   }
@@ -561,7 +571,7 @@
     if (note) {
       if (state.geo.rows && !state.geo.mmdbOk) {
         note.style.display = 'inline';
-        note.textContent = '未配置 GeoIP 库（部署时运行 deploy/fetch_geolite2.sh），国家显示 Unknown';
+        note.textContent = '未配置 GeoIP 库（agent 启动后自动拉取，可手动运行 docs/verification/tools/fetch_geolite2.sh），国家显示 Unknown';
       } else { note.style.display = 'none'; }
     }
     if (!rows) { return; } // 加载中（保留旧图）
@@ -624,14 +634,51 @@
       wc.setOption(opt, true);
     });
   }
+  // TOP 榜通用渲染（T4：三胞胎榜合并——rank + 主字段 + bar 百分比条 + hits 横向榜，
+  // renderGeoSources / renderMiniTop / renderTopSourcesMini 三处共用）。
+  // items 空时显示空态文案后返回；差异点全部回调化，保持三处行为不变：
+  //   emptyText   空态文案（字符串或函数；geo 的空态双文案依赖筛选状态故用函数）
+  //   rank(i)     序号 HTML 片段（三处格式不同：1 / 空 / #1）
+  //   label(r)    主字段 HTML 片段（调用方负责转义或保证纯数值拼接，见各处 R-12 注）
+  // barPct(r)   百分比条宽度数值（0-100，max 基准由调用方闭包确定；省略则不渲染条段）
+  //   barColor    百分比条内联背景（可选；缺省走 CSS 默认色）
+  //   hits(r)     命中数文本
+  //   title(r)    li.title（可选）
+  //   onRowClick(r) li 点击回调（可选）
+  //   trailing(r) 行尾追加节点工厂（可选，如复制按钮）
+  function renderMiniList(ulId, items, opts) {
+    var ul = document.getElementById(ulId);
+    if (!ul) return;
+    if (!items || !items.length) {
+      var et = opts.emptyText;
+      ul.innerHTML = '<li style="color:var(--text-dim);cursor:default;">' +
+        (typeof et === 'function' ? et() : (et || '暂无数据')) + '</li>';
+      return;
+    }
+    ul.innerHTML = '';
+    items.forEach(function (r, i) {
+      var li = document.createElement('li');
+      if (opts.title) { li.title = opts.title(r); }
+      if (opts.onRowClick) { li.addEventListener('click', function () { opts.onRowClick(r); }); }
+      // barPct 省略时跳过百分比条段（P3-1 封禁名单榜无数量维度）
+      li.innerHTML = '<span class="rank">' + opts.rank(i) + '</span>' +
+        opts.label(r) +
+        (opts.barPct
+          ? '<span class="bar-wrap"><span class="bar" style="width:' + opts.barPct(r) + '%' +
+            (opts.barColor ? ';background:' + opts.barColor : '') + '"></span></span>'
+          : '') +
+        '<span class="hits">' + opts.hits(r) + '</span>';
+      if (opts.trailing) { li.appendChild(opts.trailing(r)); }
+      ul.appendChild(li);
+    });
+  }
   // 地图卡内攻击源列表（SSH 失败口径 TOP10，联动国家/阈值筛选；点击复制 IP）
   function renderGeoSources() {
     if (!vis('attack')) { return; }
-    var ul = document.getElementById('geo-sources-list');
-    if (!ul) return;
     var rows = state.geo.rows;
     if (!rows) {
-      ul.innerHTML = '<li style="color:var(--text-dim);cursor:default;">加载中…</li>';
+      var ul0 = document.getElementById('geo-sources-list');
+      if (ul0) { ul0.innerHTML = '<li style="color:var(--text-dim);cursor:default;">加载中…</li>'; }
       return;
     }
     var list = rows.filter(function (r) {
@@ -639,56 +686,78 @@
       if (state.geo.min > 0 && r.count < state.geo.min) { return false; }
       return true;
     });
-    if (!list.length) {
-      ul.innerHTML = '<li style="color:var(--text-dim);cursor:default;">' +
-        (rows.length ? '当前筛选无匹配来源 IP（清除筛选查看全部）' : '暂无 SSH 失败来源') + '</li>';
-      return;
-    }
     var top = list.slice(0, 10);
-    var max = top[0].count || 1;
-    ul.innerHTML = '';
-    top.forEach(function (r, i) {
-      var li = document.createElement('li');
-      li.title = r.ip + '（' + r.country_name + '）累计 ' + r.count + ' 次';
-      li.innerHTML = '<span class="rank">#' + (i + 1) + '</span>' +
-        '<span class="src-ip">' + escapeHtml(r.ip) + '</span>' +
-        '<span class="port" style="width:auto;color:var(--text-dim);">' + escapeHtml(r.country_name === 'Unknown' ? '未知' : r.country_name) + '</span>' +
-        '<span class="bar-wrap"><span class="bar" style="width:' + Math.round(r.count / max * 100) + '%;background:var(--accent);"></span></span>' +
-        '<span class="hits">' + r.count + '</span>';
-      var ipStr = r.ip;
-      li.appendChild(makeCopyBtn(ipStr));
-      ul.appendChild(li);
+    var max = top.length ? (top[0].count || 1) : 1;
+    renderMiniList('geo-sources-list', top, {
+      // 空态双文案：有数据但被筛选清空 vs 无数据
+      emptyText: function () { return rows.length ? '当前筛选无匹配来源 IP（清除筛选查看全部）' : '暂无 SSH 失败来源'; },
+      rank: function (i) { return '#' + (i + 1); },
+      label: function (r) {
+        return '<span class="src-ip">' + escapeHtml(r.ip) + '</span>' +
+          '<span class="port" style="width:auto;color:var(--text-dim);">' +
+          escapeHtml(r.country_name === 'Unknown' ? '未知' : r.country_name) + '</span>';
+      },
+      barPct: function (r) { return Math.round(r.count / max * 100); },
+      barColor: 'var(--accent)',
+      hits: function (r) { return r.count; },
+      title: function (r) { return r.ip + '（' + r.country_name + '）累计 ' + r.count + ' 次'; },
+      trailing: function (r) { return makeCopyBtn(r.ip); }
     });
   }
-  // 复制按钮（与 TOP 攻击源迷你榜同款交互；独立工厂避免与 renderTopSourcesMini 耦合）
-  function makeCopyBtn(ipStr) {
+  // P3-1：当前封禁名单榜（fail2ban 实时快照，60s 服务端刷新；点击行复制 IP——
+  // 与 geo 榜交互一致）。数据与时间范围无关（当前在封集合），不随 range 清空。
+  function renderBansActive() {
+    if (!vis('attack')) { return; }
+    var rows = state.attack.bans;
+    if (!rows) {
+      var ul0 = document.getElementById('bans-active-mini');
+      if (ul0) { ul0.innerHTML = '<li style="color:var(--text-dim);cursor:default;">加载中…</li>'; }
+      return;
+    }
+    renderMiniList('bans-active-mini', rows.slice(0, 50), {
+      emptyText: '当前无封禁 IP（fail2ban 未启用或无在封记录）',
+      rank: function (i) { return '#' + (i + 1); },
+      label: function (r) { return '<span class="src-ip">' + escapeHtml(r) + '</span>'; },
+      hits: function () { return ''; },
+      title: function (r) { return r + '（点击复制）'; },
+      trailing: function (r) { return makeCopyBtn(r); }
+    });
+  }
+  // 复制按钮工厂（T3：geo 攻击源列表与 TOP 攻击源迷你榜共用，原两份重复实现收敛单点）。
+  // text 待复制文本；failText 复制失败文案（迷你榜历史文案为"失败"与 geo 的"复制失败"不同，参数保留差异）。
+  function makeCopyBtn(text, failText) {
     var btn = document.createElement('button');
     btn.className = 'copy-btn';
     btn.textContent = '复制';
     btn.addEventListener('click', function (ev) {
       ev.stopPropagation();
       function done(ok) {
-        btn.textContent = ok ? '已复制' : '复制失败';
+        btn.textContent = ok ? '已复制' : (failText || '复制失败');
         btn.classList.toggle('copied', ok);
         setTimeout(function () { btn.textContent = '复制'; btn.classList.remove('copied'); }, 1500);
       }
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(ipStr).then(function () { done(true); }, function () { done(false); });
+        navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
       } else { done(false); }
     });
     return btn;
+  }
+  // a.click() 下载触发段统一（T3：geoExport/honeyCredExport/doExport 三处共用；
+  // blob 场景由调用方在触发后自行 revokeObjectURL）
+  function triggerDownload(href, filename) {
+    var a = document.createElement('a');
+    a.href = href;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
   // 地图 CSV 导出（携带当前 range/country/min_count 筛选）
   function geoExport() {
     var q = 'range=' + state.range;
     if (state.geo.country) { q += '&country=' + encodeURIComponent(state.geo.country); }
     if (state.geo.min > 0) { q += '&min_count=' + state.geo.min; }
-    var a = document.createElement('a');
-    a.href = '/api/v1/export/attacks_csv?' + q;
-    a.download = 'sentry_attacks_geo_' + state.range + '.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    triggerDownload('/api/v1/export/attacks_csv?' + q, 'sentry_attacks_geo_' + state.range + '.csv');
   }
 
 
@@ -866,62 +935,36 @@
   // 总览被攻击端口 TOP5 迷你榜（复用 summary.top_ports，零额外请求）
   function renderMiniTop(ports) {
     if (!vis('overview')) { return; }
-    var ul = document.getElementById('top-ports-mini');
-    if (!ul) return;
-    ul.innerHTML = '';
-    if (!ports || !ports.length) {
-      ul.innerHTML = '<li style="color:var(--text-dim);cursor:default;">暂无被攻击端口数据</li>';
-      return;
-    }
-    var max = ports[0].hits || 1;
-    ports.forEach(function (p, i) {
-      var li = document.createElement('li');
-      li.title = '点击跳转攻击页过滤该端口';
-      li.addEventListener('click', function () {
+    var max = ports && ports.length ? (ports[0].hits || 1) : 1;
+    renderMiniList('top-ports-mini', ports, {
+      emptyText: '暂无被攻击端口数据',
+      rank: function (i) { return i + 1; },
+      // R-12 注：mini-top 用 innerHTML 拼接数值字段（dst_port/hits 为后端 int64 数字，
+      // ip() 位运算输出纯数字串），无注入面；若未来字段类型字符串化须改 textContent 分段构建
+      label: function (p) { return '<span class="port">:' + p.dst_port + '</span>'; },
+      barPct: function (p) { return Math.round(p.hits / max * 100); },
+      hits: function (p) { return p.hits; },
+      title: function () { return '点击跳转攻击页过滤该端口'; },
+      onRowClick: function (p) {
         switchPanel('attack');
         applyFilter({ type: 'port', value: p.dst_port }, '总览');
-      });
-      // R-12 注：mini-top 用 innerHTML 拼接数值字段（dst_port/hits 为后端 int64 数字，ip() 位运算输出纯数字串），
-      // 无注入面；若未来字段类型字符串化须改 textContent 分段构建
-      li.innerHTML = '<span class="rank">' + (i + 1) + '</span>' +
-        '<span class="port">:' + p.dst_port + '</span>' +
-        '<span class="bar-wrap"><span class="bar" style="width:' + Math.round(p.hits / max * 100) + '%"></span></span>' +
-        '<span class="hits">' + p.hits + '</span>';
-      ul.appendChild(li);
+      }
     });
   }
 
   // TOP 攻击源迷你榜（横向条 + 复制 IP，clipboard API）
   function renderTopSourcesMini() {
     if (!vis('overview')) { return; }
-    var ul = document.getElementById('top-sources-mini');
-    if (!ul) { return; }
     var srcs = state.attack.sources || [];
-    ul.innerHTML = '';
-    if (!srcs.length) {
-      ul.innerHTML = '<li style="color:var(--text-dim);cursor:default;">暂无攻击源</li>';
-      return;
-    }
-    var max = srcs[0].hits || 1;
-    srcs.forEach(function (s2) {
-      var li = document.createElement('li');
-      var ipStr = ip(s2.src_ip);
-      li.innerHTML = '<span class="rank"></span><span class="src-ip">' + ipStr + '</span>' +
-        '<span class="bar-wrap"><span class="bar" style="width:' + Math.round(s2.hits / max * 100) + '%;background:var(--warn)"></span></span>' +
-        '<span class="hits">' + s2.hits + '</span>' +
-        '<button class="copy-btn" data-ip="' + ipStr + '">复制</button>';
-      var btn = li.querySelector('.copy-btn');
-      btn.addEventListener('click', function () {
-        var done = function (ok) {
-          btn.textContent = ok ? '已复制' : '失败';
-          btn.classList.toggle('copied', ok);
-          setTimeout(function () { btn.textContent = '复制'; btn.classList.remove('copied'); }, 1500);
-        };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(ipStr).then(function () { done(true); }, function () { done(false); });
-        } else { done(false); }
-      });
-      ul.appendChild(li);
+    var max = srcs.length ? (srcs[0].hits || 1) : 1;
+    renderMiniList('top-sources-mini', srcs, {
+      emptyText: '暂无攻击源',
+      rank: function () { return ''; },
+      label: function (s2) { return '<span class="src-ip">' + ip(s2.src_ip) + '</span>'; },
+      barPct: function (s2) { return Math.round(s2.hits / max * 100); },
+      barColor: 'var(--warn)',
+      hits: function (s2) { return s2.hits; },
+      trailing: function (s2) { return makeCopyBtn(ip(s2.src_ip), '失败'); }
     });
   }
 
@@ -936,14 +979,14 @@
     var box = document.getElementById('event-stream');
     if (!box) { return; }
     var items = [];
-    (state.sshRows || []).forEach(function (r) {
+    (state.tables['ssh-table'].rows || []).forEach(function (r) {
       if (r.result === 0) {
         var u = escapeHtml(r.username), ipStr = ip(r.src_ip);
         items.push({ ts: r.ts, type: 'ssh', srcIp: r.src_ip,
           text: 'SSH 失败 <b>' + u + '</b> @ <b>' + ipStr + '</b>', plain: 'SSH 失败 ' + r.username + ' @ ' + ipStr });
       }
     });
-    (state.fwRows || []).forEach(function (r) {
+    (state.tables['fw-table'].rows || []).forEach(function (r) {
       // DEV-045：事件流仅展示拦截类动作（reject/drop）——inbound 扫描探测量级占 98%+，
       // 且趋势图/KPI/FW 表格已承载展示，避免刷屏挤出 SSH 失败等高信号事件
       if (r.action === 'reject' || r.action === 'drop') {
@@ -1136,24 +1179,55 @@
       }
     });
   }
+  // 表格渲染公共脚手架（T1：6 个 render 的 15-20 行前奏收敛单点）。
+  // 流程：可见性门控 → tbody 存在 → 三态（loading/empty，处理后返回 null，调用方直接 return）
+  // → opts.onRows 顺序敏感回调（蜜罐两表的小计更新依赖原始 rows 长度，须在排序分页前执行）
+  // → 排序 → 滚动分页 → 行键去重（D-B 审计缺陷修复逻辑单点保留：内容组合 + 同键序号
+  // 保证 __k 行级唯一，排序键不在内容组合时同内容行切换排序会重建——纯性能影响，功能正确）。
+  // opts：visKey 可见面板；emptyText 空态文案；keyBase(r) 行键内容组合（各表不同）；
+  //       keyPrefix 行键前缀（hpd 用 'd-' 与明细表 hp-table 键空间隔离）；onRows(rows) 回调。
+  // 返回 null（三态已处理）或就绪行数组（已排序、已分页、已打 __k）。
+  function prepTable(id, rows, opts) {
+    if (!vis(opts.visKey)) { return null; }
+    if (!tbody(id)) { return null; }
+    if (!rows) { setTableState(id, 'loading-row', '加载中…'); return null; }
+    if (!rows.length) { setTableState(id, 'empty-row', opts.emptyText); return null; }
+    if (opts.onRows) { opts.onRows(rows); }
+    var s = state.tables[id].sort;
+    var out = sortRows(rows, s && s.key, s && s.dir);
+    out = out.slice(0, state.tables[id].page || TABLE_PAGE);
+    var seen = {};
+    out.forEach(function (r) {
+      var base = opts.keyBase(r);
+      seen[base] = (seen[base] || 0) + 1;
+      r.__k = (opts.keyPrefix || '') + base + '#' + seen[base];
+    });
+    return out;
+  }
+  // 密码遮蔽单元格工厂（T1：hp-table 明细表与 hpd-table 字典表逐字重复段收敛单点）。
+  // 遮蔽态由 state.hp.revealed[行唯一键 __k] 决定，点击切换单行（D-B audit Major 修复：
+  // 原 ts|proto|src|user 键粒度太粗会整组揭示，行级键仅切换单行）；rerender 为各自表重渲染入口。
+  function maskedPwCell(row, rerender) {
+    var masked = !state.hp.revealed[row.__k];
+    return {
+      text: masked ? '••••（点击显示）' : (row.password || '(空)'),
+      cls: (masked ? 'hp-pw masked ' : 'hp-pw ') + 'clickable',
+      title: masked ? '点击显示密码（本地敏感数据）' : '点击遮蔽',
+      click: function (r2) {
+        var rk = r2.__k;
+        state.hp.revealed[rk] = !state.hp.revealed[rk];
+        rerender();
+      }
+    };
+  }
   // 各表渲染入口：三态 → 排序 → 分页 → 计算行 key → 行级 diff
   function renderSSH() {
-    if (!vis('attack')) { return; }
-    var tb = tbody('ssh-table');
-    if (!tb) return;
-    var rows = state.sshRows;
-    if (!rows) { setTableState('ssh-table', 'loading-row', '加载中…'); return; }
-    if (!rows.length) { setTableState('ssh-table', 'empty-row', '暂无 SSH 登录尝试'); return; }
-    var s = state.sort['ssh-table'];
-    rows = sortRows(rows, s && s.key, s && s.dir);
-    rows = rows.slice(0, tablePage['ssh-table'] || TABLE_PAGE);
-    var seen = {};
-    rows.forEach(function (r) {
-      var base = r.ts + '|' + r.src_ip + '|' + r.result + '|' + r.username + '|' + r.auth_method;
-      seen[base] = (seen[base] || 0) + 1;
-      r.__k = base + '#' + seen[base];
+    var rows = prepTable('ssh-table', state.tables['ssh-table'].rows, {
+      visKey: 'attack', emptyText: '暂无 SSH 登录尝试',
+      keyBase: function (r) { return r.ts + '|' + r.src_ip + '|' + r.result + '|' + r.username + '|' + r.auth_method; }
     });
-    renderTableDiff(tb, rows, function (r) {
+    if (!rows) { return; }
+    renderTableDiff(tbody('ssh-table'), rows, function (r) {
       return {
         key: r.__k,
         cls: (r.result === 0 ? 'row-danger ' : '') + 'row-clickable',
@@ -1170,22 +1244,12 @@
     });
   }
   function renderFW() {
-    if (!vis('attack')) { return; }
-    var tb = tbody('fw-table');
-    if (!tb) return;
-    var rows = state.fwRows;
-    if (!rows) { setTableState('fw-table', 'loading-row', '加载中…'); return; }
-    if (!rows.length) { setTableState('fw-table', 'empty-row', '暂无外部威胁事件'); return; }
-    var s = state.sort['fw-table'];
-    rows = sortRows(rows, s && s.key, s && s.dir);
-    rows = rows.slice(0, tablePage['fw-table'] || TABLE_PAGE);
-    var seen = {};
-    rows.forEach(function (r) {
-      var base = r.ts + '|' + r.src_ip + '|' + r.dst_port + '|' + r.action + '|' + (r.raw || '').slice(0, 16);
-      seen[base] = (seen[base] || 0) + 1;
-      r.__k = base + '#' + seen[base];
+    var rows = prepTable('fw-table', state.tables['fw-table'].rows, {
+      visKey: 'attack', emptyText: '暂无外部威胁事件',
+      keyBase: function (r) { return r.ts + '|' + r.src_ip + '|' + r.dst_port + '|' + r.action + '|' + (r.raw || '').slice(0, 16); }
     });
-    renderTableDiff(tb, rows, function (r) {
+    if (!rows) { return; }
+    renderTableDiff(tbody('fw-table'), rows, function (r) {
       // 源 IP 单元格与目的端口单元格独立点击（stopPropagation 由框架保证）；行点击过滤源 IP
       return {
         key: r.__k,
@@ -1209,29 +1273,17 @@
   // 封禁记录表已随 DEV-GEO-001 移除（renderBans/gotoBanIp 删除；后端 /api/v1/bans 保留不动）
   // DEV-HONEY-001：蜜罐凭据表渲染（三态 + 行级 diff + 密码遮蔽点击切换 + 捕获小计）。
   function renderHoneypot() {
-    if (!vis('attack')) { return; }
-    var tb = tbody('hp-table');
-    if (!tb) return;
-    var rows = state.hp.rows;
-    if (!rows) { setTableState('hp-table', 'loading-row', '加载中…'); return; }
-    if (!rows.length) { setTableState('hp-table', 'empty-row', '暂无蜜罐捕获记录'); return; }
-    var totalEl = document.getElementById('hp-total');
-    if (totalEl) { totalEl.textContent = '捕获 ' + rows.length + ' 条'; }
-    var s = state.sort['hp-table'];
-    rows = sortRows(rows, s && s.key, s && s.dir);
-    rows = rows.slice(0, tablePage['hp-table'] || TABLE_PAGE);
-    var seen = {};
-    rows.forEach(function (r) {
-      var base = r.ts + '|' + r.proto + '|' + r.src_ip + '|' + r.username + '|' + (r.password || '').slice(0, 8);
-      seen[base] = (seen[base] || 0) + 1;
-      r.__k = base + '#' + seen[base];
+    var rows = prepTable('hp-table', state.tables['hp-table'].rows, {
+      visKey: 'attack', emptyText: '暂无蜜罐捕获记录',
+      keyBase: function (r) { return r.ts + '|' + r.proto + '|' + r.src_ip + '|' + r.username + '|' + (r.password || '').slice(0, 8); },
+      // 捕获小计（原始 rows 口径，须在排序分页前执行——onRows 保证顺序）
+      onRows: function (rows) {
+        var totalEl = document.getElementById('hp-total');
+        if (totalEl) { totalEl.textContent = '捕获 ' + rows.length + ' 条'; }
+      }
     });
-    renderTableDiff(tb, rows, function (r) {
-      // 密码遮蔽：默认 ••••，点击切换（revealed 键 = 行唯一键 __k（含序号）——
-      // D-B audit Major 修复：原 ts|proto|src|user 键粒度太粗，同 key 组
-      // （同源同协议同账号多行）点击一行会揭示整组；行级键点击仅切换单行）。
-      var k = r.__k;
-      var masked = !state.hp.revealed[k];
+    if (!rows) { return; }
+    renderTableDiff(tbody('hp-table'), rows, function (r) {
       return {
         key: r.__k,
         cells: [
@@ -1239,14 +1291,7 @@
           { text: r.proto, cls: 'num' },
           { text: r.src_ip, cls: 'num' },
           { text: r.username },
-          { text: masked ? '••••（点击显示）' : (r.password || '(空)'),
-            cls: (masked ? 'hp-pw masked ' : 'hp-pw ') + 'clickable',
-            title: masked ? '点击显示密码（本地敏感数据）' : '点击遮蔽',
-            click: function (row) {
-              var rk = row.__k;
-              state.hp.revealed[rk] = !state.hp.revealed[rk];
-              renderHoneypot();
-            } },
+          maskedPwCell(r, renderHoneypot),
           { text: r.extra, cls: 'raw-cell', title: r.extra }
         ]
       };
@@ -1255,49 +1300,34 @@
   // DEV-HONEY-002：凭据字典聚合表渲染（去重聚合行 + 密码遮蔽点击切换 + 类型徽标）。
   // 行键 d- 前缀与明细表（hp-table）键空间隔离——共用 state.hp.revealed 集合但不互串。
   function renderHoneyCredDict() {
-    if (!vis('attack')) { return; }
-    var tb = tbody('hpd-table');
-    if (!tb) return;
-    var rows = state.hp.dict;
-    if (!rows) { setTableState('hpd-table', 'loading-row', '加载中…'); return; }
-    if (!rows.length) { setTableState('hpd-table', 'empty-row', '暂无凭据字典（蜜罐未启用或未捕获）'); return; }
-    var totalEl = document.getElementById('hpd-total');
-    if (totalEl) {
-      var pl = 0;
-      rows.forEach(function (r) { if (r.kind === 'plaintext') { pl++; } });
-      totalEl.textContent = '去重 ' + rows.length + ' 组（明文 ' + pl + '）';
-    }
-    var s = state.sort['hpd-table'];
-    rows = sortRows(rows, s && s.key, s && s.dir);
-    rows = rows.slice(0, tablePage['hpd-table'] || TABLE_PAGE);
-    var seen = {};
-    rows.forEach(function (r) {
-      var base = r.proto + '|' + r.username + '|' + (r.password || '').slice(0, 8);
-      seen[base] = (seen[base] || 0) + 1;
-      r.__k = 'd-' + base + '#' + seen[base];
+    var rows = prepTable('hpd-table', state.tables['hpd-table'].rows, {
+      visKey: 'attack', emptyText: '暂无凭据字典（蜜罐未启用或未捕获）',
+      keyPrefix: 'd-',
+      keyBase: function (r) { return r.proto + '|' + r.username + '|' + (r.password || '').slice(0, 8); },
+      // 去重小计（原始 rows 口径，须在排序分页前执行——onRows 保证顺序）
+      onRows: function (rows) {
+        var totalEl = document.getElementById('hpd-total');
+        if (totalEl) {
+          var pl = 0;
+          rows.forEach(function (r) { if (r.kind === 'plaintext') { pl++; } });
+          totalEl.textContent = '去重 ' + rows.length + ' 组（明文 ' + pl + '）';
+        }
+      }
     });
+    if (!rows) { return; }
     var kindText = { plaintext: '明文', hash: '摘要', none: '无认证' };
     var kindTitle = {
       plaintext: '明文捕获（可直接入爆破字典）',
       hash: '不可逆摘要（mysql SHA1 链 / smb NTLMv2 / mongodb SCRAM），无法还原明文',
       none: '协议无认证机制（rdp/memcached），无凭据可捕获'
     };
-    renderTableDiff(tb, rows, function (r) {
-      var k = r.__k;
-      var masked = !state.hp.revealed[k];
+    renderTableDiff(tbody('hpd-table'), rows, function (r) {
       return {
         key: r.__k,
         cells: [
           { text: r.proto, cls: 'num' },
           { text: r.username || '(空)' },
-          { text: masked ? '••••（点击显示）' : (r.password || '(空)'),
-            cls: (masked ? 'hp-pw masked ' : 'hp-pw ') + 'clickable',
-            title: masked ? '点击显示密码（本地敏感数据）' : '点击遮蔽',
-            click: function (row) {
-              var rk = row.__k;
-              state.hp.revealed[rk] = !state.hp.revealed[rk];
-              renderHoneyCredDict();
-            } },
+          maskedPwCell(r, renderHoneyCredDict),
           { text: kindText[r.kind] || r.kind, cls: 'hpd-kind ' + (r.kind || ''),
             title: kindTitle[r.kind] || '' },
           { text: r.count, cls: 'num' },
@@ -1309,22 +1339,12 @@
     });
   }
   function renderSnap() {
-    if (!vis('conn')) { return; }
-    var tb = tbody('snap-table');
-    if (!tb) return;
-    var rows = state.snapRows;
-    if (!rows) { setTableState('snap-table', 'loading-row', '加载中…'); return; }
-    if (!rows.length) { setTableState('snap-table', 'empty-row', '暂无连接快照'); return; }
-    var s = state.sort['snap-table'];
-    rows = sortRows(rows, s && s.key, s && s.dir);
-    rows = rows.slice(0, tablePage['snap-table'] || TABLE_PAGE);
-    var seen = {};
-    rows.forEach(function (c) {
-      var base = c.src_ip + '|' + c.src_port + '|' + c.dst_ip + '|' + c.dst_port + '|' + c.proto;
-      seen[base] = (seen[base] || 0) + 1;
-      c.__k = base + '#' + seen[base];
+    var rows = prepTable('snap-table', state.tables['snap-table'].rows, {
+      visKey: 'conn', emptyText: '暂无连接快照',
+      keyBase: function (c) { return c.src_ip + '|' + c.src_port + '|' + c.dst_ip + '|' + c.dst_port + '|' + c.proto; }
     });
-    renderTableDiff(tb, rows, function (c) {
+    if (!rows) { return; }
+    renderTableDiff(tbody('snap-table'), rows, function (c) {
       return {
         key: c.__k, cls: '', title: '',
         cells: [
@@ -1337,22 +1357,12 @@
     });
   }
   function renderConns() {
-    if (!vis('conn')) { return; }
-    var tb = tbody('conn-table');
-    if (!tb) return;
-    var rows = state.connRows;
-    if (!rows) { setTableState('conn-table', 'loading-row', '加载中…'); return; }
-    if (!rows.length) { setTableState('conn-table', 'empty-row', '暂无连接事件'); return; }
-    var s = state.sort['conn-table'];
-    rows = sortRows(rows, s && s.key, s && s.dir);
-    rows = rows.slice(0, tablePage['conn-table'] || TABLE_PAGE);
-    var seen = {};
-    rows.forEach(function (c) {
-      var base = c.ts + '|' + c.src_ip + '|' + c.src_port + '|' + c.dst_port + '|' + c.ev_type;
-      seen[base] = (seen[base] || 0) + 1;
-      c.__k = base + '#' + seen[base];
+    var rows = prepTable('conn-table', state.tables['conn-table'].rows, {
+      visKey: 'conn', emptyText: '暂无连接事件',
+      keyBase: function (c) { return c.ts + '|' + c.src_ip + '|' + c.src_port + '|' + c.dst_port + '|' + c.ev_type; }
     });
-    renderTableDiff(tb, rows, function (c) {
+    if (!rows) { return; }
+    renderTableDiff(tbody('conn-table'), rows, function (c) {
       var type = ['', 'NEW', 'UPDATE', 'DESTROY'][c.ev_type] || c.ev_type;
       return {
         key: c.__k,
@@ -1395,7 +1405,7 @@
     if (state.filter && state.filter.type === 'port') { connQS += '&dst_port=' + state.filter.value; }
     if (state.filter && state.filter.type === 'src') { connQS += '&src_ip=' + state.filter.value; }
     fetchJSON(connQS, function (d) {
-      state.connRows = d.rows || [];
+      state.tables['conn-table'].rows = d.rows || [];
       renderConns();
     }, function () { noteFailure(); setTableState('conn-table', 'error-row', '加载失败，请稍后重试'); });
   }
@@ -1453,7 +1463,7 @@
   // 连接页专属拉取（snapshot 20s 采集源 + connections 事件流；connections 查询收敛至 fetchConns）
   function pollConns() {
     fetchJSON('/api/v1/snapshot', function (d) {
-      state.snapRows = d.rows || [];
+      state.tables['snap-table'].rows = d.rows || [];
       renderSnap();
     }, function () { noteFailure(); setTableState('snap-table', 'error-row', '加载失败，请稍后重试'); });
     fetchConns();
@@ -1504,12 +1514,20 @@
       var gl = document.getElementById('geo-sources-list');
       if (gl) { gl.innerHTML = '<li style="color:var(--danger);cursor:default;">地图数据加载失败</li>'; }
     });
+    // P3-1：当前封禁名单（fail2ban 实时快照；与 range 无关故不带 rangeQS，不参与 attackDataFailed）
+    fetchJSON('/api/v1/bans/active', function (d) {
+      state.attack.bans = d.rows || [];
+      renderBansActive();
+    }, function () {
+      state.attack.bans = null;
+      renderBansActive();
+    });
     // SSH 尝试明细（跟随 range + src_ip 联动过滤；result=0 失败）
     var sshQS = '/api/v1/ssh?limit=200&' + rangeQS();
     if (state.filter && state.filter.type === 'src') { sshQS += '&src_ip=' + state.filter.value; }
     if (state.sshResult !== '') { sshQS += '&result=' + state.sshResult; }
     fetchJSON(sshQS, function (d) {
-      state.sshRows = d.rows || [];
+      state.tables['ssh-table'].rows = d.rows || [];
       renderSSH();
       renderEventStream();
     }, function () { noteFailure(); setTableState('ssh-table', 'error-row', '加载失败，请稍后重试'); });
@@ -1517,14 +1535,14 @@
     var hpQS = '/api/v1/honeypot/events?limit=200&' + rangeQS();
     if (state.hp.proto !== '') { hpQS += '&proto=' + state.hp.proto; }
     fetchJSON(hpQS, function (d) {
-      state.hp.rows = d.rows || [];
+      state.tables['hp-table'].rows = d.rows || [];
       renderHoneypot();
     }, function () { noteFailure(); setTableState('hp-table', 'error-row', '加载失败，请稍后重试'); });
     // 凭据字典聚合（DEV-HONEY-002；与明细卡同一 range/proto 口径；失败置三态错误行）
     var hpdQS = '/api/v1/honeypot/creds?limit=500&' + rangeQS();
     if (state.hp.proto !== '') { hpdQS += '&proto=' + state.hp.proto; }
     fetchJSON(hpdQS, function (d) {
-      state.hp.dict = d.rows || [];
+      state.tables['hpd-table'].rows = d.rows || [];
       renderHoneyCredDict();
     }, function () { noteFailure(); setTableState('hpd-table', 'error-row', '加载失败，请稍后重试'); });
     // 防火墙明细（跟随 range + dst_port/src_ip 联动过滤 + action 下拉）
@@ -1533,7 +1551,7 @@
     if (state.filter && state.filter.type === 'src') { fwQS += '&src_ip=' + state.filter.value; }
     if (state.fwAction !== '') { fwQS += '&action=' + state.fwAction; }
     fetchJSON(fwQS, function (d) {
-      state.fwRows = d.rows || [];
+      state.tables['fw-table'].rows = d.rows || [];
       renderFW();
       renderEventStream();
     }, function () { noteFailure(); setTableState('fw-table', 'error-row', '加载失败，请稍后重试'); });
@@ -1602,8 +1620,9 @@
     resetTablePages();
     // 重置明细缓存（避免旧范围数据闪回；summary 一并重置，
     // 否则新范围 summary 会与旧范围数据混合渲染态势条/风险评分）
-    state.sshRows = state.fwRows = state.connRows = null;
-    state.attack = { ports: null, sources: null, ssh: null };
+    // 注：snap-table 不随 range 重置（snapshot 固定 20s 采集源，无 range 口径），行为与重构前一致
+    state.tables['ssh-table'].rows = state.tables['fw-table'].rows = state.tables['conn-table'].rows = null;
+    state.attack = { ports: null, sources: null, ssh: null, bans: null };
     // 范围切换后清空攻击三图——30d 慢响应期间旧 range 图不得残留误导
     ['chart-ports', 'chart-sources', 'chart-ssh'].forEach(function (id) {
       if (charts[id]) { charts[id].clear(); }
@@ -1611,8 +1630,8 @@
     state.fwTimeline = null;
     state.summary = null;
     state.geo.rows = null;   // 地图数据随范围重置（country/min 过滤保持，交互状态不丢）
-    state.hp.rows = null;    // 蜜罐凭据随范围重置（proto/revealed 保持，交互状态不丢）
-    state.hp.dict = null;    // 凭据字典聚合随范围重置（DEV-HONEY-002）
+    state.tables['hp-table'].rows = null;    // 蜜罐凭据随范围重置（proto/revealed 保持，交互状态不丢）
+    state.tables['hpd-table'].rows = null;   // 凭据字典聚合随范围重置（DEV-HONEY-002）
     state.topPorts = [];
     state.resourceData = null;
     state.eventExpanded = false; // 范围切换后事件流恢复默认 3 条
@@ -1650,9 +1669,9 @@
       if (!key) return;
       th.classList.add('sortable');
       th.addEventListener('click', function () {
-        var cur = state.sort[id];
+        var cur = state.tables[id].sort;
         var dir = (!cur || cur.key !== key || cur.dir === 'desc') ? 'asc' : 'desc';
-        state.sort[id] = { key: key, dir: dir };
+        state.tables[id].sort = { key: key, dir: dir };
         head.querySelectorAll('th').forEach(function (t) {
           t.classList.remove('sorted');
           t.removeAttribute('aria-sort');
@@ -1720,9 +1739,8 @@
   }
   function exportFileName() {
     var d = new Date();
-    function p(n) { return n < 10 ? '0' + n : '' + n; }
-    return 'sentry_export_' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) +
-      '_' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '.csv';
+    return 'sentry_export_' + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) +
+      '_' + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds()) + '.csv';
   }
   // 自定义起止默认值：近 24h（加载时设置一次；用户修改后切换自定义模式）
   function initCustomRange() {
@@ -1730,9 +1748,8 @@
     var toEl = document.getElementById('export-to');
     if (!fromEl || !toEl) return;
     function fmt(dt) {
-      function p(n) { return n < 10 ? '0' + n : '' + n; }
-      return dt.getFullYear() + '-' + p(dt.getMonth() + 1) + '-' + p(dt.getDate()) +
-        'T' + p(dt.getHours()) + ':' + p(dt.getMinutes());
+      return dt.getFullYear() + '-' + pad2(dt.getMonth() + 1) + '-' + pad2(dt.getDate()) +
+        'T' + pad2(dt.getHours()) + ':' + pad2(dt.getMinutes());
     }
     if (!fromEl.value) { fromEl.value = fmt(new Date(Date.now() - 86400 * 1000)); }
     if (!toEl.value) { toEl.value = fmt(new Date()); }
@@ -1774,15 +1791,12 @@
       return r.blob();
     }).then(function (blob) {
       if (blob.size === 0) { exportMsg('该时间段无攻击记录', 'warn'); return; }
+      // blob 变体：本地 objectURL 下载（触发段复用 triggerDownload，用后立即 revoke）
       var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      a.href = url;
-      a.download = exportFileName(); // 文件名前端生成（fetch blob 场景 Content-Disposition 不生效）
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      var fname = exportFileName(); // 文件名前端生成（fetch blob 场景 Content-Disposition 不生效）
+      triggerDownload(url, fname);
       URL.revokeObjectURL(url);
-      exportMsg('导出成功：' + a.download + '（' + blob.size + ' 字节）', 'ok');
+      exportMsg('导出成功：' + fname + '（' + blob.size + ' 字节）', 'ok');
     }).catch(function (e) {
       if (e && e.code === 429) { exportMsg('导出请求过于频繁，请稍候重试', 'err'); }
       else if (e && e.msg) { exportMsg(e.msg, 'err'); }
@@ -1829,8 +1843,9 @@
       renderFW();
       renderGeo();
       renderGeoSources();
-      renderHoneypot(); // DEV-HONEY-001：蜜罐凭据表（缓存于 state.hp，切回补渲染）
-      renderHoneyCredDict(); // DEV-HONEY-002：凭据字典表（缓存于 state.hp.dict，切回补渲染）
+      renderHoneypot(); // DEV-HONEY-001：蜜罐凭据表（缓存于 state.tables['hp-table']，切回补渲染）
+      renderHoneyCredDict(); // DEV-HONEY-002：凭据字典表（缓存于 state.tables['hpd-table']，切回补渲染）
+      renderBansActive(); // P3-1：封禁名单榜（缓存于 state.attack.bans，切回补渲染）
     } else if (name === 'export') {
       // DEV-EXPORT-001：导出页为纯交互页——不注册任何轮询/拉取（可见性门控：无数据拉取），
       // 切页激活时不触发任何 render；数据由用户点击"导出 CSV"时按需 fetch。
@@ -1881,18 +1896,14 @@
   }
   var geoExportBtn = document.getElementById('geo-export-btn');
   if (geoExportBtn) { geoExportBtn.addEventListener('click', geoExport); }
-  // DEV-HONEY-002：凭据字典导出（geoExport 同模式 a.click 下载；跟随 range + 协议过滤）。
+  // DEV-HONEY-002：凭据字典导出（triggerDownload 统一 a.click 下载；跟随 range + 协议过滤）。
   function honeyCredExport(format) {
     var q = 'range=' + state.range + '&format=' + format;
     if (state.hp.proto !== '') { q += '&proto=' + encodeURIComponent(state.hp.proto); }
-    var a = document.createElement('a');
     var ext = format === 'csv' ? 'csv' : 'txt';
-    a.href = '/api/v1/export/creds?' + q;
-    a.download = 'sentry_creds_' + format + '_' + state.range +
-      (state.hp.proto !== '' ? '_' + state.hp.proto : '') + '.' + ext;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    triggerDownload('/api/v1/export/creds?' + q,
+      'sentry_creds_' + format + '_' + state.range +
+      (state.hp.proto !== '' ? '_' + state.hp.proto : '') + '.' + ext);
   }
   var hpdBind = function (id, fmt) {
     var b = document.getElementById(id);
@@ -1985,7 +1996,7 @@
       state.sshResult = sshF.value;
       state.reqSeq++;
       resetTablePages();
-      state.sshRows = null; // 避免旧结果闪回
+      state.tables['ssh-table'].rows = null; // 避免旧结果闪回
       pollAttack();
     });
   }
@@ -1995,7 +2006,7 @@
       state.fwAction = fwF.value;
       state.reqSeq++;
       resetTablePages();
-      state.fwRows = null;
+      state.tables['fw-table'].rows = null;
       pollAttack();
     });
   }
@@ -2007,8 +2018,8 @@
       state.hp.proto = hpF.value;
       state.reqSeq++;
       resetTablePages();
-      state.hp.rows = null;
-      state.hp.dict = null;
+      state.tables['hp-table'].rows = null;
+      state.tables['hpd-table'].rows = null;
       pollAttack();
     });
   }
