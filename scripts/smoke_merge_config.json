@@ -1,0 +1,12 @@
+{
+  "_comment": "合并优化批次冒烟配置（临时）：f2b 关闭验证 bans/active 空名单语义；端口 18201 专用不与其他测试冲突",
+  "collect": {"resource_interval_seconds": 5},
+  "ss": {"snapshot_interval_s": 20},
+  "conntrack": {"mode": "fallback", "fallback_interval_s": 5},
+  "ssh": {"source": "rsyslog"},
+  "fw": {"source": "kmsg", "prefix": "SENTRY_FW:"},
+  "f2b": {"enabled": true, "log_path": "scripts/smoke_f2b_missing.log", "db_path": ".dev015-test/smoke_f2b.db"},
+  "honeypot": {"enabled": false},
+  "web": {"listen": "127.0.0.1:18201"},
+  "db": {"path": ".dev015-test/smoke_merge.db", "archive_dir": ".dev015-test/smoke_archive", "batch_interval_ms": 500, "batch_size": 200, "retention_days": 7}
+}
