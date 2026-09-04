@@ -147,6 +147,8 @@ func (s *Server) routes() {
 	mux.HandleFunc("/api/v1/export/attacks_csv", s.limitHeavy(s.hExportAttacksCSV))
 	// DEV-EXPORT-001：数据导出（30d 全量可能数万行 + 流式写），纳入 heavy 限流（1 rps / burst 6）。
 	mux.HandleFunc("/api/v1/export/csv", s.limitHeavy(s.hExportCSV))
+	// 统一明细导出（六类带表头 CSV，窗口内全量流式写），heavy 档与 export/csv 同级。
+	mux.HandleFunc("/api/v1/export/table", s.limitHeavy(s.hExportTable))
 	mux.HandleFunc("/api/v1/bans", s.limitAPI(s.hBans))
 	// P3-1：fail2ban 当前封禁名单快照（内存读，无 SQL；与 bans 历史日志表互补）。
 	mux.HandleFunc("/api/v1/bans/active", s.limitAPI(s.hBansActive))
