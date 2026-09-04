@@ -481,7 +481,8 @@ func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {
 		DstPort int   `json:"dst_port"`
 		Hits    int64 `json:"hits"`
 	}
-	// 与原实现一致：空结果保持 nil → JSON null（hSummary 历史输出形态）。
+	// 审计 A2：空结果统一 [] 非 null（m4 口径；原 nil→null 历史形态由前端
+	// `|| []` 兜底，现契约统一，前端兜底继续兼容）。
 	var top []portHit
 	for _, h := range hits {
 		top = append(top, portHit{DstPort: int(h.V), Hits: h.Hits})
@@ -491,7 +492,7 @@ func (s *Server) hSummary(w http.ResponseWriter, r *http.Request) {
 		"fw_events":    fwCnt,
 		"ssh_fail":     sshFail,
 		"ssh_ok":       sshOK,
-		"top_ports":    top,
+		"top_ports":    nonNil(top),
 		"disk_percent": s.diskPercent(),
 	})
 }

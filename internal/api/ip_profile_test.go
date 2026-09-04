@@ -60,6 +60,7 @@ func TestIPProfileParamValidation(t *testing.T) {
 		{"/api/v1/ip?ip=not-an-ip", "非法"},    // 解析失败
 		{"/api/v1/ip?ip=::1", "IPv6 不支持"},    // IPv6 明确提示
 		{"/api/v1/ip?ip=2001:db8::1", "IPv6"}, // IPv6 明确提示
+		{"/api/v1/ip?ip=0.0.0.0", "占位"},      // 审计 C8：0.0.0.0 为 IPv6 归源占位值（src_ip=0），拒绝画像防错误归因
 	}
 	for _, c := range cases {
 		code, _, body := doIPGet(t, srv, c.url)

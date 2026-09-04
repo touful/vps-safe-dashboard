@@ -171,8 +171,10 @@ func runConntrackOnce(ctx context.Context, cfg config.ConntrackCfg, bufSize int,
 	// 清理 goroutine，shutdown 通道永不关闭；随后 Close() 永久阻塞在 <-nfct.shutdown，
 	// 导致 runConntrackOnce 永不返回——启动错误被吞、无留痕无降级（现场故障形态）。
 	// 因此 Close 仅在 Register 成功后注册（成功路径清理 goroutine 已启动，Close 正常）。
-	// Register 失败时泄漏该 fd：连续 maxConntrackStartFails 轮后降级停止尝试，
-	// 泄漏上限 3 个 fd，可接受（换取降级链路可用性）。
+	// Register 失败时泄漏该 fd 与 errCh 监听 goroutine（goroutine 阻塞于 errCh/ctx.Done，
+	// ctx 不取消则存活至进程退出）：连续 maxConntrackStartFails 轮后降级停止尝试，
+	// 泄漏上限 3 组（fd+goroutine），可接受（换取降级链路可用性；修复需库侧支持）。
+	// （审计 C6：goroutine 泄漏口径补披露，原注释仅披露 fd。）
 
 	if err := nfct.Con.SetReadBuffer(bufSize); err != nil {
 		event.ReportSys(sys, "conntrack", "warn", fmt.Sprintf("设置 netlink 接收缓冲 %d B 失败: %v", bufSize, err))

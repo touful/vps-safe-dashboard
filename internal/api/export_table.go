@@ -90,7 +90,13 @@ func (s *Server) hExportTable(w http.ResponseWriter, r *http.Request) {
 	// 迭代后 rows.Err()：超时取消/IO 错误时 CSV 可能静默截断——状态码已发无法回写 5xx，
 	// Flush 尽量交付已扫描前缀；查询与写入两条错误合并单条留痕（limitWarn 1/分钟限频，
 	// 分开上报第二条必被确定性丢弃）。
+	// 截断标记（审计 A4）：中断时在 CSV 尾部追加 "# EXPORT_TRUNCATED" 注释行，客户端
+	// （前端 exportTableCsv）据此检测并向用户告警"导出不完整"，避免截断文件被当真使用。
 	if err := rows.Err(); err != nil {
+		// 标记行经 cw 写出（绕过 cw 直写 w 会与 cw 内部缓冲乱序）；单字段无逗号，
+		// 前端按 blob 尾部前缀 "# EXPORT_TRUNCATED" 检测。写失败无需单独处理
+		// （rows.Err 已是主因，下方统一留痕）。
+		_ = cw.Write([]string{"# EXPORT_TRUNCATED at " + time.Now().Format(time.RFC3339) + "（导出中断，以上数据不完整）"})
 		cw.Flush()
 		msg := "明细导出中断: 查询=" + err.Error()
 		if werr := cw.Error(); werr != nil {

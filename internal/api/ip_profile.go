@@ -136,6 +136,12 @@ func (s *Server) hIPProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	srcIP := event.IPv4ToUint32(parsed)
+	// 0.0.0.0 守卫（审计 C8）：IPv6 归源连接在库中以 src_ip=0 落库（IPv6 存 src_ip6 列，
+	// IPv4ToUint32 对非 IPv4 返回 0），放行会把全部 IPv6 归源流量错误归因到 0.0.0.0 画像。
+	if srcIP == 0 {
+		writeErr(w, http.StatusBadRequest, "0.0.0.0 为 IPv6 归源占位值，不支持画像")
+		return
+	}
 	from := time.Now().Unix() - ipWindowHours*3600
 
 	out := ipProfileResp{

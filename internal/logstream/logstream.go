@@ -37,9 +37,15 @@ func Run(ctx context.Context, cmd *exec.Cmd, name string, onLine func(line []byt
 	for scanner.Scan() {
 		onLine(scanner.Bytes())
 	}
+	// scanner.Err() 检查（审计 C1）：单行超 maxLineSize 时 Scanner 以 ErrTooLong 停止，
+	// 若不检查会被下方 waitErr（broken pipe）掩盖，排障时根因丢失。
+	scanErr := scanner.Err()
 	waitErr := cmd.Wait()
 	if ctx.Err() != nil {
 		return nil // 正常退出（ctx 取消）
+	}
+	if scanErr != nil {
+		return fmt.Errorf("%s 流读取失败: %w（后续流终止: %v）", name, scanErr, waitErr)
 	}
 	return fmt.Errorf("%s 流提前结束: %w", name, waitErr)
 }

@@ -77,15 +77,25 @@ func (s *Server) hExportCreds(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="sentry_creds_`+stamp+`.csv"`)
 		cw := csv.NewWriter(w)
-		_ = cw.Write([]string{"username", "password", "protocol", "kind", "count", "first_seen", "last_seen", "src_ip_count"})
+		// 写错误处理与 export.go/export_table.go 口径对齐（审计 A7）：写失败经
+		// limitWarn 限频留痕（客户端断开等），不再静默忽略。
+		if err := cw.Write([]string{"username", "password", "protocol", "kind", "count", "first_seen", "last_seen", "src_ip_count"}); err != nil {
+			s.limitWarn.Report(s.sysCh, "api", "warn", "creds 导出写表头失败（客户端可能已断开）")
+		}
 		for _, e := range entries {
-			_ = cw.Write([]string{
+			if err := cw.Write([]string{
 				e.username, e.password, e.proto, credKind(e.proto, e.extra),
 				strconv.FormatInt(e.count, 10), time.Unix(e.firstTS, 0).Format("2006-01-02 15:04:05"),
 				time.Unix(e.lastTS, 0).Format("2006-01-02 15:04:05"), strconv.FormatInt(e.srcCnt, 10),
-			})
+			}); err != nil {
+				s.limitWarn.Report(s.sysCh, "api", "warn", "creds 导出写行失败（客户端可能已断开）")
+				break
+			}
 		}
 		cw.Flush()
+		if err := cw.Error(); err != nil {
+			s.limitWarn.Report(s.sysCh, "api", "warn", "creds 导出 Flush 失败: "+err.Error())
+		}
 	case "pairs":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="sentry_creds_pairs_`+stamp+`.txt"`)

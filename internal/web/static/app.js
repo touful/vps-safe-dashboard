@@ -1878,12 +1878,12 @@
       if (!r.ok) { throw new Error('HTTP ' + r.status); }
       return r.json();
     }).then(function (d) {
+      if (state.ipProf.ip !== ipStr) { return; } // 已切其他 IP：过期响应丢弃（先判再复位，审计 C4：顺序颠倒会使同 IP 去抖失效）
       state.ipProf.loading = false;
-      if (state.ipProf.ip !== ipStr) { return; } // 已切其他 IP：过期响应丢弃
       renderIpProfData(d || {});
     }).catch(function () {
+      if (state.ipProf.ip !== ipStr) { return; } // 同上（C4）
       state.ipProf.loading = false;
-      if (state.ipProf.ip !== ipStr) { return; }
       renderIpProfError();
     });
   }
@@ -2012,7 +2012,8 @@
   }
 
   // ===== T3：告警通知（页内 toast + 可选浏览器通知；事件流行内展示不动，toast 为附加通道） =====
-  var seenSysEvents = new Set(); // WS system 帧去重（key=ts|source|message；内存集合，页面刷新重置）
+  var seenSysEvents = new Set(); // WS system 帧去重（key=ts|source|message；内存集合，页面刷新重置；超 500 条整体清空——审计 C5：去重仅需覆盖近期重复帧，防长期驻留内存缓慢增长）
+  function pruneSeenSys() { if (seenSysEvents.size > 500) { seenSysEvents.clear(); } }
   var lastCredTotal = null;      // 蜜罐凭据总捕获数上次值（null=首轮不告警；切 range/proto 重置基线）
   var lastBans = null;           // 封禁名单上次快照（null=首轮不告警；新增 IP 才告警）
   // 页内 toast（右下角 #toast-box，最多同屏 3 个，5s 自动消失；level: info/warn/danger 左边框着色）
@@ -2119,6 +2120,7 @@
         if (lv) {
           if (!seenSysEvents.has(ek)) {
             seenSysEvents.add(ek);
+            pruneSeenSys(); // 审计 C5：超 500 条整体清空（近期重复帧去重不受影响）
             var msg = '[' + f.source + '] ' + f.message;
             showToast(msg, f.level === 'error' ? 'danger' : 'warn');
             notify('sentry-agent', msg);
@@ -2254,6 +2256,13 @@
         '-' + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds()) + '.csv';
       triggerDownload(objUrl, fname); // blob 场景 Content-Disposition 不生效，文件名本地生成
       URL.revokeObjectURL(objUrl);
+      // 审计 A4：后端导出中断时在 CSV 尾部写 "# EXPORT_TRUNCATED" 标记行——
+      // 检测到则追加强警告（文件照常交付，已扫描前缀仍可用，但须知情数据不完整）。
+      blob.slice(Math.max(0, blob.size - 300)).text().then(function (tail) {
+        if (tail.indexOf('# EXPORT_TRUNCATED') >= 0) {
+          showToast(fname + ' 导出中断，文件不完整（可尝试缩小时间范围后重导）', 'danger');
+        }
+      });
       showToast('已开始下载：' + fname, 'info');
     }).catch(function (e) {
       if (e && e.code === 429) { showToast('导出请求过于频繁，请稍候重试', 'warn'); }

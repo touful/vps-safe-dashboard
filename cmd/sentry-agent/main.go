@@ -366,20 +366,24 @@ func runConnChannel(ctx context.Context, cfg *config.Config, ch *event.Channels,
 }
 
 // refreshBanned 查询 fail2ban 当前封禁名单（M-05 联调，方案 3.5）。
-// 启动后立即执行一次（不等 60s 周期）；结果经 system_event 记录（条数变化信息/查询失败告警，限频）。
+// 启动后立即执行一次（不等 60s 周期）；结果经 system_event 记录。
+// 留痕限频（审计 C3）：成功路径仅条数变化（或首刷）时上报——原实现每 60s 无条件
+// 留痕，前端 system 帧浮条随之每 60s 常驻弹条（告警疲劳）；hotjournal 分支套
+// rep 限频器（原裸 ReportSys 同样每 60s 一条）。
 // P3-1：成功结果升序排序后写入 snapshot（atomic.Value，API bans/active 只读展示——
 // 原链路仅留痕条数、名单被丢弃；失败时不清空旧快照，面板保持上一次已知名单，ts 可辨新旧）。
 func refreshBanned(ctx context.Context, dbPath string, sys chan<- event.SystemEvent, snapshot *atomic.Value) {
 	rep := event.NewRateLimiter(5 * time.Minute)
+	lastCount := -1
 	query := func() {
 		banned, err := f2b.QueryBanned(ctx, dbPath)
 		if err != nil {
 			// 错误文案由 f2b 携带根因分类与修复指引（B.1.2）。
 			// 现场核查结论 5：hot journal 待恢复场景为预期瞬时状态
-			// （下轮 60s 自动重试），info 级留痕不告警；其余分类按 warn 告警。
+			// （下轮 60s 自动重试），info 级限频留痕不告警；其余分类按 warn 告警。
 			var qe *f2b.BannedQueryError
 			if errors.As(err, &qe) && qe.Kind == "hotjournal" {
-				event.ReportSys(sys, "f2b", "info", "封禁名单暂不可用（hot journal 恢复中）: "+err.Error())
+				rep.Report(sys, "f2b", "info", "封禁名单暂不可用（hot journal 恢复中）: "+err.Error())
 				return
 			}
 			rep.Report(sys, "f2b", "warn", "封禁名单查询失败: "+err.Error())
@@ -388,7 +392,10 @@ func refreshBanned(ctx context.Context, dbPath string, sys chan<- event.SystemEv
 		// 升序排序（uint32 升序即 IP 升序）：读侧（API）零排序成本，展示顺序稳定。
 		sort.Slice(banned, func(i, j int) bool { return banned[i] < banned[j] })
 		snapshot.Store(&f2b.BannedSnapshot{TS: time.Now().Unix(), IPs: banned})
-		event.ReportSys(sys, "f2b", "info", fmt.Sprintf("当前封禁 IP 数: %d", len(banned)))
+		if len(banned) != lastCount { // 条数变化（含首刷）才留痕
+			lastCount = len(banned)
+			event.ReportSys(sys, "f2b", "info", fmt.Sprintf("当前封禁 IP 数: %d", len(banned)))
+		}
 	}
 	// 启动后立即执行一次（首次封禁名单不再等 60s）+ 每 60s 周期刷新
 	// （周期骨架统一经 util.Periodic）。

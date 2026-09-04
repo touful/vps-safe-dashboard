@@ -46,7 +46,8 @@ func (s *Server) hResources(w http.ResponseWriter, r *http.Request) {
 			out = append(out, p)
 		}
 	}
-	writeJSON(w, 200, map[string]any{"points": out, "step_s": stepSec})
+	// nonNil（审计 A2）：空结果统一 [] 非 null（m4 口径），前端有 || [] 兜底仍统一契约。
+	writeJSON(w, 200, map[string]any{"points": nonNil(out), "step_s": stepSec})
 }
 
 // nonNil 保证空切片序列化为 [] 而非 null（m4 修复语义固化：空结果输出 []，
@@ -371,7 +372,8 @@ func (s *Server) hSSHTimeline(w http.ResponseWriter, r *http.Request) {
 			out = append(out, p)
 		}
 	}
-	writeJSON(w, 200, map[string]any{"rows": out})
+	// nonNil（审计 A2）：空结果统一 [] 非 null，与 hFirewallTimeline 对齐。
+	writeJSON(w, 200, map[string]any{"rows": nonNil(out)})
 }
 
 // hFirewallTimeline 防火墙事件小时聚合时间线（双通道 → 三通道演进）。
