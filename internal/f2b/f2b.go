@@ -20,29 +20,36 @@ import (
 
 // RunF2BListener 流式读取 fail2ban 日志，产出封禁事件（方案 3.5 签名 + sys 通道）。
 // 实现：tail -F -n 0 子进程（轮转跟随，不追溯历史），逐行解析 Ban/Unban/Found。
-// 已知限制（现场核查结论 1）：容器环境日志 640 root:systemd-journal
+// 流死亡限频自动重启（审计 M-1，logstream.RunRestarted）；LookPath 前置检查在
+// 重启循环之外。已知限制（现场核查结论 1）：容器环境日志 640 root:systemd-journal
 // 对 user 1000 不可读，本监听会启动失败并留痕（不阻塞名单查询——名单走 sqlite）。
 func RunF2BListener(ctx context.Context, logPath string, sink chan<- event.BanEvent, sys chan<- event.SystemEvent) error {
 	tail, err := exec.LookPath("tail")
 	if err != nil {
 		return fmt.Errorf("f2b 监听需要 tail 二进制: %w", err)
 	}
-	cmd := exec.CommandContext(ctx, tail, "-F", "-n", "0", logPath)
-	return logstream.Run(ctx, cmd, "fail2ban 日志", func(line []byte) {
-		s := string(line)
-		ts := time.Now().Unix()
-		if t, ok := ParseF2BTime(s); ok {
-			ts = t // 使用日志行内时间戳（auditor m-01：与 ssh/fw 口径一致）
-		}
-		ev, ok := ParseF2BLine(s, ts)
-		if !ok {
-			return // fail2ban.log 含大量非 Ban/Unban/Found 行，正常忽略
-		}
-		select {
-		case sink <- ev:
-		case <-ctx.Done():
-		}
-	})
+	repRestart := event.NewRateLimiter(time.Minute)
+	return logstream.RunRestarted(ctx, "fail2ban 日志",
+		func() *exec.Cmd {
+			return exec.CommandContext(ctx, tail, "-F", "-n", "0", logPath)
+		},
+		func(line []byte) {
+			s := string(line)
+			ts := time.Now().Unix()
+			if t, ok := ParseF2BTime(s); ok {
+				ts = t // 使用日志行内时间戳（auditor m-01：与 ssh/fw 口径一致）
+			}
+			ev, ok := ParseF2BLine(s, ts)
+			if !ok {
+				return // fail2ban.log 含大量非 Ban/Unban/Found 行，正常忽略
+			}
+			select {
+			case sink <- ev:
+			case <-ctx.Done():
+			}
+		},
+		func(msg string) { repRestart.Report(sys, "f2b", "warn", msg) },
+	)
 }
 
 // BannedQueryError 封禁名单查询分类错误（探测式适配，按根因分类）。

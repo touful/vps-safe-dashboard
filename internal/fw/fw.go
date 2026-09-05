@@ -42,25 +42,34 @@ type journalKernelEntry struct {
 }
 
 // runJournaldKernel 通过 journalctl -f -o json -k 读取内核日志（含 nft/iptables LOG 输出）。
+// 流死亡限频自动重启（审计 M-1，logstream.RunRestarted）；kmsg 分支为文件读循环
+// 非子进程流，维持"终止即返回"策略（设备节点移除等场景由 main 留痕感知）。
 func runJournaldKernel(ctx context.Context, prefix string, filter FwFilter, stats *filterStats, sink chan<- event.FirewallEvent, sys chan<- event.SystemEvent, rep *event.RateLimiter) error {
 	journalctl, err := exec.LookPath("journalctl")
 	if err != nil {
 		return fmt.Errorf("journald-kernel 模式需要 journalctl 二进制（不可用时请改用 fw.source=kmsg）: %w", err)
 	}
-	cmd := exec.CommandContext(ctx, journalctl, "-f", "-n", "0", "-o", "json", "-k")
-	// 注：-n 0 防止启动时重放历史内核日志（避免历史 SENTRY_FW 行重复入流）。
-	return logstream.Run(ctx, cmd, "journalctl -k", func(line []byte) {
-		var e journalKernelEntry
-		if err := json.Unmarshal(line, &e); err != nil {
-			return
-		}
-		// 时间戳：journal 微秒转 Unix 秒；空串/非数字回退当前时间。
-		ts := time.Now().Unix()
-		if v, ok := event.MicrosToUnix(e.Realtime); ok {
-			ts = v
-		}
-		handleLine(ctx, sink, sys, rep, e.Message, ts, prefix, filter, stats)
-	})
+	// 独立限频器：重启留痕与"解析失败行"留痕不互相挤占 1/分钟窗口。
+	repRestart := event.NewRateLimiter(time.Minute)
+	return logstream.RunRestarted(ctx, "journalctl -k",
+		func() *exec.Cmd {
+			// 注：-n 0 防止启动时重放历史内核日志（避免历史 SENTRY_FW 行重复入流）。
+			return exec.CommandContext(ctx, journalctl, "-f", "-n", "0", "-o", "json", "-k")
+		},
+		func(line []byte) {
+			var e journalKernelEntry
+			if err := json.Unmarshal(line, &e); err != nil {
+				return
+			}
+			// 时间戳：journal 微秒转 Unix 秒；空串/非数字回退当前时间。
+			ts := time.Now().Unix()
+			if v, ok := event.MicrosToUnix(e.Realtime); ok {
+				ts = v
+			}
+			handleLine(ctx, sink, sys, rep, e.Message, ts, prefix, filter, stats)
+		},
+		func(msg string) { repRestart.Report(sys, "fw", "warn", msg) },
+	)
 }
 
 // runKmsg 直接读取 /dev/kmsg（分支 B1，非 systemd 环境；需特权访问）。

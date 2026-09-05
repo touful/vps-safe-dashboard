@@ -35,38 +35,54 @@ func RunSSHParser(ctx context.Context, source string, sink chan<- event.SSHAttem
 }
 
 // runJournald 通过 journalctl -f -o json SYSLOG_IDENTIFIER=sshd 流式读取 SSH 认证日志。
+// 流死亡限频自动重启（审计 M-1，logstream.RunRestarted）：LookPath 前置检查在
+// 重启循环之外——二进制缺失属持续性配置错误，直接返回由 main 留痕。
 func runJournald(ctx context.Context, sink chan<- event.SSHAttempt, sys chan<- event.SystemEvent, rep *event.RateLimiter) error {
 	journalctl, err := exec.LookPath("journalctl")
 	if err != nil {
 		return fmt.Errorf("journald 模式需要 journalctl 二进制（不可用时请改用 ssh.source=rsyslog）: %w", err)
 	}
-	cmd := exec.CommandContext(ctx, journalctl, "-f", "-n", "0", "-o", "json", "SYSLOG_IDENTIFIER=sshd")
-	// 注：-n 0 防止启动时重放历史条目（M2 落库防重复入库）；若需启动补历史应显式设计 cursor 续读。
-	return logstream.Run(ctx, cmd, "journalctl", func(line []byte) {
-		entry, err := parseJournalLine(line)
-		if err != nil {
-			return // 非 JSON 行（如 journalctl 自身输出），跳过
-		}
-		handleLine(ctx, sink, sys, rep, entry.Message, entry.ts())
-	})
+	// 独立限频器：重启留痕与"无法匹配行"留痕不互相挤占 1/分钟窗口。
+	repRestart := event.NewRateLimiter(time.Minute)
+	return logstream.RunRestarted(ctx, "journalctl",
+		func() *exec.Cmd {
+			// 注：-n 0 防止启动时重放历史条目（M2 落库防重复入库）；若需启动补历史应显式设计 cursor 续读。
+			return exec.CommandContext(ctx, journalctl, "-f", "-n", "0", "-o", "json", "SYSLOG_IDENTIFIER=sshd")
+		},
+		func(line []byte) {
+			entry, err := parseJournalLine(line)
+			if err != nil {
+				return // 非 JSON 行（如 journalctl 自身输出），跳过
+			}
+			handleLine(ctx, sink, sys, rep, entry.Message, entry.ts())
+		},
+		func(msg string) { repRestart.Report(sys, "ssh", "warn", msg) },
+	)
 }
 
 // runRsyslog 通过 tail -F -n 0 /var/log/auth.log 流式读取（分支 B1，rsyslog/syslogd 落盘）。
 // tail -F 语义：文件轮转（rename）后自动跟随新文件，不追溯历史。
+// 流死亡限频自动重启（审计 M-1，同 runJournald）。
 func runRsyslog(ctx context.Context, sink chan<- event.SSHAttempt, sys chan<- event.SystemEvent, rep *event.RateLimiter) error {
 	tail, err := exec.LookPath("tail")
 	if err != nil {
 		return fmt.Errorf("rsyslog 模式需要 tail 二进制: %w", err)
 	}
-	cmd := exec.CommandContext(ctx, tail, "-F", "-n", "0", "/var/log/auth.log")
-	return logstream.Run(ctx, cmd, "tail", func(line []byte) {
-		s := string(line)
-		ts := time.Now().Unix()
-		if t, ok := parseSyslogTimestamp(s); ok {
-			ts = t // 使用日志行内时间戳（rsyslog 模式；journald 模式由条目时间戳提供）
-		}
-		handleLine(ctx, sink, sys, rep, s, ts)
-	})
+	repRestart := event.NewRateLimiter(time.Minute)
+	return logstream.RunRestarted(ctx, "tail",
+		func() *exec.Cmd {
+			return exec.CommandContext(ctx, tail, "-F", "-n", "0", "/var/log/auth.log")
+		},
+		func(line []byte) {
+			s := string(line)
+			ts := time.Now().Unix()
+			if t, ok := parseSyslogTimestamp(s); ok {
+				ts = t // 使用日志行内时间戳（rsyslog 模式；journald 模式由条目时间戳提供）
+			}
+			handleLine(ctx, sink, sys, rep, s, ts)
+		},
+		func(msg string) { repRestart.Report(sys, "ssh", "warn", msg) },
+	)
 }
 
 // handleLine 对单行做匹配解析；匹配则发送，不匹配限频上报（方案 3.3：限频 1/分钟）。
