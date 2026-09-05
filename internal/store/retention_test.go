@@ -183,7 +183,7 @@ func TestRunRetentionOnce(t *testing.T) {
 // TestWarnRetentionArchiveGap 归档空洞语义提示（B.5.1）：阈值 copy_after_days+30。
 // 直接构造 Store 结构体（不经 NewStore，避免数据文件权限 warn 噪音）。
 func TestWarnRetentionArchiveGap(t *testing.T) {
-	// retention=7, copy_after=60 → 7 < 90 → warn。
+	// retention=7, copy_after=60 → 7 < 91 → warn。
 	ch := event.NewChannels(16)
 	st := &Store{retentionDays: 7, copyAfterDays: 60, ch: ch}
 	st.warnRetentionArchiveGap()
@@ -196,18 +196,30 @@ func TestWarnRetentionArchiveGap(t *testing.T) {
 			t.Errorf("文案应含空洞语义，实际: %s", ev.Message)
 		}
 	default:
-		t.Error("retention < copy_after_days+30 应产生 warn")
+		t.Error("retention < copy_after_days+31 应产生 warn")
 	}
 
-	// retention=90 >= 60+30 → 不 warn。
+	// retention=90（=copy+30）：最坏月序（31 天月）下仍可能空洞 → 仍 warn
+	// （功能审计 B-M1：守卫与文案统一为 +31）。
 	ch2 := event.NewChannels(16)
 	st2 := &Store{retentionDays: 90, copyAfterDays: 60, ch: ch2}
 	st2.warnRetentionArchiveGap()
 	select {
-	case ev := <-ch2.System:
+	case <-ch2.System:
+	default:
+		t.Error("retention=copy_after_days+30 仍应 warn（最坏月序空洞）")
+	}
+
+	// retention=91 >= 60+31 → 不 warn。
+	ch4 := event.NewChannels(16)
+	st4 := &Store{retentionDays: 91, copyAfterDays: 60, ch: ch4}
+	st4.warnRetentionArchiveGap()
+	select {
+	case ev := <-ch4.System:
 		t.Errorf("retention >= 跨度不应 warn，实际: %s", ev.Message)
 	default:
 	}
+
 	// retention<=0 → 不 warn。
 	ch3 := event.NewChannels(16)
 	st3 := &Store{retentionDays: 0, copyAfterDays: 60, ch: ch3}

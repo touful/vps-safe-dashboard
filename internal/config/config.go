@@ -140,8 +140,10 @@ type ArchiveCfg struct {
 	// RetentionDays 保留期清理（见上），归档副本为长期历史通道。
 	// P3-2 张力披露（2026-09 注记）：默认组合 retention_days=7 + copy_after_days=60 下，
 	// 事件表归档副本必然为空洞（早于保留期的数据在归档前已被清理；启动时
-	// store.warnRetentionArchiveGap 警告）；完整归档需 retention_days ≥ copy_after_days+30
-	// （如归档 60 天前数据则 retention_days ≥ 91）；cred_events 不参与归档（凭据仅留主库）。
+	// store.warnRetentionArchiveGap 警告）；完整归档需 retention_days ≥ copy_after_days+31
+	// （最坏月序下归档月最大 31 天，如归档 60 天前数据则 retention_days ≥ 91；
+	// 功能审计 B-M1：原 +30 口径与 91 示例自相矛盾，统一 +31）；cred_events 不参与归档
+	// （凭据仅留主库）。
 	// 代码不强制联动（B.5.1 裁定：避免隐性删除语义），仅启动 warn 提示，由运维按磁盘预算权衡。
 	CopyAfterDays int `json:"copy_after_days"`
 }

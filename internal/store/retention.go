@@ -132,14 +132,16 @@ func (s *Store) retentionStep(ctx context.Context, yield func(), yieldErr *error
 }
 
 // warnRetentionArchiveGap 启动时检测 retention 与归档跨度的空洞语义（B.5.1）。
-// 推导：归档执行日对 cutoff 月（now - copy_after_days 所在月）做整月复制，最大年龄 =
-// copy_after_days + 30；故 retention_days < copy_after_days + 30 时归档副本必然含空洞。
+// 推导：归档执行日对 cutoff 月（now - copy_after_days 所在月）做整月复制，最坏月序
+// （cutoff 回溯跨 2 月，如 3 月 1 日归档 12 月数据）最大行年龄 = copy_after_days + 31；
+// 故 retention_days < copy_after_days + 31 时归档副本可能含空洞（功能审计 B-M1：
+// 原守卫 +30 与文案建议 +31 自相矛盾，统一为保守正确的 +31）。
 // 决策：代码不强制联动（避免隐性删除语义），仅启动 warn 提示，由运维按需调整。
 func (s *Store) warnRetentionArchiveGap() {
-	if s.retentionDays <= 0 || s.retentionDays >= s.copyAfterDays+30 {
+	if s.retentionDays <= 0 || s.retentionDays >= s.copyAfterDays+31 {
 		return
 	}
 	event.ReportSys(s.ch.System, "store", "warn", fmt.Sprintf(
-		"db.retention_days=%d 小于归档跨度（archive.copy_after_days+30=%d）：归档副本将包含已清理数据的空洞；如需完整归档，retention_days 应 >= %d，或接受短保留期下归档仅含保留窗口数据",
-		s.retentionDays, s.copyAfterDays+30, s.copyAfterDays+31))
+		"db.retention_days=%d 小于归档跨度（archive.copy_after_days+31=%d）：最坏月序下归档副本将包含已清理数据的空洞；如需完整归档，retention_days 应 >= %d，或接受短保留期下归档仅含保留窗口数据",
+		s.retentionDays, s.copyAfterDays+31, s.copyAfterDays+31))
 }
