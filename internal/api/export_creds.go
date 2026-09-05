@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/csv"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -100,20 +101,39 @@ func (s *Server) hExportCreds(w http.ResponseWriter, r *http.Request) {
 	case "pairs":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="sentry_creds_pairs_`+stamp+`.txt"`)
+		skipped := 0
 		for _, e := range entries {
 			if credKind(e.proto, e.extra) == "plaintext" && e.password != "" {
+				// 含换行的凭据会破坏字典"每行一条"结构（功能审计 Minor-4：redis AUTH
+				// RESP bulk string / postgres 口令可含 \r\n），跳过并计数留痕；
+				// csv 格式为 RFC 4180 转义不受影响仍全量。
+				if strings.ContainsAny(e.username+e.password, "\r\n") {
+					skipped++
+					continue
+				}
 				_, _ = w.Write([]byte(e.username + ":" + e.password + "\n"))
 			}
+		}
+		if skipped > 0 {
+			s.limitWarn.Report(s.sysCh, "api", "warn", fmt.Sprintf("creds pairs 导出跳过 %d 条含换行的凭据（字典行格式不兼容，csv 导出含全量）", skipped))
 		}
 	case "passwords":
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="sentry_creds_passwords_`+stamp+`.txt"`)
 		seen := make(map[string]bool, len(entries))
+		skipped := 0
 		for _, e := range entries {
 			if credKind(e.proto, e.extra) == "plaintext" && e.password != "" && !seen[e.password] {
+				if strings.ContainsAny(e.password, "\r\n") {
+					skipped++
+					continue
+				}
 				seen[e.password] = true
 				_, _ = w.Write([]byte(e.password + "\n"))
 			}
+		}
+		if skipped > 0 {
+			s.limitWarn.Report(s.sysCh, "api", "warn", fmt.Sprintf("creds passwords 导出跳过 %d 条含换行的凭据（字典行格式不兼容，csv 导出含全量）", skipped))
 		}
 	}
 }

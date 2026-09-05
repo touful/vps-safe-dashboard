@@ -61,6 +61,11 @@ func (s *Server) queryGeoRows(ctx context.Context, from int64, limit int) ([]geo
 		}
 		out = append(out, row)
 	}
+	// 迭代后 rows.Err()（功能审计 Minor-2）：超时取消/IO 错误时迭代提前终止，
+	// 已扫描部分与错误一并返回——导出侧据此追加截断标记，地图侧维持 500（下轮轮询自愈）。
+	if err := rows.Err(); err != nil {
+		return out, mmdbOK, err
+	}
 	return out, mmdbOK, nil
 }
 
@@ -91,8 +96,10 @@ func (s *Server) geoRowsFromReq(ctx context.Context, r *http.Request) ([]geoRow,
 	country := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("country")))
 	minCount := parseUintParam(r, "min_count", 0)
 	rows, mmdbOK, err := s.queryGeoRows(ctx, from, 1000)
+	// 迭代中断时 rows 为已扫描部分（可能非空）与 err 并存：导出侧需要部分数据
+	// 写截断标记，故不完全丢弃；地图调用方见 err 即 500，不消费部分数据。
 	if err != nil {
-		return nil, mmdbOK, err
+		return filterGeoRows(rows, country, minCount), mmdbOK, err
 	}
 	return filterGeoRows(rows, country, minCount), mmdbOK, nil
 }
@@ -102,7 +109,13 @@ func (s *Server) geoRowsFromReq(ctx context.Context, r *http.Request) ([]geoRow,
 // 响应：{"range":"24h","mmdb_ok":true,"rows":[{ip,country_code,country_name,count}]}
 // 限流：limitHeavy（30d 视图 1000 IP 组 + 逐 IP mmdb 查询，CPU/IO 密集）。
 func (s *Server) hGeoAttacks(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	// 超时档对齐 hSSHTimeline/hSummary（功能审计 Minor-1）：24h/30d 视图冷启动窗口
+	// GROUP BY 首查可超 5s（api.go aggTimeout 注释的生产实测），固定超时周期性 500。
+	timeout := aggTimeout(r, 15*time.Second)
+	if r.URL.Query().Get("range") == "30d" {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	rows, mmdbOK, err := s.geoRowsFromReq(ctx, r)
 	if err != nil {
@@ -118,10 +131,18 @@ func (s *Server) hGeoAttacks(w http.ResponseWriter, r *http.Request) {
 // 与既有 /api/v1/export/csv（IP,时间,端口）并存，勿混淆。
 // 限流：limitHeavy（同聚合导出成本）。
 func (s *Server) hExportAttacksCSV(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	// 超时档对齐 hGeoAttacks（功能审计 Minor-1）。
+	timeout := aggTimeout(r, 15*time.Second)
+	if r.URL.Query().Get("range") == "30d" {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	rows, _, err := s.geoRowsFromReq(ctx, r)
-	if err != nil {
+	// 迭代中断（err 非 nil 且已有部分数据）不再整体 500：写出已扫描部分并追加
+	// 截断标记（功能审计 Minor-2，口径对齐 export_table.go/export.go 的 A4 修复），
+	// 避免截断文件被当完整数据使用。
+	if err != nil && len(rows) == 0 {
 		writeDBErr(w, r, err)
 		return
 	}
@@ -134,6 +155,11 @@ func (s *Server) hExportAttacksCSV(w http.ResponseWriter, r *http.Request) {
 			s.limitWarn.Report(s.sysCh, "api", "warn", "导出写入失败: "+err.Error())
 			return
 		}
+	}
+	if err != nil {
+		// 标记行经 cw 写出（绕过 cw 直写 w 会与内部缓冲乱序）；单字段无逗号。
+		_ = cw.Write([]string{"# EXPORT_TRUNCATED at " + time.Now().Format(time.RFC3339) + "（导出中断，以上数据不完整）"})
+		s.limitWarn.Report(s.sysCh, "api", "warn", "攻击地图导出中断: "+err.Error())
 	}
 	cw.Flush()
 	if err := cw.Error(); err != nil {

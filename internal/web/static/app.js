@@ -109,6 +109,18 @@
     if (v <= 0) return '-';
     return [(v >>> 24), (v >>> 16) & 255, (v >>> 8) & 255, v & 255].join('.');
   }
+  // IPv6 文本截断（连接表地址列展示用；超长地址尾部省略）
+  function truncIp6(s, n) {
+    s = String(s || '');
+    if (s.length <= n) { return s; }
+    return s.slice(0, n - 1) + '…';
+  }
+  // conn 地址列：IPv4 点分 + 端口；IPv6 归源（数值 0、文本在 *_ip6）显示 [addr]:port
+  // （功能审计 Minor-2：不再显示不可辨识的 '-:port'）
+  function connAddr(num, port, ip6) {
+    if (!num && ip6) { return '[' + truncIp6(ip6, 26) + ']:' + port; }
+    return ip(num) + ':' + port;
+  }
   // escapeHtml（R-08）：字符串字段一律转义后渲染（防未来 raw/detail 等日志字段接入表格时的 XSS）。
   // P1 行级 diff 后表格统一走 textContent（自动转义），此函数用于事件流内联 HTML 拼接。
   function escapeHtml(s) {
@@ -1321,7 +1333,9 @@
     var rows = prepTable('hpd-table', state.tables['hpd-table'].rows, {
       visKey: 'attack', emptyText: '暂无凭据字典（蜜罐未启用或未捕获）',
       keyPrefix: 'd-',
-      keyBase: function (r) { return r.proto + '|' + r.username + '|' + (r.password || '').slice(0, 8); },
+      // 行键用全量 password（功能审计 Minor-4：8 字符截断 + 聚合行重排会使已揭示
+      // 标记落到相邻行；键仅在本地内存，无泄露面）
+      keyBase: function (r) { return r.proto + '|' + r.username + '|' + (r.password || ''); },
       // 去重小计（原始 rows 口径，须在排序分页前执行——onRows 保证顺序）
       onRows: function (rows) {
         var totalEl = document.getElementById('hpd-total');
@@ -1383,6 +1397,14 @@
     if (!rows) { return; }
     renderTableDiff(tbody('conn-table'), rows, function (c) {
       var type = ['', 'NEW', 'UPDATE', 'DESTROY'][c.ev_type] || c.ev_type;
+      // IPv6 归源行（src_ip=0）：地址列显示 [IPv6]:port 且不提供画像入口
+      // （0.0.0.0 占位不支持画像，功能审计 Minor-2）；行级"点击过滤该源 IP"保留
+      // （filter 为数值 0，过滤 IPv6 归源行仍有效）。
+      var srcCell = { text: connAddr(c.src_ip, c.src_port, c.src_ip6), cls: 'ip-prof', title: '点击查看 IP 画像',
+        click: function (row) { openIpProfile(ip(row.src_ip)); } };
+      if (!c.src_ip) {
+        srcCell = { text: connAddr(c.src_ip, c.src_port, c.src_ip6), title: 'IPv6 归源连接（不支持 IP 画像）' };
+      }
       return {
         key: c.__k,
         cls: (c.ev_type === 3 ? 'row-warn ' : '') + 'row-clickable',
@@ -1392,9 +1414,8 @@
           { text: fmtTimeFull(c.ts), cls: 'ts-cell' },
           { text: type }, { text: c.proto },
           // T1：源 IP 点击打开画像
-          { text: ip(c.src_ip) + ':' + c.src_port, cls: 'ip-prof', title: '点击查看 IP 画像',
-            click: function (row) { openIpProfile(ip(row.src_ip)); } },
-          { text: ip(c.dst_ip) + ':' + c.dst_port },
+          srcCell,
+          { text: connAddr(c.dst_ip, c.dst_port, c.dst_ip6) },
           { text: c.packets + '/' + c.bytes, cls: 'num' }
         ]
       };
@@ -1870,21 +1891,31 @@
     var changed = state.ipProf.ip !== ipStr;
     state.ipProf.ip = ipStr;
     renderIpProfShell(ipStr);
+    // 0.0.0.0 为 IPv6 归源占位（功能审计 Minor-1）：前端前置提示，不发无效请求
+    // （后端同口径 400）。
+    if (ipStr === '0.0.0.0') {
+      state.ipProf.loading = false;
+      renderIpProfError('0.0.0.0 为 IPv6 归源占位值，不支持画像');
+      return;
+    }
     renderIpProfBodyLoading();
     if (state.ipProf.loading && !changed) { return; } // 去抖：同 IP 在途不重复发
     state.ipProf.loading = true;
     // 独立 fetch（不走 fetchJSON：画像请求与全局 range/filter 的 reqSeq 竞态校验无关）
     fetch('/api/v1/ip?ip=' + encodeURIComponent(ipStr)).then(function (r) {
-      if (!r.ok) { throw new Error('HTTP ' + r.status); }
-      return r.json();
+      // 非 2xx 时透出后端 error 文案（功能审计 Minor-1：不再一律显示"画像加载失败"）
+      return r.json().catch(function () { return null; }).then(function (d) {
+        if (!r.ok) { throw new Error((d && d.error) || ('HTTP ' + r.status)); }
+        return d;
+      });
     }).then(function (d) {
       if (state.ipProf.ip !== ipStr) { return; } // 已切其他 IP：过期响应丢弃（先判再复位，审计 C4：顺序颠倒会使同 IP 去抖失效）
       state.ipProf.loading = false;
       renderIpProfData(d || {});
-    }).catch(function () {
+    }).catch(function (e) {
       if (state.ipProf.ip !== ipStr) { return; } // 同上（C4）
       state.ipProf.loading = false;
-      renderIpProfError();
+      renderIpProfError(e && e.message);
     });
   }
   // 标题行：IP 等宽字体 + 徽章占位（数据到后填充）+ 按钮组（复制/按此 IP 过滤/关闭）
@@ -1922,9 +1953,9 @@
     var modal = document.getElementById('ip-prof-modal');
     if (modal) { modal.style.display = 'flex'; }
   }
-  function renderIpProfError() {
+  function renderIpProfError(msg) {
     var el = document.getElementById('ip-prof-body');
-    if (el) { el.innerHTML = '<div class="ip-prof-dim" style="color:var(--danger);">画像加载失败</div>'; }
+    if (el) { el.innerHTML = '<div class="ip-prof-dim" style="color:var(--danger);">' + escapeHtml(msg || '画像加载失败') + '</div>'; }
   }
   // 区块小标题包裹
   function ipProfSection(title, inner) {
@@ -2452,6 +2483,8 @@
   bindSort('ssh-table', ['ts', null, null, null, null, null, null], renderSSH);
   bindSort('fw-table', ['ts', null, null, null, null, null, null], renderFW);
   bindSort('hp-table', ['ts', null, null, null, null, null], renderHoneypot); // DEV-HONEY-001
+  // 凭据字典表列头排序（功能审计 Minor-3：与各明细表交互一致；密码列与 kind 徽标列不可排）
+  bindSort('hpd-table', ['proto', 'username', null, 'count', 'first_ts', 'last_ts', 'src_ip_cnt', null], renderHoneyCredDict);
 
   // 表内过滤下拉：SSH 结果 / 防火墙动作。
   // N-1（reviewer R-01）：下拉变更同样存在旧响应迟到覆盖——与 setRange/applyFilter 共用
