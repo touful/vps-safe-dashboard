@@ -75,6 +75,9 @@ CREATE TABLE IF NOT EXISTS ssh_attempts (
 CREATE INDEX IF NOT EXISTS idx_ssh_ts   ON ssh_attempts(ts);
 CREATE INDEX IF NOT EXISTS idx_ssh_src  ON ssh_attempts(src_ip);
 CREATE INDEX IF NOT EXISTS idx_ssh_user ON ssh_attempts(username);
+-- 性能审计 F3：summary 两条 COUNT、ssh/timeline、geo 四处查询均带 result 过滤，
+-- 复合索引免逐行回表（估算提速 2-5 倍，冷启动窗口超时 500 显著减少）。
+CREATE INDEX IF NOT EXISTS idx_ssh_ts_result ON ssh_attempts(ts, result);
 
 CREATE TABLE IF NOT EXISTS firewall_events (
     id       INTEGER PRIMARY KEY,
@@ -91,6 +94,9 @@ CREATE TABLE IF NOT EXISTS firewall_events (
 CREATE INDEX IF NOT EXISTS idx_fw_ts     ON firewall_events(ts);
 CREATE INDEX IF NOT EXISTS idx_fw_dport  ON firewall_events(dst_port);
 CREATE INDEX IF NOT EXISTS idx_fw_action ON firewall_events(action);
+-- 性能审计 F2：/api/v1/ip 的 firewall 段按 src_ip 等值 + ts 窗口查询（该表无 src 索引，
+-- 原 168h 全窗扫描；复合索引降 1-2 个数量级）。CREATE INDEX IF NOT EXISTS 对存量库幂等补建。
+CREATE INDEX IF NOT EXISTS idx_fw_src_ts ON firewall_events(src_ip, ts);
 
 CREATE TABLE IF NOT EXISTS ban_events (
     id   INTEGER PRIMARY KEY,

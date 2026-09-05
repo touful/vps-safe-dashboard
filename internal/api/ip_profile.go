@@ -275,18 +275,20 @@ func (s *Server) ipSSHAggQuery(ctx context.Context, srcIP uint32, from int64) (i
 }
 
 // ipFwAggQuery firewall_events 段聚合（total / 首末时间 / action TOP4）。
-// INDEXED BY idx_fw_ts 强制时间过滤先行（该表无 src_ip 索引，生产大库防全表扫描）。
+// INDEXED BY idx_fw_src_ts 强制 (src_ip, ts) 复合索引（性能审计 F2：等值 src_ip + ts
+// 范围命中复合索引，较原 idx_fw_ts 全窗扫描降 1-2 个数量级；索引由 store DDL 提供，
+// 存量库启动幂等补建——若索引缺失此查询将报错，随启动建索引时序保证先建后用）。
 func (s *Server) ipFwAggQuery(ctx context.Context, srcIP uint32, from int64) (ipFwAgg, error) {
 	agg := ipFwAgg{TopActions: []ipActionCount{}}
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MIN(ts),0), COALESCE(MAX(ts),0)
-		FROM firewall_events INDEXED BY idx_fw_ts WHERE ts >= ? AND src_ip = ?`, from, srcIP).
+		FROM firewall_events INDEXED BY idx_fw_src_ts WHERE src_ip = ? AND ts >= ?`, srcIP, from).
 		Scan(&agg.Total, &agg.FirstTS, &agg.LastTS)
 	if err != nil {
 		return agg, err
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT action, COUNT(*) FROM firewall_events
-		INDEXED BY idx_fw_ts WHERE ts >= ? AND src_ip = ?
-		GROUP BY action ORDER BY COUNT(*) DESC, action LIMIT 4`, from, srcIP)
+		INDEXED BY idx_fw_src_ts WHERE src_ip = ? AND ts >= ?
+		GROUP BY action ORDER BY COUNT(*) DESC, action LIMIT 4`, srcIP, from)
 	if err != nil {
 		return agg, err
 	}

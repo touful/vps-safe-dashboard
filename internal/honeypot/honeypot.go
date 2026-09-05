@@ -16,6 +16,7 @@ package honeypot
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strconv"
 	"sync"
@@ -198,8 +199,12 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		mu.Lock()
 		lns = append(lns, ln)
-		s.addrs[proto] = ln.Addr().String()
 		mu.Unlock()
+		// s.addrs 必须用 s.mu 保护（race 审计根因 A）：Addrs() 以 s.mu 读同一 map，
+		// 原 Run 局部 mu 写入构成双锁无保护并发读写 map（Go runtime 可直接 fatal crash）。
+		s.mu.Lock()
+		s.addrs[proto] = ln.Addr().String()
+		s.mu.Unlock()
 		event.ReportSys(s.sys, "honeypot", "info", "蜜罐 "+proto+" 监听 "+ln.Addr().String())
 		wg.Add(1)
 		go func() {
@@ -242,6 +247,15 @@ func (s *Server) serveProto(ctx context.Context, proto string, ln net.Listener, 
 		connWG.Add(1)
 		go func() {
 			defer connWG.Done()
+			// panic 防护（安全审计 M-1，纵深防御）：handler 直接解析公网攻击者的
+			// 二进制协议，未来改动引入一个越界即是远程 DoS 全杀（蜜罐/API/采集同进程）。
+			// 当前 10 协议 handler 已逐行复核无可触发 panic 点，此为兜底。
+			defer func() {
+				if r := recover(); r != nil {
+					event.ReportSys(s.sys, "honeypot", "warn",
+						proto+" 连接处理 panic（已隔离，连接关闭）: "+fmt.Sprint(r))
+				}
+			}()
 			s.handleConn(ctx, proto, conn)
 		}()
 	}

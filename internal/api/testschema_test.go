@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS ssh_attempts (
 CREATE INDEX IF NOT EXISTS idx_ssh_ts   ON ssh_attempts(ts);
 CREATE INDEX IF NOT EXISTS idx_ssh_src  ON ssh_attempts(src_ip);
 CREATE INDEX IF NOT EXISTS idx_ssh_user ON ssh_attempts(username);
+CREATE INDEX IF NOT EXISTS idx_ssh_ts_result ON ssh_attempts(ts, result);
 
 CREATE TABLE IF NOT EXISTS firewall_events (
     id       INTEGER PRIMARY KEY,
@@ -77,6 +78,7 @@ CREATE TABLE IF NOT EXISTS firewall_events (
 CREATE INDEX IF NOT EXISTS idx_fw_ts     ON firewall_events(ts);
 CREATE INDEX IF NOT EXISTS idx_fw_dport  ON firewall_events(dst_port);
 CREATE INDEX IF NOT EXISTS idx_fw_action ON firewall_events(action);
+CREATE INDEX IF NOT EXISTS idx_fw_src_ts ON firewall_events(src_ip, ts);
 
 CREATE TABLE IF NOT EXISTS ban_events (
     id   INTEGER PRIMARY KEY,

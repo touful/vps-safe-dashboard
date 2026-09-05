@@ -84,7 +84,8 @@ func (s *Server) hExportCreds(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, e := range entries {
 			if err := cw.Write([]string{
-				e.username, e.password, e.proto, credKind(e.proto, e.extra),
+				// username/password 为攻击者可控文本，公式注入防护（审计 H-1，见 sanitizeCSVCell）
+				sanitizeCSVCell(e.username), sanitizeCSVCell(e.password), e.proto, credKind(e.proto, e.extra),
 				strconv.FormatInt(e.count, 10), time.Unix(e.firstTS, 0).Format("2006-01-02 15:04:05"),
 				time.Unix(e.lastTS, 0).Format("2006-01-02 15:04:05"), strconv.FormatInt(e.srcCnt, 10),
 			}); err != nil {
