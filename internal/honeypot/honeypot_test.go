@@ -271,8 +271,10 @@ func TestServerListenFail(t *testing.T) {
 	cancel()
 	<-done
 	// 确认失败留痕（warn 级别，source=honeypot）。
+	// 边界修复（race 专项审计）：len(sys) 在循环内每轮重新求值，每读一条减一导致
+	// 实际只消费约一半事件——warn 排在末位时提前终止漏检（map 遍历顺序随机此前靠运气通过）。
 	var found bool
-	for i := 0; i < len(sys); i++ {
+	for n := len(sys); n > 0; n-- {
 		ev := <-sys
 		if ev.Source == "honeypot" && ev.Level == "warn" {
 			found = true

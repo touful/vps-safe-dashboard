@@ -188,10 +188,10 @@ func TestRunNormalFlow(t *testing.T) {
 		ch.System <- event.SystemEvent{TS: 1, Source: "test", Level: "info", Message: "hello"}
 		time.Sleep(50 * time.Millisecond)
 	}()
-	deadline := time.Now().Add(2 * time.Second)
-	for !strings.Contains(buf.String(), `"hello"`) && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
+	// 竞态修复（race 专项根因 B）：原实现在此处无锁轮询 buf.String()，与 Run 内
+	// 持 mu 的 bw.Flush 并发读写同一 bytes.Buffer。改为直接 cancel 等待 Run 退出——
+	// 两阶段排空保证已入通道的事件全部落盘（与 TestRunDrainNoLoss 同一保证），
+	// 退出后 buffer 稳定再断言。
 	cancel()
 	<-done
 	if !strings.Contains(buf.String(), `"hello"`) {

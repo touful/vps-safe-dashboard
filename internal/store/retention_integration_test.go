@@ -60,7 +60,19 @@ func TestRunRetentionStartupConcurrentWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore 失败: %v", err)
 	}
-	defer st.Close()
+	// 收尾顺序修复（race 专项审计）：必须先 cancel 并等待 Run 退出再 Close——
+	// 原实现 t.Fatal 提前退出（如清理超时）时 defer 直接 Close（内部置 s.db=nil），
+	// 而 Run goroutine 未被取消仍在写路径上对 nil db 调 Exec → nil pointer panic。
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan struct{})
+	defer func() {
+		cancel()
+		select {
+		case <-runDone:
+		case <-time.After(20 * time.Second):
+		}
+		_ = st.Close()
+	}()
 
 	// 预插 25 万行超期数据（事务批量插入加速）。
 	old := nowSec() - 30*86400
@@ -77,8 +89,6 @@ func TestRunRetentionStartupConcurrentWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	runDone := make(chan struct{})
 	go func() {
 		defer close(runDone)
 		if err := st.Run(ctx); err != nil {

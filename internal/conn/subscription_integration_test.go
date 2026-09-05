@@ -62,7 +62,7 @@ func TestSubscriptionIntegrationNoCap(t *testing.T) {
 	defer cancel()
 	sys := make(chan event.SystemEvent, 64)
 
-	err := RunConntrackListener(ctx, integrationCfg(), nil, nil, sys, nil)
+	err := RunConntrackListener(ctx, integrationCfg(), nil, sys, nil)
 	if err == nil {
 		t.Fatal("无 NET_ADMIN 环境主通道应失败（返回错误触发 B5 降级）")
 	}
@@ -99,7 +99,7 @@ func TestSubscriptionIntegrationWithCap(t *testing.T) {
 	sys := make(chan event.SystemEvent, 64)
 
 	errc := make(chan error, 1)
-	go func() { errc <- RunConntrackListener(ctx, integrationCfg(), nil, nil, sys, nil) }()
+	go func() { errc <- RunConntrackListener(ctx, integrationCfg(), nil, sys, nil) }()
 
 	deadline := time.After(30 * time.Second)
 	for {
