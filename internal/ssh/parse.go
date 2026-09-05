@@ -68,12 +68,14 @@ func parseSyslogTimestamp(line string) (int64, bool) {
 	if len(line) < 15 || line[3] != ' ' {
 		return 0, false
 	}
-	t, err := time.ParseInLocation("Jan _2 15:04:05", line[:15], time.Local)
+	// 时区固定 UTC+8（event.LogTZ，用户裁定 2026-09-06）：行首时间戳无时区信息，
+	// 不随进程 TZ 漂移（容器 TZ=UTC 时按 Local 解析会整体偏移 8 小时）。
+	t, err := time.ParseInLocation("Jan _2 15:04:05", line[:15], event.LogTZ)
 	if err != nil {
 		return 0, false
 	}
 	now := time.Now()
-	t = time.Date(now.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), 0, time.Local)
+	t = time.Date(now.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), 0, event.LogTZ)
 	if t.After(now.Add(24 * time.Hour)) {
 		t = t.AddDate(-1, 0, 0) // 跨年日志（如 1 月日志在 12 月读取）
 	}

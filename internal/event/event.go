@@ -194,6 +194,12 @@ func MicrosToUnix(s string) (int64, bool) {
 	return micro / 1_000_000, true
 }
 
+// LogTZ 日志行内嵌时间戳的解析时区（用户裁定 2026-09-06：固定 UTC+8）。
+// rsyslog/f2b 文本日志的行首时间戳不带时区信息，原按进程 time.Local 解析——
+// 容器默认 TZ=UTC 而宿主日志为本地时间时事件系统性偏移；固定 UTC+8 与部署
+// 宿主时区对齐（ssh/parse.go 与 f2b/parse.go 共用，勿再引入 time.Local 路径）。
+var LogTZ = time.FixedZone("UTC+8", 8*3600)
+
 // Channels 聚合各采集通道（采集→存储/输出共享的公共类型）。
 // 自 out 包迁入：out 是退役 stdout 输出器，Channels 为
 // 采集/存储共享类型，语义归 event 包（事件类型 + 事件通道）。

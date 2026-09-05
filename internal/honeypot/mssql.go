@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net"
 	"unicode/utf16"
 
 	"sentry-agent/internal/event"
 )
+
+// errMalformedTDSPacket TDS 包头长度字段非法（<8 或 >65536）。
+var errMalformedTDSPacket = errors.New("TDS 畸形包长度")
 
 // handleMSSQL SQL Server 登录握手模拟（TDS 7.x，
 // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-tds/）。
@@ -76,7 +80,9 @@ func readTDSPacket(conn net.Conn) ([]byte, error) {
 	}
 	length := int(binary.BigEndian.Uint16(hdr[2:4]))
 	if length < 8 || length > 65536 {
-		return nil, nil // 畸形长度（防御）
+		// 畸形长度直接报错断开（功能审计 m-4）：返回 nil 错误会让调用方 continue
+		// 后从错位字节流继续读包，占住连接槽位空转到 30s 超时。
+		return nil, errMalformedTDSPacket
 	}
 	payload := make([]byte, length-8)
 	if _, err := io.ReadFull(conn, payload); err != nil {

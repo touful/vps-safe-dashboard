@@ -189,27 +189,32 @@ func ParseProcStat(content string) (total, idle uint64, err error) {
 }
 
 // ParseProcMeminfo 解析 /proc/meminfo 的 MemTotal 与 MemAvailable（单位 kB）。
+// 判存依据为"键出现过"而非值非零（功能审计 m-2）：内核 <3.14 无 MemAvailable 键时报
+// 缺失退出；MemAvailable 真实为 0（极端内存耗尽）是合法值，不得误判为缺失。
 func ParseProcMeminfo(content string) (total, available uint64, err error) {
+	seenTotal, seenAvail := false, false
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
 		case strings.HasPrefix(line, "MemTotal:"):
 			total, err = parseKB(line)
+			seenTotal = true
 		case strings.HasPrefix(line, "MemAvailable:"):
 			available, err = parseKB(line)
+			seenAvail = true
 		}
 		if err != nil {
 			return 0, 0, err
 		}
-		if total > 0 && available > 0 {
+		if seenTotal && seenAvail && total > 0 {
 			return total, available, nil
 		}
 	}
-	if total == 0 {
+	if !seenTotal {
 		return 0, 0, fmt.Errorf("MemTotal 缺失")
 	}
-	if available == 0 {
+	if !seenAvail {
 		return 0, 0, fmt.Errorf("MemAvailable 缺失")
 	}
 	return total, available, nil

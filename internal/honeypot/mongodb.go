@@ -175,7 +175,10 @@ func parseScramPayload(doc []byte) (string, string) {
 		}
 		if typ == 0x02 { // string：len(4) + data + \0
 			sLen := int(binary.LittleEndian.Uint32(doc[pos : pos+4]))
-			if pos+4+sLen <= len(doc) {
+			// sLen < 1 防御（功能审计 m-3）：sLen=0 时高界 pos+4+sLen-1 < 低界会 panic，
+			// 畸形输入应静默跳过而非靠 serveProto 的 recover 兜底（与 skipBSONValue 的
+			// n < 1 防御同口径）。
+			if sLen >= 1 && pos+4+sLen <= len(doc) {
 				val := string(doc[pos+4 : pos+4+sLen-1])
 				switch name {
 				case "user":

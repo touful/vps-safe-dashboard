@@ -15,12 +15,18 @@ import (
 //	2023-01-01 00:00:00,123 fail2ban.actions [2912]: NOTICE  [sshd] Ban 192.168.1.1
 //	2023-01-01 00:00:00,123 fail2ban.filter  [2912]: INFO    [sshd] Found 192.168.1.1
 //	2023-01-01 00:00:00,123 fail2ban.actions [2912]: NOTICE  [sshd] Unban 192.168.1.1
+//	2023-01-01 00:00:00,123 fail2ban.actions [2912]: NOTICE  [sshd] Restore Ban 192.168.1.1
 //
+// "Restore Ban"（fail2ban 重启时恢复的封禁）按 ban 事件记录（功能审计 m-5：
+// 该批 IP 在 sqlite 名单中活跃，缺历史事件会造成时间线与名单不一致）。
 // 注意：Ban/Unban 动作行中可能出现 "Ban 1.2.3.4 (5 failures)" 尾部说明，此处只取 IP。
-var reF2B = regexp.MustCompile(`\[([A-Za-z0-9_.-]+)\]\s+(Ban|Unban|Found)\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})`)
+var reF2B = regexp.MustCompile(`\[([A-Za-z0-9_.-]+)\]\s+((?:Restore )?Ban|Unban|Found)\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})`)
+
+// restorePrefix "Restore " 前缀长度（动作归一化时剥离）。
+const restorePrefix = len("Restore ")
 
 // ParseF2BLine 解析单行 fail2ban 日志（纯函数，可单测）。
-// 返回 ok=false 表示行不含 Ban/Unban/Found 事件。
+// 返回 ok=false 表示行不含 Ban/Unban/Found/Restore Ban 事件。
 // 已知限制：fail2ban 亦可封禁 IPv6 地址（如 "Ban 2001:db8::1"），BanEvent.IP 为
 // uint32 仅承载 IPv4；IPv6 封禁事件不产出（M1 记录，VPS 场景 IPv4 为主，M2 需要时扩展）。
 func ParseF2BLine(line string, ts int64) (event.BanEvent, bool) {
@@ -32,10 +38,14 @@ func ParseF2BLine(line string, ts int64) (event.BanEvent, bool) {
 	if ip == nil {
 		return event.BanEvent{}, false
 	}
+	action := m[2]
+	if len(action) > restorePrefix && action[:restorePrefix] == "Restore " {
+		action = action[restorePrefix:] // Restore Ban → ban（恢复封禁语义等同 Ban）
+	}
 	return event.BanEvent{
 		TS:   ts,
 		IP:   event.IPv4ToUint32(ip),
-		Type: strings.ToLower(m[2]),
+		Type: strings.ToLower(action),
 		Jail: m[1],
 	}, true
 }
@@ -46,7 +56,7 @@ func ParseF2BTime(line string) (int64, bool) {
 	if len(line) < 19 {
 		return 0, false
 	}
-	t, err := time.ParseInLocation("2006-01-02 15:04:05", line[:19], time.Local)
+	t, err := time.ParseInLocation("2006-01-02 15:04:05", line[:19], event.LogTZ)
 	if err != nil {
 		return 0, false
 	}
