@@ -2,6 +2,12 @@
 
 sentry-agent 全生命周期验证/测试/审计档案。命名约定：`Vn_验证报告` 为里程碑自验证（M1-M3），`TEST-nnn_测试报告/回归报告` 为测试 Agent 独立验收（里程碑功能验证与修复回归），`AUD-nnn` 为审计报告。原始执行证据见 [evidence/](#evidence-目录说明)。
 
+## 前端视觉升级（主 Agent 运行验证）
+
+| 报告 | 范围 | 验证方式 |
+| :--- | :--- | :--- |
+| [FE-20260908_视觉升级验证.md](FE-20260908_视觉升级验证.md) | SENTRY 四页视觉、响应式、图表及原有交互 | 主 Agent Chromium 运行验证、Go 静态资源测试与构建；独立 reviewer 只读复核，非独立 verifier 报告 |
+
 ## 里程碑验证报告（开发侧自验证）
 
 | 报告 | 里程碑/主题 | 结论摘要 |
@@ -66,4 +72,3 @@ sentry-agent 全生命周期验证/测试/审计档案。命名约定：`Vn_验�
 > **大文件处理政策（DEV-CLEAN-001）**：超过 10MB 的执行证据以 gzip 压缩形式归档（如 `evidence/testfe001/trace_attack30s.json.gz`），原始文件不保留在仓库（63.5MB 压缩为 4.1MB，可解压还原）。历史报告/脚本中引用的原始 `.json` 路径已失效，复现分析时先解压 `.gz` 还原文件名（Linux/WSL：`gzip -dk trace_attack30s.json.gz`；Windows：`tar -xzf trace_attack30s.json.gz` 或 7-Zip 解压）。注：该 gz 按下方政策**不入库**（仅本地工作区持有），公开仓库无法解压复现。
 >
 > **trace gz 不入库说明（DEV-RELEASE-001 / AUD-PUSH-001 S-01）**：`evidence/testfe001/trace_attack30s.json.gz` 含机器指纹（浏览器/系统特征），**有意不入库**（.gitignore 精确规则），仅存于本地工作区；公开仓库不推送该文件。其余 evidence 文件为不可再生执行证据，入库保护。
-

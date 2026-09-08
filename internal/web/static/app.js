@@ -214,17 +214,23 @@
   // ===== 模块 3：图表主题与渲染（ECharts） =====
   // 主题（DEV-019：色值跟随 CSS 设计系统"冷石墨·冰蓝"；低饱和网格轴线/tooltip 悬浮层）
   var charts = {};
+  var theme = getComputedStyle(document.documentElement);
+  var themeColor = function (name) { return theme.getPropertyValue(name).trim(); };
   var TI = {
-    accent: '#58a6ff',      // 图表数据强调色（与 CSS --accent-strong 统一 #58A6FF，方案 4.1 消除双蓝）
-    text: '#E8EEF5',        // 主文字（与 CSS --text 同步）
-    dim: '#8A94A3',         // 刻度/次级（与 CSS --text-dim 同步）
-    grid: 'rgba(232,238,245,0.06)', // 网格线（更低对比，退后一档）
-    axis: 'rgba(232,238,245,0.12)', // 坐标轴线
+    accent: themeColor('--accent-strong'),
+    text: themeColor('--text'),
+    dim: themeColor('--text-dim'),
+    raised: themeColor('--bg-raised'),
+    border: themeColor('--border'),
+    sunken: themeColor('--bg-sunken'),
+    grid: 'rgba(160,179,183,0.08)',
+    axis: 'rgba(160,179,183,0.16)',
     warn: '#d29922',        // 警告（低饱和）
     danger: '#f85149',      // 危险
     ok: '#3fb950',          // 成功
-    chart: ['#58a6ff', '#e09a4b', '#5fb877', '#d66a86'] // 6 色→4 色低饱和序（前 4 色顺序不变：chart[1] 橙=net Tx/disk、chart[2] 绿=mem）
+    chart: [themeColor('--accent-strong'), '#e09a4b', '#5fb877', '#d66a86']
   };
+  var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   function chart(id) {
     if (!charts[id]) { charts[id] = echarts.init(document.getElementById(id)); }
     return charts[id];
@@ -266,16 +272,17 @@
       // DEV-020 F4：right 14→48 给最右时间标签留完整空间
       grid: { left: 44, right: 48, top: 18, bottom: 22 },
       // tooltip 悬浮层（--bg-raised）+ 柔和投影；DEV-FE-003：axisPointer cross 十字线（方案 6.1）
-      tooltip: { trigger: 'axis', backgroundColor: '#232C38', borderColor: '#2A3441',
+      tooltip: { trigger: 'axis', backgroundColor: TI.raised, borderColor: TI.border,
         borderWidth: 1, borderRadius: 6, padding: [8, 12],
         extraCssText: 'box-shadow: 0 6px 20px rgba(0,0,0,0.4);',
-        textStyle: { color: '#E8EEF5', fontSize: 12 },
+        textStyle: { color: TI.text, fontSize: 12 },
         axisPointer: { type: 'cross', lineStyle: { color: 'rgba(232,238,245,0.25)', type: 'dashed' },
-          label: { backgroundColor: '#232C38', color: '#8A94A3', borderColor: '#2A3441', fontSize: 11 } },
+          label: { backgroundColor: TI.raised, color: TI.dim, borderColor: TI.border, fontSize: 11 } },
         formatter: units ? makeTipFmt(units) : undefined },
       // ECharts 过渡动画 420ms cubicOut（5s 轮询刷新干脆利落，一次性非循环）；
       // DEV-047 C3：animationDurationUpdate 300ms 显式确认——setOption 更新走该时长
       // （gauge 风险仪表指针切换缓动由此生效；ECharts 默认亦为 300，此处显式固化）
+      animation: !reducedMotion,
       animationDuration: 420, animationEasing: 'cubicOut', animationDurationUpdate: 300,
       xAxis: Object.assign({ type: 'category', data: labels, boundaryGap: false }, axis()),
       yAxis: Object.assign({ type: 'value', max: yMax }, axis())
@@ -285,12 +292,12 @@
   function zoomSlider() {
     return {
       type: 'slider', height: 14, bottom: 2,
-      borderColor: '#2A3441', backgroundColor: 'transparent',
-      fillerColor: 'rgba(76,154,255,0.08)',
-      handleStyle: { color: '#4C9AFF', borderColor: '#4C9AFF' },
-      moveHandleStyle: { color: '#8A94A3' },
-      textStyle: { color: '#8A94A3', fontSize: 11 },
-      dataBackground: { lineStyle: { color: '#2A3441', width: 1 }, areaStyle: { color: 'rgba(232,238,245,0.05)' } }
+      borderColor: TI.border, backgroundColor: 'transparent',
+      fillerColor: 'rgba(121,220,197,0.08)',
+      handleStyle: { color: TI.accent, borderColor: TI.accent },
+      moveHandleStyle: { color: TI.dim },
+      textStyle: { color: TI.dim, fontSize: 11 },
+      dataBackground: { lineStyle: { color: TI.border, width: 1 }, areaStyle: { color: 'rgba(232,238,245,0.05)' } }
     };
   }
   function zoomData(longRange) {
@@ -366,14 +373,15 @@
     // 攻击数据源失败时评分卡显示失败态（与态势条一致），不保留旧值/0 误导
     if (state.attackDataFailed || !state.sshTimelineOk || state.summaryFailed) {
       var failOpt = {
+        animation: !reducedMotion,
         series: [{
           type: 'gauge', startAngle: 210, endAngle: -30, min: 0, max: 100,
           radius: '92%', center: ['50%', '58%'],
-          axisLine: { lineStyle: { width: 12, color: [[0.3, TI.ok], [0.6, TI.warn], [1, TI.danger]] } },
+          axisLine: { lineStyle: { width: 9, color: [[1, TI.border]] } },
           pointer: { show: false }, axisTick: { show: false }, splitLine: { show: false },
           axisLabel: { show: false },
-          title: { show: true, offsetCenter: [0, '68%'], fontSize: 11, color: '#8A94A3' },
-          detail: { offsetCenter: [0, '12%'], fontSize: 24, fontWeight: 600, color: '#8A94A3',
+          title: { show: true, offsetCenter: [0, '68%'], fontSize: 11, color: TI.dim },
+          detail: { offsetCenter: [0, '12%'], fontSize: 24, fontWeight: 600, color: TI.dim,
             fontFamily: 'Consolas, monospace', formatter: function () { return '--'; } },
           data: [{ value: 0, name: '数据加载失败' }]
         }]
@@ -398,17 +406,20 @@
     bar('risk-fw-bar', p.fFw, p.fwBlocked);
     bar('risk-disk-bar', p.fDisk, p.disk >= 0 ? p.disk.toFixed(0) + '%' : '-');
     var opt = {
-      animationDurationUpdate: 300, // DEV-047 C3：gauge 指针更新缓动显式确认（300ms 一次性）
+      animation: !reducedMotion,
+      animationDurationUpdate: 300,
       series: [{
         type: 'gauge', startAngle: 210, endAngle: -30, min: 0, max: 100,
         radius: '92%', center: ['50%', '58%'],
-        axisLine: { lineStyle: { width: 12, color: [[0.3, TI.ok], [0.6, TI.warn], [1, TI.danger]] } },
-        pointer: { length: '58%', width: 3, itemStyle: { color: '#8A94A3' } },
+        axisLine: { lineStyle: { width: 9, color: [[1, TI.border]] } },
+        progress: { show: true, roundCap: true, width: 9,
+          itemStyle: { color: score >= 60 ? TI.danger : (score >= 30 ? TI.warn : TI.ok) } },
+        pointer: { show: false },
         axisTick: { show: false }, splitLine: { show: false },
         axisLabel: { show: false },
-        title: { show: true, offsetCenter: [0, '68%'], fontSize: 11, color: '#8A94A3' },
-        detail: { valueAnimation: false, offsetCenter: [0, '12%'], fontSize: 24, fontWeight: 600,
-          color: score >= 60 ? TI.danger : (score >= 30 ? TI.warn : TI.ok), fontFamily: 'Consolas, monospace' },
+        title: { show: true, offsetCenter: [0, '48%'], fontSize: 10, color: TI.dim },
+        detail: { valueAnimation: false, offsetCenter: [0, '-8%'], fontSize: 36, fontWeight: 500,
+          color: TI.text, fontFamily: themeColor('--font-display') },
         data: [{ value: score, name: '风险评分' }]
       }]
     };
@@ -433,7 +444,7 @@
     });
     var opt = baseOption(labels, undefined, { '入站探测': '次', '拦截': '次', 'SSH 失败': '次' });
     opt.grid = { left: 44, right: 56, top: 34, bottom: longRange ? 34 : 22 }; // DEV-FE-003：dataZoom 时底部让位；DEV-047 D3：right 56 容纳右轴刻度
-    opt.legend = { top: 2, right: 6, textStyle: { color: '#8A94A3', fontSize: 11 }, itemWidth: 12, itemHeight: 8 };
+    opt.legend = { top: 2, right: 6, textStyle: { color: TI.dim, fontSize: 11 }, itemWidth: 12, itemHeight: 8 };
     if (longRange) { opt.dataZoom = zoomData(true); } // DEV-FE-003 6.3：7d/30d 启用（1h/24h 保持紧凑）
     // DEV-047 D3：双 Y 轴——入站探测（扫描器量级大）走左轴；拦截（drop+reject）与 SSH 失败走右轴；
     // 右轴关闭 splitLine 避免双网格线；图例/tooltip 按 seriesName 自适应，无需改动
@@ -474,7 +485,7 @@
         itemStyle: { color: color, borderRadius: [3, 3, 0, 0], opacity: 0.85 },
         emphasis: {
           itemStyle: { color: echarts.color.lift(color, 0.15), opacity: 1 },
-          label: { show: true, position: 'top', color: '#E8EEF5', fontSize: 12,
+          label: { show: true, position: 'top', color: TI.text, fontSize: 12,
             fontFamily: 'Consolas, monospace', formatter: function (p) { return p.value; } }
         }
       };
@@ -611,9 +622,10 @@
       var max = 1;
       data.forEach(function (d) { if (d.value > max) { max = d.value; } });
       var opt = {
+        animation: !reducedMotion,
         tooltip: {
-          trigger: 'item', backgroundColor: '#232C38', borderColor: '#2A3441', borderWidth: 1,
-          borderRadius: 6, padding: [8, 12], textStyle: { color: '#E8EEF5', fontSize: 12 },
+          trigger: 'item', backgroundColor: TI.raised, borderColor: TI.border, borderWidth: 1,
+          borderRadius: 6, padding: [8, 12], textStyle: { color: TI.text, fontSize: 12 },
           formatter: function (p) {
             return p.name + '：<b style="font-family:Consolas,monospace;">' + p.value + '</b> 次 SSH 失败' +
               (state.geo.country && p.name === GEO_CODE_NAME[state.geo.country] ? '（当前筛选）' : '');
@@ -621,17 +633,17 @@
         },
         visualMap: {
           show: true, min: 0, max: max, left: 8, bottom: 8, calculable: false,
-          text: ['高', '低'], textStyle: { color: '#8A94A3', fontSize: 11 },
-          inRange: { color: ['#0E1319', '#1B232D', '#3B5F8A', '#58A6FF'] },
+          text: ['高', '低'], textStyle: { color: TI.dim, fontSize: 11 },
+          inRange: { color: [TI.sunken, '#1C2A2F', '#357D72', TI.accent] },
           itemWidth: 10, itemHeight: 80
         },
         series: [{
           name: 'SSH 失败', type: 'map', map: 'world', roam: false, data: data,
           label: { show: false },
-          itemStyle: { borderColor: '#2A3441', borderWidth: 0.6, areaColor: '#0E1319' },
-          emphasis: { label: { show: true, color: '#E8EEF5', fontSize: 11 },
-            itemStyle: { areaColor: '#58A6FF' } },
-          select: { itemStyle: { areaColor: 'rgba(76,154,255,0.35)', borderColor: '#58A6FF', borderWidth: 1 } },
+          itemStyle: { borderColor: TI.border, borderWidth: 0.6, areaColor: TI.sunken },
+          emphasis: { label: { show: true, color: TI.text, fontSize: 11 },
+            itemStyle: { areaColor: TI.accent } },
+          select: { itemStyle: { areaColor: 'rgba(121,220,197,0.25)', borderColor: TI.accent, borderWidth: 1 } },
           selectedMode: state.geo.country ? 'single' : false
         }]
       };
@@ -1809,6 +1821,7 @@
     state.range = r;
     document.querySelectorAll('#range-bar .range-btn').forEach(function (b) {
       b.classList.toggle('active', b.dataset.range === r);
+      b.setAttribute('aria-pressed', String(b.dataset.range === r));
     });
     // 统计卡标签跟随范围（近 1 小时/今日/近 7 天/近 30 天）
     var lb1 = document.querySelector('#today-fw') && document.querySelector('#today-fw').parentElement.querySelector('.l');
@@ -2207,7 +2220,9 @@
   }
   function setCustomMode() {
     exportState.custom = true;
-    document.querySelectorAll('.export-range').forEach(function (b) { b.classList.remove('active'); });
+    document.querySelectorAll('.export-range').forEach(function (b) {
+      b.classList.remove('active'); b.setAttribute('aria-pressed', 'false');
+    });
     exportMsg('');
   }
   function doExport() {
@@ -2315,10 +2330,13 @@
   // conn 为页签激活才拉取的低频数据，激活时立即补拉
   // DEV-FE-003 IN-6：切换后焦点移至该页首个卡片标题（tabindex="-1" + focus()）
   function switchPanel(name) {
-    document.querySelectorAll('nav button').forEach(function (b) { b.classList.remove('active'); });
+    document.querySelectorAll('nav button[data-panel]').forEach(function (b) {
+      b.classList.remove('active');
+      b.removeAttribute('aria-current');
+    });
     document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
     var btn = document.querySelector('nav button[data-panel="' + name + '"]');
-    if (btn) { btn.classList.add('active'); }
+    if (btn) { btn.classList.add('active'); btn.setAttribute('aria-current', 'page'); }
     document.getElementById('panel-' + name).classList.add('active');
     state.activePanel = name;
     Object.keys(charts).forEach(function (k) { charts[k].resize(); });
@@ -2348,8 +2366,9 @@
       // DEV-EXPORT-001：导出页为纯交互页——不注册任何轮询/拉取（可见性门控：无数据拉取），
       // 切页激活时不触发任何 render；数据由用户点击"导出 CSV"时按需 fetch。
     }
-    var title = document.querySelector('#panel-' + name + ' h3.panel-title');
-    if (title) { title.focus(); } // DEV-FE-003 IN-6：焦点管理（读屏位置感）
+    var title = document.querySelector('#panel-' + name + ' .panel-title');
+    if (title) { title.focus({ preventScroll: true }); }
+    window.scrollTo({ top: 0, behavior: 'instant' });
   }
   // T3：选择器收窄为 [data-panel]——nav 内通知铃铛按钮不参与页签切换
   document.querySelectorAll('nav button[data-panel]').forEach(function (btn) {
@@ -2368,6 +2387,7 @@
       exportState.range = b.dataset.exportRange;
       document.querySelectorAll('.export-range').forEach(function (x) {
         x.classList.toggle('active', x === b);
+        x.setAttribute('aria-pressed', String(x === b));
       });
       exportMsg('');
     });

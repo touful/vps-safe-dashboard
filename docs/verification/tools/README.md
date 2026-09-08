@@ -2,6 +2,22 @@
 
 已归档的手动/一次性验证工具。均不在日常部署与运行链路中使用；保留供复现历史验证结论或特殊场景备用。
 
+## 前端视觉回归（2026-09-08）
+
+[frontend_visual_check.py](frontend_visual_check.py) 使用原生 Python Playwright 与 Chromium 检查本地静态前端。`--serve` 临时启动仅监听 `127.0.0.1:18765` 的静态服务器及 WebSocket 握手，结束后关闭；API 由浏览器路由返回受控示例，不读取数据库、不启动采集器、不连接生产服务。预览使用与正式静态 Handler 一致的 CSP。
+
+在项目根目录执行：
+
+```powershell
+& 'D:\software\program\miniconda\envs\py312\python.exe' docs/verification/tools/frontend_visual_check.py --serve
+```
+
+前提：Python 环境内已安装 Playwright 及 Chromium。默认输出至 Git 忽略的 `.dev-fe-test/`，包含结果 JSON 和总览、连接、攻击、导出、移动端截图；可用 `--output` 指定任务专用输出目录。`--base-url` 用于连接已启动的测试服务器，不能指向生产站点。不要在同一端口并行启动多个预览。
+
+覆盖：四页 × 10 档宽度（320～1920px）、页签与焦点、图表呈现、折叠、密码遮蔽、IP 画像、时间范围、端口 / 国家过滤、CSV 下载、空态与 503 失败态。结果不代表生产数据准确性、真实 WS 数据帧回归、完整读屏测试或持续性能测试。
+
+本次记录见 [FE-20260908_视觉升级验证.md](../FE-20260908_视觉升级验证.md)。
+
 ## 1. TEST-HONEY-001 蜜罐治理证据脚本（2026-09 从 scripts/ 归档）
 
 | 脚本 | 来源 | 用途 |
