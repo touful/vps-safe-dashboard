@@ -1,0 +1,20 @@
+{
+  "candidate_image": "sha256:5201f02d13bd199692d7cfbbd37df41b32f687e62a84d117e34d6e35dcf5c806",
+  "previous_image": "sha256:46b9425a2baa8741a2a5471c6fd53160ba889f3b5d0ab2b832dc338963bdf1c8",
+  "source_revision": "f886bec891ec3754ccaad62fe355a32b8652f49f",
+  "binary_sha256": "e98d0bb50021ae59984cc4e76b5ef891a20fb98fee9995d31505c22344a6998c",
+  "assets": {
+    "/": "9f2b85b73f269ac4f8a766e6a59f3b55b7ae017b80c808bf41c53d5fde00ee18",
+    "/app.js": "88e12a5f689ff538283d92b91639c89bd07ed8d00c15e49c50e921bc514054b2"
+  },
+  "applied": true,
+  "status": "PASS",
+  "stages": [
+    "candidate_compose_completed",
+    "candidate_service_verified",
+    "runtime_constraints_verified",
+    "running_binary_verified",
+    "latest_tag_updated"
+  ],
+  "started_at": "2026-09-08T12:53:46.500938983Z"
+}

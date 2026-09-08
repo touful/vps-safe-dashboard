@@ -1,0 +1,125 @@
+{
+  "status": "FAIL",
+  "candidate": "f886bec891ec3754ccaad62fe355a32b8652f49f",
+  "image": "sha256:3233db4d3cfffbc558afbde49afe637055b7c3f458dbdc64cddd26a9c1ef860a",
+  "asset_sha256": {
+    "/": {
+      "status": 200,
+      "sha256": "9f2b85b73f269ac4f8a766e6a59f3b55b7ae017b80c808bf41c53d5fde00ee18"
+    },
+    "/app.js": {
+      "status": 200,
+      "sha256": "88e12a5f689ff538283d92b91639c89bd07ed8d00c15e49c50e921bc514054b2"
+    }
+  },
+  "checks": [
+    "asset_",
+    "asset_app.js",
+    "ws_open_and_message",
+    "kpi_1440_five_columns",
+    "no_overflow_1440",
+    "kpi_390_two_columns",
+    "no_overflow_390",
+    "pageerror_zero"
+  ],
+  "failures": [
+    "networkidle_after_1h"
+  ],
+  "pageerror_count": 0,
+  "console_http_error_count": 16,
+  "console_other_error_count": 0,
+  "ws_open_count": 1,
+  "ws_message_count": 170,
+  "layout": {
+    "1440": {
+      "card_count": 5,
+      "rows": {
+        "283.0": 5
+      },
+      "scroll_width": 1440,
+      "inner_width": 1440,
+      "grid_columns": "222.391px 222.406px 222.391px 222.406px 222.391px"
+    },
+    "390": {
+      "card_count": 5,
+      "rows": {
+        "338.4": 2,
+        "520.5": 2,
+        "685.6": 1
+      },
+      "scroll_width": 390,
+      "inner_width": 390,
+      "grid_columns": "176px 176px"
+    }
+  },
+  "api_http_error_count": 16,
+  "api_http_error_paths": [
+    {
+      "path": "/api/v1/ssh/timeline",
+      "status": 500
+    },
+    {
+      "path": "/api/v1/resources",
+      "status": 500
+    },
+    {
+      "path": "/api/v1/attacks/geo",
+      "status": 500
+    },
+    {
+      "path": "/api/v1/ssh",
+      "status": 500
+    },
+    {
+      "path": "/api/v1/summary",
+      "status": 500
+    },
+    {
+      "path": "/api/v1/attacks/top_ports",
+      "status": 500
+    },
+    {
+      "path": "/api/v1/attacks/top_sources",
+      "status": 500
+    },
+    {
+      "path": "/api/v1/firewall/timeline",
+      "status": 500
+    },
+    {
+      "path": "/api/v1/honeypot/creds",
+      "status": 500
+    },
+    {
+      "path": "/api/v1/honeypot/events",
+      "status": 500
+    },
+    {
+      "path": "/api/v1/ssh/timeline",
+      "status": 429
+    },
+    {
+      "path": "/api/v1/summary",
+      "status": 429
+    },
+    {
+      "path": "/api/v1/firewall/timeline",
+      "status": 429
+    },
+    {
+      "path": "/api/v1/summary",
+      "status": 429
+    },
+    {
+      "path": "/api/v1/attacks/geo",
+      "status": 500
+    },
+    {
+      "path": "/api/v1/resources",
+      "status": 500
+    }
+  ],
+  "ws_paths": [
+    "/ws"
+  ]
+}

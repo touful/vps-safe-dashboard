@@ -1,0 +1,207 @@
+{
+  "target": "http://127.0.0.1:14002",
+  "revision": "f886bec891ec3754ccaad62fe355a32b8652f49f",
+  "checks": [
+    "asset_hash:/",
+    "asset_hash:/app.js",
+    "health",
+    "range_1h",
+    "ws_live",
+    "overview_summary_loaded",
+    "visible:overview:1440",
+    "overflow:overview:1440",
+    "desktop_kpi_five_columns",
+    "visible:conn:1440",
+    "overflow:conn:1440",
+    "visible:attack:1440",
+    "overflow:attack:1440",
+    "visible:export:1440",
+    "overflow:export:1440",
+    "visible:overview:900",
+    "overflow:overview:900",
+    "visible:conn:900",
+    "overflow:conn:900",
+    "visible:attack:900",
+    "overflow:attack:900",
+    "visible:export:900",
+    "overflow:export:900",
+    "visible:overview:390",
+    "overflow:overview:390",
+    "mobile_kpi_two_columns:390",
+    "visible:conn:390",
+    "overflow:conn:390",
+    "visible:attack:390",
+    "overflow:attack:390",
+    "visible:export:390",
+    "overflow:export:390",
+    "visible:overview:320",
+    "overflow:overview:320",
+    "mobile_kpi_two_columns:320",
+    "visible:conn:320",
+    "overflow:conn:320",
+    "visible:attack:320",
+    "overflow:attack:320",
+    "visible:export:320",
+    "overflow:export:320",
+    "csv_download",
+    "no_uncaught_js_errors",
+    "no_missing_api"
+  ],
+  "failures": [],
+  "http_errors": [
+    {
+      "path": "v1/ssh/timeline?range=1h",
+      "status": 429
+    }
+  ],
+  "page_errors": [],
+  "console_errors": [
+    "Failed to load resource: the server responded with a status of 429 (Too Many Requests)"
+  ],
+  "viewports": [
+    {
+      "width": 1440,
+      "cards": [
+        {
+          "x": 240,
+          "y": 282.984375,
+          "width": 222.390625,
+          "height": 154
+        },
+        {
+          "x": 476.390625,
+          "y": 282.984375,
+          "width": 222.40625,
+          "height": 154
+        },
+        {
+          "x": 712.796875,
+          "y": 282.984375,
+          "width": 222.390625,
+          "height": 154
+        },
+        {
+          "x": 949.1875,
+          "y": 282.984375,
+          "width": 222.40625,
+          "height": 154
+        },
+        {
+          "x": 1185.59375,
+          "y": 282.984375,
+          "width": 222.390625,
+          "height": 154
+        }
+      ]
+    },
+    {
+      "width": 900,
+      "cards": [
+        {
+          "x": 22,
+          "y": 329.984375,
+          "width": 421,
+          "height": 154
+        },
+        {
+          "x": 457,
+          "y": 329.984375,
+          "width": 421,
+          "height": 154
+        },
+        {
+          "x": 22,
+          "y": 497.984375,
+          "width": 276,
+          "height": 154
+        },
+        {
+          "x": 312,
+          "y": 497.984375,
+          "width": 276,
+          "height": 154
+        },
+        {
+          "x": 602,
+          "y": 497.984375,
+          "width": 276,
+          "height": 154
+        }
+      ]
+    },
+    {
+      "width": 390,
+      "cards": [
+        {
+          "x": 14,
+          "y": 338.390625,
+          "width": 176,
+          "height": 172.09375
+        },
+        {
+          "x": 200,
+          "y": 338.390625,
+          "width": 176,
+          "height": 172.09375
+        },
+        {
+          "x": 14,
+          "y": 520.484375,
+          "width": 176,
+          "height": 155.09375
+        },
+        {
+          "x": 200,
+          "y": 520.484375,
+          "width": 176,
+          "height": 155.09375
+        },
+        {
+          "x": 14,
+          "y": 685.578125,
+          "width": 362,
+          "height": 124
+        }
+      ]
+    },
+    {
+      "width": 320,
+      "cards": [
+        {
+          "x": 14,
+          "y": 338.390625,
+          "width": 141,
+          "height": 190.6875
+        },
+        {
+          "x": 165,
+          "y": 338.390625,
+          "width": 141,
+          "height": 190.6875
+        },
+        {
+          "x": 14,
+          "y": 539.078125,
+          "width": 141,
+          "height": 175.234375
+        },
+        {
+          "x": 165,
+          "y": 539.078125,
+          "width": 141,
+          "height": 175.234375
+        },
+        {
+          "x": 14,
+          "y": 724.3125,
+          "width": 292,
+          "height": 124
+        }
+      ]
+    }
+  ],
+  "ws_messages": 850,
+  "startup_http_errors": 1,
+  "later_http_errors": [],
+  "status": "PASS_WITH_NOTES"
+}

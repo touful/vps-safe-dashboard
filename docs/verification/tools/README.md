@@ -18,6 +18,20 @@
 
 本次记录见 [FE-20260908_视觉升级验证.md](../FE-20260908_视觉升级验证.md)。
 
+## VPS 前端发布验证（2026-09-08）
+
+这些工具固定用于本次 VPS 基线，不是通用部署器。完整备份、镜像及候选 hash 见 [VPS 部署记录](../FE-20260908_VPS部署记录.md)。
+
+- `frontend-runtime.Dockerfile`：基础镜像固定到生产 digest，仅替换嵌有前端的二进制。
+- `frontend_vps_prepare.py`：在 VPS 独立测试目录恢复数据副本、检查 SQLite 完整性、生成隔离配置。
+- `frontend_vps_switch.py`：要求精确镜像、完整 `--revision` 和 `--binary-sha256`；默认仅校验，`--apply` 才切换。自动回滚保留旧镜像、数据与生产配置。
+- `test_frontend_vps_switch.py`：7 项模拟故障注入，不调用真实 Docker，也不代表生产回滚演练。
+- `frontend_deploy_smoke.py`：真实浏览器检查四页、四档宽度、统计卡片排列、WS、前端哈希、CSV 下载及脚本异常；API HTTP 错误单独记录，不替换响应。
+
+浏览器脚本用 `--url` 指定已授权目标，以 `--index-sha`、`--app-sha`、`--revision` 绑定候选。可用 `--export-from`、`--export-to` 指定快照内有记录的本地时间窗口；空数据的正确行为是提示无记录，不应误判成 CSV 下载损坏。
+
+截图可能包含真实攻击日志和凭据，仅保存到 `.cache`，不得直接纳入公开仓库。结果 JSON 只记录状态、计数及布局，可作为交付证据。浏览器复测以 1h 窗口为主；已有 24h 后端查询超时不属于纯视觉修复范围。
+
 ## 1. TEST-HONEY-001 蜜罐治理证据脚本（2026-09 从 scripts/ 归档）
 
 | 脚本 | 来源 | 用途 |
