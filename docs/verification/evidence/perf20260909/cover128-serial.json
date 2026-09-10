@@ -1,0 +1,142 @@
+[
+  {
+    "path": "/api/v1/summary?range=1h",
+    "status": 200,
+    "seconds": 0.014,
+    "bytes": 252,
+    "sha256": "6044ea1a2e672c25f2674c3ad736d82701ecf2c878f512fe5db61eb9494f262c"
+  },
+  {
+    "path": "/api/v1/resources?range=1h",
+    "status": 200,
+    "seconds": 0.003,
+    "bytes": 7253,
+    "sha256": "41c0229b8c5f65d3d3f234ab1f2c0908439a8165fe0a86325fb217153631bca5"
+  },
+  {
+    "path": "/api/v1/attacks/top_ports?range=1h",
+    "status": 200,
+    "seconds": 0.007,
+    "bytes": 291,
+    "sha256": "a31260168d7f1ba091e3fc627d9389364546f0a01d095f19cb6f68f629026b7e"
+  },
+  {
+    "path": "/api/v1/attacks/top_sources?range=1h",
+    "status": 200,
+    "seconds": 0.005,
+    "bytes": 339,
+    "sha256": "e376acec67ad2d0e89acbfe0101253c3879bc3ec63da4fb421140b427bc0174c"
+  },
+  {
+    "path": "/api/v1/firewall/timeline?range=1h",
+    "status": 200,
+    "seconds": 0.013,
+    "bytes": 175,
+    "sha256": "918eb10e7f64efb27fa0d355dae65d231f39e985d62dc3fa2913020b7bf9ca1c"
+  },
+  {
+    "path": "/api/v1/summary?range=24h",
+    "status": 200,
+    "seconds": 0.594,
+    "bytes": 264,
+    "sha256": "f1a49fc89071cc35983bf1f1f0e34f0a1b4ca84979bda592a0f6ba2fd9280917"
+  },
+  {
+    "path": "/api/v1/resources?range=24h",
+    "status": 200,
+    "seconds": 0.07,
+    "bytes": 185585,
+    "sha256": "8cb3c5e304a304bdba0c2241e30dd55c2ae208a43bcdd7de0e474e444a91e8fb"
+  },
+  {
+    "path": "/api/v1/attacks/top_ports?range=24h",
+    "status": 200,
+    "seconds": 0.247,
+    "bytes": 311,
+    "sha256": "3526b88ef097f0050ddb7433bd24cce620eee136eea6e74da0f6dc3bb8520350"
+  },
+  {
+    "path": "/api/v1/attacks/top_sources?range=24h",
+    "status": 200,
+    "seconds": 0.295,
+    "bytes": 355,
+    "sha256": "905760f48ea2d1a1830a0c0e9911f260801dac8b2f770704cc41763e4bc24c61"
+  },
+  {
+    "path": "/api/v1/firewall/timeline?range=24h",
+    "status": 200,
+    "seconds": 0.436,
+    "bytes": 1675,
+    "sha256": "39feb02e4b4c01ae71909782e54d6c92623080b9cf79d8606bb4b37bf94fc118"
+  },
+  {
+    "path": "/api/v1/summary?range=7d",
+    "status": 200,
+    "seconds": 6.85,
+    "bytes": 271,
+    "sha256": "04bdd0ceb2313d1200a94e4393b3cf8223895bd9a8e6055524681987b787200a"
+  },
+  {
+    "path": "/api/v1/resources?range=7d",
+    "status": 200,
+    "seconds": 1.51,
+    "bytes": 1291369,
+    "sha256": "f1b4367eb681836d430cc4377e88ee2041266a060ceb419f0c1ff0900f23c437"
+  },
+  {
+    "path": "/api/v1/attacks/top_ports?range=7d",
+    "status": 200,
+    "seconds": 1.703,
+    "bytes": 320,
+    "sha256": "e8c570304c14b9069adecde44e04b86cdbfb1b7648f4302d3158c3b54d44fdf9"
+  },
+  {
+    "path": "/api/v1/attacks/top_sources?range=7d",
+    "status": 200,
+    "seconds": 1.773,
+    "bytes": 363,
+    "sha256": "a463738c90afd686c8afb50fd543ad66bbb34cf645443216a49c51255222680f"
+  },
+  {
+    "path": "/api/v1/firewall/timeline?range=7d",
+    "status": 200,
+    "seconds": 2.674,
+    "bytes": 11085,
+    "sha256": "9555831291844194b51d66d9c5ceaf04bf4581db4528de418bd68e02cabf0698"
+  },
+  {
+    "path": "/api/v1/summary?range=30d",
+    "status": 200,
+    "seconds": 2.363,
+    "bytes": 272,
+    "sha256": "23f01e22a2c1b816e478e9bd41f9f17c084bd83cb19394c7297e080d4da230cd"
+  },
+  {
+    "path": "/api/v1/resources?range=30d",
+    "status": 200,
+    "seconds": 0.343,
+    "bytes": 1339171,
+    "sha256": "23da1f5ffe0c57df771824cc275038e04ab8a9e3377915680bc838b335d76b29"
+  },
+  {
+    "path": "/api/v1/attacks/top_ports?range=30d",
+    "status": 200,
+    "seconds": 1.76,
+    "bytes": 321,
+    "sha256": "d81e488649f25192a047416bffb3715e0cec0f59b83f58e5ba5020b891518abc"
+  },
+  {
+    "path": "/api/v1/attacks/top_sources?range=30d",
+    "status": 200,
+    "seconds": 1.887,
+    "bytes": 363,
+    "sha256": "401814ca31ac3d4cd62acf7bfeb5b83e3e1d0a193dc0d48acc37366c0eff8d5a"
+  },
+  {
+    "path": "/api/v1/firewall/timeline?range=30d",
+    "status": 200,
+    "seconds": 2.9,
+    "bytes": 44786,
+    "sha256": "2d317f4cd0642b412628f9d3761074c7ef513bc5ee16612bd10115339e4994fb"
+  }
+]

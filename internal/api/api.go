@@ -26,8 +26,9 @@ import (
 
 // Server M-07 HTTP 服务。
 type Server struct {
-	db             *sql.DB // 独立只读连接（auditor 坑点：不与写线程共享）
-	dbPath         string  // 主库路径（health db_size 用，SetDBPath 注入）
+	statsSlots     chan struct{} // 大范围防火墙聚合最多两路，给轻查询保留连接与临时空间
+	db             *sql.DB       // 独立只读连接（auditor 坑点：不与写线程共享）
+	dbPath         string        // 主库路径（health db_size 用，SetDBPath 注入）
 	archiveDir     string
 	wsOrigin       string
 	allowNoOrigin  bool                       // M-02：非回环监听时拒绝无 Origin 请求
@@ -68,6 +69,7 @@ func NewServer(dbPath, archiveDir, wsOrigin string, allowNoOrigin bool, snapshot
 	}
 	db.SetMaxOpenConns(4) // 只读并发查询（WAL 多读者）
 	s := &Server{
+		statsSlots:     make(chan struct{}, 2),
 		db:             db,
 		archiveDir:     archiveDir,
 		wsOrigin:       wsOrigin,
@@ -132,15 +134,15 @@ func (s *Server) SetSystemChannel(sys chan<- event.SystemEvent) {
 func (s *Server) routes() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/health", s.hHealth) // 豁免限流：健康检查（运维探活/容器健康检查）
-	mux.HandleFunc("/api/v1/summary", s.limitHeavy(s.hSummary))
+	mux.HandleFunc("/api/v1/summary", s.limitHeavy(s.limitStats(s.hSummary)))
 	mux.HandleFunc("/api/v1/resources", s.limitAPI(s.hResources))
 	mux.HandleFunc("/api/v1/connections", s.limitAPI(s.hConnections))
 	mux.HandleFunc("/api/v1/ssh", s.limitAPI(s.hSSH))
 	mux.HandleFunc("/api/v1/firewall", s.limitAPI(s.hFirewall))
-	mux.HandleFunc("/api/v1/attacks/top_ports", s.limitAPI(s.hTopPorts))
-	mux.HandleFunc("/api/v1/attacks/top_sources", s.limitAPI(s.hTopSources))
+	mux.HandleFunc("/api/v1/attacks/top_ports", s.limitAPI(s.limitStats(s.hTopPorts)))
+	mux.HandleFunc("/api/v1/attacks/top_sources", s.limitAPI(s.limitStats(s.hTopSources)))
 	mux.HandleFunc("/api/v1/ssh/timeline", s.limitHeavy(s.hSSHTimeline))
-	mux.HandleFunc("/api/v1/firewall/timeline", s.limitHeavy(s.hFirewallTimeline))
+	mux.HandleFunc("/api/v1/firewall/timeline", s.limitHeavy(s.limitStats(s.hFirewallTimeline)))
 	// DEV-GEO-001：全球攻击地图（SSH 失败按国家聚合；30d 视图 1000 IP 组 + 逐 IP mmdb
 	// 查询 CPU/IO 密集，纳入 heavy 限流——与 export/csv 同档）。
 	mux.HandleFunc("/api/v1/attacks/geo", s.limitHeavy(s.hGeoAttacks))
@@ -160,8 +162,8 @@ func (s *Server) routes() {
 	// （与 export/csv 同档 heavy 限流）。导出为本地敏感数据（用户裁定 2026-09-02 开放）。
 	mux.HandleFunc("/api/v1/honeypot/creds", s.limitAPI(s.hHoneypotCreds))
 	mux.HandleFunc("/api/v1/export/creds", s.limitHeavy(s.hExportCreds))
-	mux.HandleFunc("/api/v1/ip", s.limitAPI(s.hIPProfile))          // P3-2：来源 IP 画像（跨表聚合，只读）
-	mux.HandleFunc("/api/v1/channels", s.limitAPI(s.hChannels))     // P3-3：采集通道健康（读侧聚合，只读）
+	mux.HandleFunc("/api/v1/ip", s.limitAPI(s.hIPProfile))      // P3-2：来源 IP 画像（跨表聚合，只读）
+	mux.HandleFunc("/api/v1/channels", s.limitAPI(s.hChannels)) // P3-3：采集通道健康（读侧聚合，只读）
 	// m-3 加固：/ws 握手纳入全局令牌桶（原仅 wsMaxConns + 5s 握手 deadline 兜底，
 	// 高频建断连接可消耗升级握手 CPU；升级成功后的长连接不再消耗令牌，正常面板
 	// 单连接不受影响）。
@@ -432,16 +434,16 @@ func (s *Server) SetListen(addr string) { s.listen = addr }
 // 注意：须在 Serve 之前调用（运行期不热更新）。
 func (s *Server) SetGeo(g GeoLookuper) { s.geo = g }
 
-// aggTimeout 聚合查询超时分档：1h/7d 轻档 5s；24h/30d 视图放宽为 long 档。
-// 生产实测（2026-09-03，2.2.0，1.2GB 库）：容器重启后 SQLite 页缓存全冷，
-// ts 索引范围扫 + GROUP BY 首查约 5s（热态 0.3s），固定 5s 超时导致冷启动窗口内
-// 面板报错横幅；放宽后仅慢不挂。long 由调用方按端点负载给定（15s/30s）。
+// aggTimeout 与 rangeSeconds 的默认窗口一致；7d 不再误入 1h 的短超时档。
+// 仍保留有限超时；查询优化与前端去重负责减少实际工作量。
 func aggTimeout(r *http.Request, long time.Duration) time.Duration {
 	switch r.URL.Query().Get("range") {
-	case "24h", "30d":
-		return long
+	case "1h":
+		return 5 * time.Second
+	case "30d":
+		return 30 * time.Second
 	}
-	return 5 * time.Second
+	return long
 }
 
 // hSummary 总览聚合（方案 3.7/4.4）。

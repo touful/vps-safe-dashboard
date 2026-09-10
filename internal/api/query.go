@@ -254,14 +254,11 @@ type topHit struct {
 
 // topHits 查询防火墙事件表指定列 TOP 计数（hTopPorts/hTopSources 公共查询）。
 // col 仅来自本文件常量调用点，无用户输入面。
-// 与原 handler 行为一致：不检查迭代错误（ctx 超时场景返回部分结果，200）。
-// PERF-FIX（生产 245 万行库实测）：无 sqlite_stat1 或优化器为避免 GROUP BY 排序时，
-// 计划器可能选 dst_port/src_ip 索引全表扫描+逐行回表（百万级随机 IO，单次数十秒，
-// 持续轮询下磁盘被占满拖死全部端点）；强制 INDEXED BY idx_fw_ts 先做时间过滤
-// （覆盖索引范围扫描 + 有限行 temp 排序），大库下毫秒~秒级返回。
+// 覆盖索引同时提供过滤和聚合列，避免按时间索引逐行回表。
+// 完整检查迭代错误，不能把超时后的部分结果当作完整榜单。
 func (s *Server) topHits(ctx context.Context, from int64, top uint64, col string) ([]topHit, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+col+`, COUNT(*) AS hits FROM firewall_events
-		INDEXED BY idx_fw_ts WHERE ts >= ? GROUP BY `+col+` ORDER BY hits DESC LIMIT ?`, from, top)
+		INDEXED BY idx_fw_ts_stats WHERE ts >= ? GROUP BY `+col+` ORDER BY hits DESC LIMIT ?`, from, top)
 	if err != nil {
 		return nil, err
 	}
@@ -269,11 +266,12 @@ func (s *Server) topHits(ctx context.Context, from int64, top uint64, col string
 	var out []topHit
 	for rows.Next() {
 		var h topHit
-		if rows.Scan(&h.V, &h.Hits) == nil {
-			out = append(out, h)
+		if err := rows.Scan(&h.V, &h.Hits); err != nil {
+			return nil, err
 		}
+		out = append(out, h)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // hArchive 归档文件列表（方案 3.7：file/month/size_mb/gzip）。
@@ -396,15 +394,14 @@ func (s *Server) hFirewallTimeline(w http.ResponseWriter, r *http.Request) {
 	from := rangeSeconds(r)
 	// 统计窗口对齐小时桶边界——首桶补零起点为 (from/3600)*3600，
 	// SQL 过滤须同为桶边界，否则首桶缺失 [from_floor, from) 区间最多 3599 秒数据。
-	// PERF-FIX：INDEXED BY idx_fw_ts 强制时间过滤先行（生产大库 GROUP BY 计划
-	// 可能选 action 等值索引全表扫描+回表拖死端点，同 topHits 注释）。
+	// 覆盖索引提供 ts 和 action，范围扫描不再回表读取原始日志。
 	fromBucket := (from / 3600) * 3600
 	rows, err := s.db.QueryContext(ctx, `SELECT (ts/3600)*3600 AS hour,
 		SUM(CASE WHEN action='drop' THEN 1 ELSE 0 END),
 		SUM(CASE WHEN action='accept' THEN 1 ELSE 0 END),
 		SUM(CASE WHEN action='reject' THEN 1 ELSE 0 END),
 		SUM(CASE WHEN action='inbound' THEN 1 ELSE 0 END)
-		FROM firewall_events INDEXED BY idx_fw_ts WHERE ts >= ? GROUP BY hour ORDER BY hour`, fromBucket)
+		FROM firewall_events INDEXED BY idx_fw_ts_stats WHERE ts >= ? GROUP BY hour ORDER BY hour`, fromBucket)
 	if err != nil {
 		writeDBErr(w, r, err)
 		return
@@ -420,9 +417,15 @@ func (s *Server) hFirewallTimeline(w http.ResponseWriter, r *http.Request) {
 	got := make(map[int64]*bucket)
 	for rows.Next() {
 		var b bucket
-		if rows.Scan(&b.TS, &b.Drop, &b.Accept, &b.Reject, &b.Inbound) == nil {
-			got[b.TS] = &b
+		if err := rows.Scan(&b.TS, &b.Drop, &b.Accept, &b.Reject, &b.Inbound); err != nil {
+			writeDBErr(w, r, err)
+			return
 		}
+		got[b.TS] = &b
+	}
+	if err := rows.Err(); err != nil {
+		writeDBErr(w, r, err)
+		return
 	}
 	// 补零：从 from 对齐到小时起，到当前小时止（含），缺失小时补零桶。
 	// 30d 窗口上限 721 桶；加 1000 硬上限防御异常。

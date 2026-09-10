@@ -1,0 +1,42 @@
+{
+  "firewall_count": 2391665,
+  "anchor": 1788913963,
+  "index_sql": [
+    "CREATE INDEX idx_fw_ts_stats ON firewall_events(ts, action, dst_port, src_ip)"
+  ],
+  "index_bytes": 71720960,
+  "dst_port_equivalent": true,
+  "dst_port_groups": 63358,
+  "dst_port_plan": [
+    [
+      6,
+      0,
+      0,
+      "SEARCH firewall_events USING COVERING INDEX idx_fw_ts_stats (ts>?)"
+    ],
+    [
+      11,
+      0,
+      0,
+      "USE TEMP B-TREE FOR GROUP BY"
+    ]
+  ],
+  "src_ip_equivalent": true,
+  "src_ip_groups": 21356,
+  "src_ip_plan": [
+    [
+      6,
+      0,
+      0,
+      "SEARCH firewall_events USING COVERING INDEX idx_fw_ts_stats (ts>?)"
+    ],
+    [
+      11,
+      0,
+      0,
+      "USE TEMP B-TREE FOR GROUP BY"
+    ]
+  ],
+  "timeline_equivalent": true,
+  "timeline_buckets": 169
+}

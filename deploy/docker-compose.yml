@@ -57,10 +57,11 @@ services:
     # SQLite 数据写入全部落在 /var/lib/sentry-agent（rw 卷，WAL/-wal/-shm 同目录）；
     # tmpfs 补偿：/tmp 兜底 SQLite 排序临时文件与子进程运行时临时需求，
     # /home/sentry 兜底 USER sentry 的 HOME 写尝试（如 sd_journal cache），
-    # 合计约 17MB 内存开销（16m+1m）。运行时行为由复验清单 read_only/tmpfs 项闭环验证。
+    # 临时空间上限合计 129MB（128m+1m），按需占用并计入容器 512MB 限额。
+    # 与后端两路聚合并发上限配合；运行证据见 PERF-20260909 排查记录。
     read_only: true
     tmpfs:
-      - /tmp:size=16m
+      - /tmp:size=128m
       - /home/sentry:size=1m
     # VS-13 注：原 no-new-privileges:true 已移除（2026-09-03）——它与低端口绑定所需的
     # 文件能力 cap_net_bind_service 互斥（NNP 阻止 exec 应用 file caps，实测 bind

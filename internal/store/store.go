@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS firewall_events (
 CREATE INDEX IF NOT EXISTS idx_fw_ts     ON firewall_events(ts);
 CREATE INDEX IF NOT EXISTS idx_fw_dport  ON firewall_events(dst_port);
 CREATE INDEX IF NOT EXISTS idx_fw_action ON firewall_events(action);
+-- 聚合仅读取索引列，避免逐事件回表读取大段 raw 日志；保留旧索引支持回滚。
+CREATE INDEX IF NOT EXISTS idx_fw_ts_stats ON firewall_events(ts, action, dst_port, src_ip);
 -- 性能审计 F2：/api/v1/ip 的 firewall 段按 src_ip 等值 + ts 窗口查询（该表无 src 索引，
 -- 原 168h 全窗扫描；复合索引降 1-2 个数量级）。CREATE INDEX IF NOT EXISTS 对存量库幂等补建。
 CREATE INDEX IF NOT EXISTS idx_fw_src_ts ON firewall_events(src_ip, ts);

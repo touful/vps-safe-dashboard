@@ -2,6 +2,17 @@
 
 已归档的手动/一次性验证工具。均不在日常部署与运行链路中使用；保留供复现历史验证结论或特殊场景备用。
 
+## 接口性能与请求调度（2026-09-09）
+
+完整基线、证据和状态见 [PERF-20260909](../PERF-20260909_接口性能与请求调度优化.md)。
+
+- `perf_vps_probe.py`：固定 VPS 隔离快照准备、临时空间对照、串行与并发接口矩阵、覆盖索引计数等价性；不把真实攻击明细写入报告。
+- `test_request_scheduler.cjs`：`node docs/verification/tools/test_request_scheduler.cjs [app.js绝对路径]`；默认根前端，兼容部署基线须显式指定对应文件。
+- `perf_vps_release.py`：本次精确基线发布器，依赖同目录 `frontend_vps_switch.py` 的只读辅助函数。默认 `--mode check`，`prepare` 完成备份，`apply` 才切换；必须提供完整镜像、commit 和二进制 SHA。
+- `test_perf_vps_release.py`：纯内存模拟发布故障及原子文件替换，不连接服务器，不代表生产回滚演练。
+
+VPS 工具只在 Linux 的固定路径上执行，不是任意环境通用部署脚本。再次使用前必须重新核对原镜像、配置和 Compose 哈希。临时数据库、镜像备份和可能含凭据的浏览器截图保持私有，不提交公开仓库。
+
 ## 前端视觉回归（2026-09-08）
 
 [frontend_visual_check.py](frontend_visual_check.py) 使用原生 Python Playwright 与 Chromium 检查本地静态前端。`--serve` 临时启动仅监听 `127.0.0.1:18765` 的静态服务器及 WebSocket 握手，结束后关闭；API 由浏览器路由返回受控示例，不读取数据库、不启动采集器、不连接生产服务。预览使用与正式静态 Handler 一致的 CSP。

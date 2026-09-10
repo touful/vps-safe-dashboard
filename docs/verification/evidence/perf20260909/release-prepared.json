@@ -1,0 +1,19 @@
+{
+  "image": "sha256:c612fbf60df99db34c08bbd2909c021e54da9dfade607272cbcd3bdf71618ec0",
+  "revision": "78e015831b5765e1eeaf193255436af69c8c78e1",
+  "binary_sha256": "c79386b49c86ccd52732b19e17f3246081985cefc66f45008aad529962444850",
+  "assets": {
+    "/": "9f2b85b73f269ac4f8a766e6a59f3b55b7ae017b80c808bf41c53d5fde00ee18",
+    "/app.js": "7a00d18a03c4761bad0aa4873c2ad67b6cfe3c86aca27ee1ffa32b2c34dd7482"
+  },
+  "old_assets": {
+    "/": "9f2b85b73f269ac4f8a766e6a59f3b55b7ae017b80c808bf41c53d5fde00ee18",
+    "/app.js": "88e12a5f689ff538283d92b91639c89bd07ed8d00c15e49c50e921bc514054b2"
+  },
+  "backup_db_sha256": "19ac088aa31bb57f95350bd2d9f51e945d5c0fb82d163781b92d0c6945473d4e",
+  "manifest_sha256": {
+    "candidate.compose.json": "02a768e73159985d9cf68a10c1f83472ecadb35f5360d9b8f6d3c80b9e0e2420",
+    "rollback.compose.json": "80f39fdea0a059159703e31775536c35b3a891342eed41519ed29a797a6f2090"
+  },
+  "status": "PREPARED"
+}

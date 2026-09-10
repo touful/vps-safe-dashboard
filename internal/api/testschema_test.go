@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS firewall_events (
     raw      TEXT    NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_fw_ts     ON firewall_events(ts);
+CREATE INDEX IF NOT EXISTS idx_fw_ts_stats ON firewall_events(ts, action, dst_port, src_ip);
 CREATE INDEX IF NOT EXISTS idx_fw_dport  ON firewall_events(dst_port);
 CREATE INDEX IF NOT EXISTS idx_fw_action ON firewall_events(action);
 CREATE INDEX IF NOT EXISTS idx_fw_src_ts ON firewall_events(src_ip, ts);

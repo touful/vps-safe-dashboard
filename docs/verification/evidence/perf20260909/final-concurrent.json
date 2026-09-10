@@ -1,0 +1,82 @@
+[
+  {
+    "path": "/api/v1/firewall/timeline?range=7d",
+    "status": 200,
+    "seconds": 3.059,
+    "bytes": 11050,
+    "sha256": "6b7af767cfa72c9f0a30e6d497009c7ca311023203aab099d20af5d76497c682",
+    "concurrent_slow": 1
+  },
+  {
+    "path": "/api/v1/resources?range=1h&step=60s",
+    "status": 200,
+    "seconds": 0.01,
+    "bytes": 7472,
+    "sha256": "482443723c95379980f00707190f86839e3eb4a778804d6753d8c745697f7a9a",
+    "concurrent_slow": 1
+  },
+  {
+    "path": "/api/v1/firewall/timeline?range=7d",
+    "status": 200,
+    "seconds": 3.591,
+    "bytes": 11050,
+    "sha256": "6b7af767cfa72c9f0a30e6d497009c7ca311023203aab099d20af5d76497c682",
+    "concurrent_slow": 2
+  },
+  {
+    "path": "/api/v1/firewall/timeline?range=7d",
+    "status": 200,
+    "seconds": 3.685,
+    "bytes": 11050,
+    "sha256": "6b7af767cfa72c9f0a30e6d497009c7ca311023203aab099d20af5d76497c682",
+    "concurrent_slow": 2
+  },
+  {
+    "path": "/api/v1/resources?range=1h&step=60s",
+    "status": 200,
+    "seconds": 0.037,
+    "bytes": 7479,
+    "sha256": "80f1f3d83e7f654af0a13711ebdc54c546d3b386a00f4101873309990f851734",
+    "concurrent_slow": 2
+  },
+  {
+    "path": "/api/v1/firewall/timeline?range=7d",
+    "status": 200,
+    "seconds": 3.636,
+    "bytes": 11050,
+    "sha256": "6b7af767cfa72c9f0a30e6d497009c7ca311023203aab099d20af5d76497c682",
+    "concurrent_slow": 4
+  },
+  {
+    "path": "/api/v1/firewall/timeline?range=7d",
+    "status": 200,
+    "seconds": 3.643,
+    "bytes": 11050,
+    "sha256": "6b7af767cfa72c9f0a30e6d497009c7ca311023203aab099d20af5d76497c682",
+    "concurrent_slow": 4
+  },
+  {
+    "path": "/api/v1/firewall/timeline?range=7d",
+    "status": 429,
+    "seconds": 0.017,
+    "bytes": 49,
+    "sha256": "82655b03c071ae578576d4a8c7026009dab2def8401c0e7608523009f19c85ce",
+    "concurrent_slow": 4
+  },
+  {
+    "path": "/api/v1/firewall/timeline?range=7d",
+    "status": 429,
+    "seconds": 0.015,
+    "bytes": 49,
+    "sha256": "82655b03c071ae578576d4a8c7026009dab2def8401c0e7608523009f19c85ce",
+    "concurrent_slow": 4
+  },
+  {
+    "path": "/api/v1/resources?range=1h&step=60s",
+    "status": 200,
+    "seconds": 0.007,
+    "bytes": 7480,
+    "sha256": "d7707122e6a4e5b3b341a4cbe98d4b359e91fac32ff1499032fc10dc0c62eddc",
+    "concurrent_slow": 4
+  }
+]

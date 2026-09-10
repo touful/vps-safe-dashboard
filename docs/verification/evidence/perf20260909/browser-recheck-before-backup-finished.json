@@ -1,0 +1,856 @@
+{
+  "source": "78e015831b5765e1eeaf193255436af69c8c78e1",
+  "status": "REVISE",
+  "selftest": "PASS",
+  "assets": {
+    "app.js": {
+      "local": "7a00d18a03c4761bad0aa4873c2ad67b6cfe3c86aca27ee1ffa32b2c34dd7482",
+      "live": "7a00d18a03c4761bad0aa4873c2ad67b6cfe3c86aca27ee1ffa32b2c34dd7482"
+    },
+    "index.html": {
+      "local": "9f2b85b73f269ac4f8a766e6a59f3b55b7ae017b80c808bf41c53d5fde00ee18",
+      "live": "9f2b85b73f269ac4f8a766e6a59f3b55b7ae017b80c808bf41c53d5fde00ee18"
+    }
+  },
+  "ranges": [
+    {
+      "range": "24h",
+      "responses": 12,
+      "successful_endpoints": [
+        "/api/v1/attacks/geo",
+        "/api/v1/attacks/top_ports",
+        "/api/v1/attacks/top_sources",
+        "/api/v1/firewall",
+        "/api/v1/firewall/timeline",
+        "/api/v1/honeypot/creds",
+        "/api/v1/honeypot/events",
+        "/api/v1/resources",
+        "/api/v1/ssh",
+        "/api/v1/ssh/timeline",
+        "/api/v1/summary"
+      ],
+      "http_errors_observed_total": 0
+    },
+    {
+      "range": "7d",
+      "responses": 13,
+      "successful_endpoints": [
+        "/api/v1/attacks/geo",
+        "/api/v1/attacks/top_ports",
+        "/api/v1/attacks/top_sources",
+        "/api/v1/firewall",
+        "/api/v1/firewall/timeline",
+        "/api/v1/honeypot/creds",
+        "/api/v1/honeypot/events",
+        "/api/v1/resources",
+        "/api/v1/ssh",
+        "/api/v1/ssh/timeline",
+        "/api/v1/summary"
+      ],
+      "http_errors_observed_total": 0
+    },
+    {
+      "range": "30d",
+      "responses": 23,
+      "successful_endpoints": [
+        "/api/v1/attacks/geo",
+        "/api/v1/attacks/top_ports",
+        "/api/v1/attacks/top_sources",
+        "/api/v1/firewall",
+        "/api/v1/firewall/timeline",
+        "/api/v1/honeypot/creds",
+        "/api/v1/honeypot/events",
+        "/api/v1/resources",
+        "/api/v1/ssh",
+        "/api/v1/ssh/timeline",
+        "/api/v1/summary"
+      ],
+      "http_errors_observed_total": 1,
+      "http_errors_snapshot": [
+        {
+          "path": "/api/v1/summary?range=30d",
+          "status": 500
+        }
+      ],
+      "observed_ms": 36000,
+      "timeline_responses_before": 1,
+      "timeline_responses_after": 3
+    },
+    {
+      "range": "1h",
+      "responses": 12,
+      "successful_endpoints": [
+        "/api/v1/attacks/geo",
+        "/api/v1/attacks/top_ports",
+        "/api/v1/attacks/top_sources",
+        "/api/v1/firewall",
+        "/api/v1/firewall/timeline",
+        "/api/v1/honeypot/creds",
+        "/api/v1/honeypot/events",
+        "/api/v1/resources",
+        "/api/v1/ssh",
+        "/api/v1/ssh/timeline",
+        "/api/v1/summary"
+      ],
+      "http_errors_observed_total": 1,
+      "http_errors_snapshot": [
+        {
+          "path": "/api/v1/summary?range=30d",
+          "status": 500
+        }
+      ]
+    }
+  ],
+  "controlled_429": {
+    "injected_status": 429,
+    "retry_after_seconds": 1,
+    "recovered": true,
+    "injected_at": 63810.531,
+    "response_index": 100,
+    "subsequent_responses": [
+      {
+        "path": "/api/v1/resources?range=1h&step=60s",
+        "endpoint": "/api/v1/resources",
+        "status": 429,
+        "time": 63810.546
+      },
+      {
+        "path": "/api/v1/attacks/top_ports?top=10&range=1h",
+        "endpoint": "/api/v1/attacks/top_ports",
+        "status": 200,
+        "time": 63810.562
+      },
+      {
+        "path": "/api/v1/summary?range=1h",
+        "endpoint": "/api/v1/summary",
+        "status": 200,
+        "time": 63811.593
+      },
+      {
+        "path": "/api/v1/attacks/top_sources?top=10&range=1h",
+        "endpoint": "/api/v1/attacks/top_sources",
+        "status": 200,
+        "time": 63811.625
+      },
+      {
+        "path": "/api/v1/ssh?limit=200&range=1h",
+        "endpoint": "/api/v1/ssh",
+        "status": 200,
+        "time": 63811.671
+      },
+      {
+        "path": "/api/v1/honeypot/events?limit=200&range=1h",
+        "endpoint": "/api/v1/honeypot/events",
+        "status": 200,
+        "time": 63811.703
+      },
+      {
+        "path": "/api/v1/honeypot/creds?limit=500&range=1h",
+        "endpoint": "/api/v1/honeypot/creds",
+        "status": 200,
+        "time": 63811.734
+      },
+      {
+        "path": "/api/v1/firewall?limit=200&range=1h",
+        "endpoint": "/api/v1/firewall",
+        "status": 200,
+        "time": 63811.812
+      },
+      {
+        "path": "/api/v1/ssh/timeline?range=1h",
+        "endpoint": "/api/v1/ssh/timeline",
+        "status": 200,
+        "time": 63812.593
+      },
+      {
+        "path": "/api/v1/resources?range=1h&step=60s",
+        "endpoint": "/api/v1/resources",
+        "status": 200,
+        "time": 63812.687
+      }
+    ]
+  },
+  "failure": "",
+  "pageerrors": [],
+  "overlaps": [],
+  "cancellations": [
+    {
+      "path": "/api/v1/firewall?limit=200&range=24h",
+      "failure": "net::ERR_ABORTED"
+    }
+  ],
+  "responses": [
+    {
+      "path": "/",
+      "endpoint": "/",
+      "status": 200,
+      "time": 63711.125
+    },
+    {
+      "path": "/app.js",
+      "endpoint": "/app.js",
+      "status": 200,
+      "time": 63711.187
+    },
+    {
+      "path": "/echarts.min.js",
+      "endpoint": "/echarts.min.js",
+      "status": 200,
+      "time": 63711.25
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63712.734
+    },
+    {
+      "path": "/world.json",
+      "endpoint": "/world.json",
+      "status": 200,
+      "time": 63712.734
+    },
+    {
+      "path": "/api/v1/summary?range=24h",
+      "endpoint": "/api/v1/summary",
+      "status": 200,
+      "time": 63713.234
+    },
+    {
+      "path": "/api/v1/health",
+      "endpoint": "/api/v1/health",
+      "status": 200,
+      "time": 63713.234
+    },
+    {
+      "path": "/api/v1/resources?range=24h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63713.296
+    },
+    {
+      "path": "/api/v1/attacks/top_ports?top=10&range=24h",
+      "endpoint": "/api/v1/attacks/top_ports",
+      "status": 200,
+      "time": 63713.656
+    },
+    {
+      "path": "/api/v1/ssh/timeline?range=24h",
+      "endpoint": "/api/v1/ssh/timeline",
+      "status": 200,
+      "time": 63713.921
+    },
+    {
+      "path": "/api/v1/attacks/top_sources?top=10&range=24h",
+      "endpoint": "/api/v1/attacks/top_sources",
+      "status": 200,
+      "time": 63713.921
+    },
+    {
+      "path": "/api/v1/ssh?limit=200&range=24h",
+      "endpoint": "/api/v1/ssh",
+      "status": 200,
+      "time": 63713.968
+    },
+    {
+      "path": "/api/v1/honeypot/events?limit=200&range=24h",
+      "endpoint": "/api/v1/honeypot/events",
+      "status": 200,
+      "time": 63714.031
+    },
+    {
+      "path": "/api/v1/honeypot/creds?limit=500&range=24h",
+      "endpoint": "/api/v1/honeypot/creds",
+      "status": 200,
+      "time": 63714.25
+    },
+    {
+      "path": "/api/v1/firewall?limit=200&range=24h",
+      "endpoint": "/api/v1/firewall",
+      "status": 200,
+      "time": 63714.25
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63714.484
+    },
+    {
+      "path": "/api/v1/attacks/top_ports?top=10&range=24h",
+      "endpoint": "/api/v1/attacks/top_ports",
+      "status": 200,
+      "time": 63714.515
+    },
+    {
+      "path": "/api/v1/ssh?limit=200&range=24h",
+      "endpoint": "/api/v1/ssh",
+      "status": 200,
+      "time": 63714.546
+    },
+    {
+      "path": "/api/v1/attacks/top_sources?top=10&range=24h",
+      "endpoint": "/api/v1/attacks/top_sources",
+      "status": 200,
+      "time": 63714.609
+    },
+    {
+      "path": "/api/v1/honeypot/events?limit=200&range=24h",
+      "endpoint": "/api/v1/honeypot/events",
+      "status": 200,
+      "time": 63714.687
+    },
+    {
+      "path": "/api/v1/honeypot/creds?limit=500&range=24h",
+      "endpoint": "/api/v1/honeypot/creds",
+      "status": 200,
+      "time": 63714.718
+    },
+    {
+      "path": "/api/v1/firewall?limit=200&range=24h",
+      "endpoint": "/api/v1/firewall",
+      "status": 200,
+      "time": 63714.781
+    },
+    {
+      "path": "/api/v1/summary?range=24h",
+      "endpoint": "/api/v1/summary",
+      "status": 200,
+      "time": 63714.781
+    },
+    {
+      "path": "/api/v1/ssh/timeline?range=24h",
+      "endpoint": "/api/v1/ssh/timeline",
+      "status": 200,
+      "time": 63715.718
+    },
+    {
+      "path": "/api/v1/firewall/timeline?range=24h",
+      "endpoint": "/api/v1/firewall/timeline",
+      "status": 200,
+      "time": 63716.812
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63717.671
+    },
+    {
+      "path": "/api/v1/attacks/geo?range=24h",
+      "endpoint": "/api/v1/attacks/geo",
+      "status": 200,
+      "time": 63718.437
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63718.625
+    },
+    {
+      "path": "/api/v1/attacks/top_sources?top=10&range=7d",
+      "endpoint": "/api/v1/attacks/top_sources",
+      "status": 200,
+      "time": 63721.578
+    },
+    {
+      "path": "/api/v1/attacks/top_ports?top=10&range=7d",
+      "endpoint": "/api/v1/attacks/top_ports",
+      "status": 200,
+      "time": 63721.625
+    },
+    {
+      "path": "/api/v1/ssh?limit=200&range=7d",
+      "endpoint": "/api/v1/ssh",
+      "status": 200,
+      "time": 63721.656
+    },
+    {
+      "path": "/api/v1/honeypot/events?limit=200&range=7d",
+      "endpoint": "/api/v1/honeypot/events",
+      "status": 200,
+      "time": 63721.765
+    },
+    {
+      "path": "/api/v1/honeypot/creds?limit=500&range=7d",
+      "endpoint": "/api/v1/honeypot/creds",
+      "status": 200,
+      "time": 63721.875
+    },
+    {
+      "path": "/api/v1/firewall?limit=200&range=7d",
+      "endpoint": "/api/v1/firewall",
+      "status": 200,
+      "time": 63722.015
+    },
+    {
+      "path": "/api/v1/ssh/timeline?range=7d",
+      "endpoint": "/api/v1/ssh/timeline",
+      "status": 200,
+      "time": 63722.703
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63722.765
+    },
+    {
+      "path": "/api/v1/firewall/timeline?range=7d",
+      "endpoint": "/api/v1/firewall/timeline",
+      "status": 200,
+      "time": 63726.468
+    },
+    {
+      "path": "/api/v1/attacks/geo?range=7d",
+      "endpoint": "/api/v1/attacks/geo",
+      "status": 200,
+      "time": 63726.578
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63727.687
+    },
+    {
+      "path": "/api/v1/summary?range=7d",
+      "endpoint": "/api/v1/summary",
+      "status": 200,
+      "time": 63729.671
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63729.828
+    },
+    {
+      "path": "/api/v1/attacks/top_ports?top=10&range=30d",
+      "endpoint": "/api/v1/attacks/top_ports",
+      "status": 200,
+      "time": 63732.296
+    },
+    {
+      "path": "/api/v1/attacks/top_sources?top=10&range=30d",
+      "endpoint": "/api/v1/attacks/top_sources",
+      "status": 200,
+      "time": 63737.234
+    },
+    {
+      "path": "/api/v1/ssh/timeline?range=30d",
+      "endpoint": "/api/v1/ssh/timeline",
+      "status": 200,
+      "time": 63740.062
+    },
+    {
+      "path": "/api/v1/firewall/timeline?range=30d",
+      "endpoint": "/api/v1/firewall/timeline",
+      "status": 200,
+      "time": 63756.437
+    },
+    {
+      "path": "/api/v1/attacks/geo?range=30d",
+      "endpoint": "/api/v1/attacks/geo",
+      "status": 200,
+      "time": 63756.796
+    },
+    {
+      "path": "/api/v1/ssh?limit=200&range=30d",
+      "endpoint": "/api/v1/ssh",
+      "status": 200,
+      "time": 63756.906
+    },
+    {
+      "path": "/api/v1/honeypot/events?limit=200&range=30d",
+      "endpoint": "/api/v1/honeypot/events",
+      "status": 200,
+      "time": 63756.984
+    },
+    {
+      "path": "/api/v1/honeypot/creds?limit=500&range=30d",
+      "endpoint": "/api/v1/honeypot/creds",
+      "status": 200,
+      "time": 63757.109
+    },
+    {
+      "path": "/api/v1/firewall?limit=200&range=30d",
+      "endpoint": "/api/v1/firewall",
+      "status": 200,
+      "time": 63757.265
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63757.328
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63757.687
+    },
+    {
+      "path": "/api/v1/summary?range=30d",
+      "endpoint": "/api/v1/summary",
+      "status": 500,
+      "time": 63759.828
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63762.687
+    },
+    {
+      "path": "/api/v1/attacks/top_ports?top=10&range=30d",
+      "endpoint": "/api/v1/attacks/top_ports",
+      "status": 200,
+      "time": 63766.093
+    },
+    {
+      "path": "/api/v1/attacks/top_sources?top=10&range=30d",
+      "endpoint": "/api/v1/attacks/top_sources",
+      "status": 200,
+      "time": 63768.265
+    },
+    {
+      "path": "/api/v1/ssh/timeline?range=30d",
+      "endpoint": "/api/v1/ssh/timeline",
+      "status": 200,
+      "time": 63768.421
+    },
+    {
+      "path": "/api/v1/ssh?limit=200&range=30d",
+      "endpoint": "/api/v1/ssh",
+      "status": 200,
+      "time": 63768.484
+    },
+    {
+      "path": "/api/v1/honeypot/events?limit=200&range=30d",
+      "endpoint": "/api/v1/honeypot/events",
+      "status": 200,
+      "time": 63768.546
+    },
+    {
+      "path": "/api/v1/honeypot/creds?limit=500&range=30d",
+      "endpoint": "/api/v1/honeypot/creds",
+      "status": 200,
+      "time": 63768.64
+    },
+    {
+      "path": "/api/v1/firewall?limit=200&range=30d",
+      "endpoint": "/api/v1/firewall",
+      "status": 200,
+      "time": 63768.703
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63768.812
+    },
+    {
+      "path": "/api/v1/summary?range=30d",
+      "endpoint": "/api/v1/summary",
+      "status": 200,
+      "time": 63771.14
+    },
+    {
+      "path": "/api/v1/attacks/geo?range=30d",
+      "endpoint": "/api/v1/attacks/geo",
+      "status": 200,
+      "time": 63771.203
+    },
+    {
+      "path": "/api/v1/firewall/timeline?range=30d",
+      "endpoint": "/api/v1/firewall/timeline",
+      "status": 200,
+      "time": 63773.14
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63773.234
+    },
+    {
+      "path": "/api/v1/summary?range=30d",
+      "endpoint": "/api/v1/summary",
+      "status": 200,
+      "time": 63774.812
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63777.687
+    },
+    {
+      "path": "/api/v1/summary?range=30d",
+      "endpoint": "/api/v1/summary",
+      "status": 200,
+      "time": 63779.546
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63782.687
+    },
+    {
+      "path": "/api/v1/summary?range=30d",
+      "endpoint": "/api/v1/summary",
+      "status": 200,
+      "time": 63784.703
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63787.687
+    },
+    {
+      "path": "/api/v1/summary?range=30d",
+      "endpoint": "/api/v1/summary",
+      "status": 200,
+      "time": 63789.656
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63792.687
+    },
+    {
+      "path": "/api/v1/summary?range=30d",
+      "endpoint": "/api/v1/summary",
+      "status": 200,
+      "time": 63795.062
+    },
+    {
+      "path": "/api/v1/attacks/top_ports?top=10&range=30d",
+      "endpoint": "/api/v1/attacks/top_ports",
+      "status": 200,
+      "time": 63795.125
+    },
+    {
+      "path": "/api/v1/ssh/timeline?range=30d",
+      "endpoint": "/api/v1/ssh/timeline",
+      "status": 200,
+      "time": 63795.171
+    },
+    {
+      "path": "/api/v1/ssh?limit=200&range=30d",
+      "endpoint": "/api/v1/ssh",
+      "status": 200,
+      "time": 63795.328
+    },
+    {
+      "path": "/api/v1/honeypot/events?limit=200&range=30d",
+      "endpoint": "/api/v1/honeypot/events",
+      "status": 200,
+      "time": 63795.39
+    },
+    {
+      "path": "/api/v1/honeypot/creds?limit=500&range=30d",
+      "endpoint": "/api/v1/honeypot/creds",
+      "status": 200,
+      "time": 63795.5
+    },
+    {
+      "path": "/api/v1/firewall?limit=200&range=30d",
+      "endpoint": "/api/v1/firewall",
+      "status": 200,
+      "time": 63795.546
+    },
+    {
+      "path": "/api/v1/attacks/top_sources?top=10&range=30d",
+      "endpoint": "/api/v1/attacks/top_sources",
+      "status": 200,
+      "time": 63797.203
+    },
+    {
+      "path": "/api/v1/attacks/geo?range=30d",
+      "endpoint": "/api/v1/attacks/geo",
+      "status": 200,
+      "time": 63797.328
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63797.687
+    },
+    {
+      "path": "/api/v1/firewall/timeline?range=30d",
+      "endpoint": "/api/v1/firewall/timeline",
+      "status": 200,
+      "time": 63799.625
+    },
+    {
+      "path": "/api/v1/summary?range=30d",
+      "endpoint": "/api/v1/summary",
+      "status": 200,
+      "time": 63800.421
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63802.687
+    },
+    {
+      "path": "/api/v1/summary?range=30d",
+      "endpoint": "/api/v1/summary",
+      "status": 200,
+      "time": 63804.656
+    },
+    {
+      "path": "/api/v1/summary?range=1h",
+      "endpoint": "/api/v1/summary",
+      "status": 200,
+      "time": 63807.265
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63807.296
+    },
+    {
+      "path": "/api/v1/attacks/top_ports?top=10&range=1h",
+      "endpoint": "/api/v1/attacks/top_ports",
+      "status": 200,
+      "time": 63807.359
+    },
+    {
+      "path": "/api/v1/attacks/top_sources?top=10&range=1h",
+      "endpoint": "/api/v1/attacks/top_sources",
+      "status": 200,
+      "time": 63807.39
+    },
+    {
+      "path": "/api/v1/ssh?limit=200&range=1h",
+      "endpoint": "/api/v1/ssh",
+      "status": 200,
+      "time": 63807.421
+    },
+    {
+      "path": "/api/v1/honeypot/events?limit=200&range=1h",
+      "endpoint": "/api/v1/honeypot/events",
+      "status": 200,
+      "time": 63807.453
+    },
+    {
+      "path": "/api/v1/honeypot/creds?limit=500&range=1h",
+      "endpoint": "/api/v1/honeypot/creds",
+      "status": 200,
+      "time": 63807.5
+    },
+    {
+      "path": "/api/v1/firewall?limit=200&range=1h",
+      "endpoint": "/api/v1/firewall",
+      "status": 200,
+      "time": 63807.578
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63807.671
+    },
+    {
+      "path": "/api/v1/ssh/timeline?range=1h",
+      "endpoint": "/api/v1/ssh/timeline",
+      "status": 200,
+      "time": 63808.265
+    },
+    {
+      "path": "/api/v1/firewall/timeline?range=1h",
+      "endpoint": "/api/v1/firewall/timeline",
+      "status": 200,
+      "time": 63809.281
+    },
+    {
+      "path": "/api/v1/attacks/geo?range=1h",
+      "endpoint": "/api/v1/attacks/geo",
+      "status": 200,
+      "time": 63810.296
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 429,
+      "time": 63810.546
+    },
+    {
+      "path": "/api/v1/attacks/top_ports?top=10&range=1h",
+      "endpoint": "/api/v1/attacks/top_ports",
+      "status": 200,
+      "time": 63810.562
+    },
+    {
+      "path": "/api/v1/summary?range=1h",
+      "endpoint": "/api/v1/summary",
+      "status": 200,
+      "time": 63811.593
+    },
+    {
+      "path": "/api/v1/attacks/top_sources?top=10&range=1h",
+      "endpoint": "/api/v1/attacks/top_sources",
+      "status": 200,
+      "time": 63811.625
+    },
+    {
+      "path": "/api/v1/ssh?limit=200&range=1h",
+      "endpoint": "/api/v1/ssh",
+      "status": 200,
+      "time": 63811.671
+    },
+    {
+      "path": "/api/v1/honeypot/events?limit=200&range=1h",
+      "endpoint": "/api/v1/honeypot/events",
+      "status": 200,
+      "time": 63811.703
+    },
+    {
+      "path": "/api/v1/honeypot/creds?limit=500&range=1h",
+      "endpoint": "/api/v1/honeypot/creds",
+      "status": 200,
+      "time": 63811.734
+    },
+    {
+      "path": "/api/v1/firewall?limit=200&range=1h",
+      "endpoint": "/api/v1/firewall",
+      "status": 200,
+      "time": 63811.812
+    },
+    {
+      "path": "/api/v1/ssh/timeline?range=1h",
+      "endpoint": "/api/v1/ssh/timeline",
+      "status": 200,
+      "time": 63812.593
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "endpoint": "/api/v1/resources",
+      "status": 200,
+      "time": 63812.687
+    }
+  ],
+  "errors": [
+    {
+      "path": "/api/v1/summary?range=30d",
+      "status": 500
+    },
+    {
+      "path": "/api/v1/resources?range=1h&step=60s",
+      "status": 429
+    }
+  ],
+  "active_at_end": 0,
+  "browser_closed": true
+}

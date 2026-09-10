@@ -1,0 +1,43 @@
+{
+  "observed_at": "2026-09-10T02:32:23.594135+00:00",
+  "scope": "production rollback read-only",
+  "status": "PASS",
+  "public": [
+    {
+      "path": "/api/v1/health",
+      "status": 200,
+      "seconds": 1.25,
+      "bytes": 149,
+      "ok": true
+    },
+    {
+      "path": "/app.js",
+      "status": 200,
+      "seconds": 0.188,
+      "bytes": 107955,
+      "sha256": "88e12a5f689ff538283d92b91639c89bd07ed8d00c15e49c50e921bc514054b2"
+    }
+  ],
+  "ssh_exit_code": 0,
+  "remote": {
+    "container": "sentry-agent",
+    "image": "sha256:5201f02d13bd199692d7cfbbd37df41b32f687e62a84d117e34d6e35dcf5c806",
+    "running": true,
+    "config_sha256": "0c9ce0aa68d4465d0ea239edd6ef80e057ec0d90a3b754ad3176c3f727578e87",
+    "config_before_sha256": "0c9ce0aa68d4465d0ea239edd6ef80e057ec0d90a3b754ad3176c3f727578e87",
+    "config_mounts": [
+      {
+        "source": "/etc/sentry-agent/config.json",
+        "destination": "/etc/sentry-agent/config.json",
+        "rw": false
+      }
+    ],
+    "indexes": [
+      [
+        "idx_fw_ts_stats",
+        "CREATE INDEX idx_fw_ts_stats ON firewall_events(ts, action, dst_port, src_ip)"
+      ]
+    ],
+    "release_status": "ROLLED_BACK"
+  }
+}

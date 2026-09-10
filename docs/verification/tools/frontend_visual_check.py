@@ -82,7 +82,8 @@ def run(base, output):
         page.goto(base, wait_until="networkidle")
         expect(page.locator("#today-fw")).to_have_text("4036")
         expect(page.locator("#conn-status")).to_have_text("WS 实时")
-        assert page.locator("#chart-attack-trend canvas").count() == 1
+        # 请求调度会主动错开重查询；短暂无网络请求不代表图表数据已经返回。
+        expect(page.locator("#chart-attack-trend canvas")).to_have_count(1, timeout=15000)
         checks.append("受控数据加载、WS 连接状态与 ECharts 渲染")
         expect(page.locator('nav button[data-panel="overview"]')).to_have_attribute("aria-current", "page")
         page.screenshot(path=str(output / "overview-desktop.png"), full_page=True)

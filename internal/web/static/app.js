@@ -1435,23 +1435,253 @@
   }
 
 
-  // ===== 模块 6：数据拉取（轮询与 WS 共用；range/filter 参数化） =====
+ // ===== 模块 6：数据拉取（轮询与 WS 共用；range/filter 参数化） =====
+  // PERF-FE-20260909:SCHEDULER-BEGIN
+  // 独立调度区块：测试文件可直接提取本段到 VM，不依赖页面 DOM 或业务状态。
+  var FETCH_JSON_MAX_CONCURRENCY = 2;
+  var FETCH_JSON_HEAVY_GAP_MS = 1000;
+  var FETCH_JSON_TIMEOUT_MS = 35000;
+
+  function createFetchJSONScheduler(options) {
+    options = options || {};
+    var fetchImpl = options.fetch;
+    var now = options.now || Date.now;
+    var setTimer = options.setTimeout || setTimeout;
+    var clearTimer = options.clearTimeout || clearTimeout;
+    var maxConcurrency = options.maxConcurrency == null ? FETCH_JSON_MAX_CONCURRENCY : options.maxConcurrency;
+    var heavyGapMs = options.heavyGapMs == null ? FETCH_JSON_HEAVY_GAP_MS : options.heavyGapMs;
+    var requestTimeoutMs = options.requestTimeoutMs == null ? FETCH_JSON_TIMEOUT_MS : options.requestTimeoutMs;
+    var retryAfterDefaultMs = options.retryAfterDefaultMs == null ? 1000 : options.retryAfterDefaultMs;
+    var abortControllerCtor = options.AbortController;
+    var currentSeq = options.initialSeq == null ? 0 : options.initialSeq;
+    var queue = [];
+    var tasksByKey = Object.create(null);
+    var activeCount = 0;
+    var lastHeavyStartAt = null;
+    var cooldownUntil = 0;
+    var wakeTimer = null;
+    var wakeAt = 0;
+    var heavyPaths = {
+      '/api/v1/summary': true,
+      '/api/v1/ssh/timeline': true,
+      '/api/v1/firewall/timeline': true,
+      '/api/v1/attacks/geo': true,
+      '/api/v1/export/attacks_csv': true,
+      '/api/v1/export/csv': true,
+      '/api/v1/export/table': true,
+      '/api/v1/export/creds': true
+    };
+
+    function taskKey(seq, path) { return String(seq) + '\u0000' + path; }
+    function isHeavy(path) { return heavyPaths[String(path).split('?')[0]] === true; }
+    function isAbortError(err) {
+      return !!(err && (err.name === 'AbortError' || err.code === 20));
+    }
+    function headerValue(response, name) {
+      if (!response || !response.headers) { return ''; }
+      if (typeof response.headers.get === 'function') {
+        return response.headers.get(name) || response.headers.get(name.toLowerCase()) || '';
+      }
+      return response.headers[name] || response.headers[name.toLowerCase()] || '';
+    }
+    function retryAfterMs(response) {
+      var value = String(headerValue(response, 'Retry-After')).trim();
+      if (!value) { return retryAfterDefaultMs; }
+      var seconds = Number(value);
+      if (isFinite(seconds) && seconds >= 0) { return Math.ceil(seconds * 1000); }
+      var retryAt = Date.parse(value);
+      return isNaN(retryAt) ? retryAfterDefaultMs : Math.max(0, retryAt - now());
+    }
+    function scheduleWake(at) {
+      if (!queue.length) { return; }
+      if (wakeTimer !== null && wakeAt <= at) { return; }
+      if (wakeTimer !== null) { clearTimer(wakeTimer); }
+      wakeAt = at;
+      wakeTimer = setTimer(function () {
+        wakeTimer = null;
+        wakeAt = 0;
+        pump();
+      }, Math.max(0, at - now()));
+    }
+    function removeFromQueue(task) {
+      var idx = queue.indexOf(task);
+      if (idx !== -1) { queue.splice(idx, 1); }
+      if (tasksByKey[task.key] === task) { delete tasksByKey[task.key]; }
+    }
+    function finishTask(task) {
+      if (task.timeoutTimer !== null) {
+        clearTimer(task.timeoutTimer);
+        task.timeoutTimer = null;
+      }
+      if (task.released) { return; }
+      task.released = true;
+      activeCount--;
+      if (tasksByKey[task.key] === task) { delete tasksByKey[task.key]; }
+      task.controller = null;
+      task.cb = null;
+      task.errCb = null;
+      pump();
+    }
+    function notifyFailure(task, err) {
+      if (task.cancelled || task.seq !== currentSeq || task.failureNotified) { return; }
+      if (isAbortError(err) && !task.timedOut) { return; }
+      task.failureNotified = true;
+      if (task.errCb) { task.errCb(task.timeoutError || err); }
+    }
+    function timeoutTask(task) {
+      if (task.released || task.cancelled || task.timedOut) { return; }
+      task.timedOut = true;
+      task.timeoutError = new Error('Request timed out');
+      task.timeoutError.code = 'ETIMEDOUT';
+      task.timeoutError.path = task.path;
+      notifyFailure(task, task.timeoutError);
+      // Abort 后仍须等待底层 fetch Promise settle，不能凭空释放 activeCount。
+      if (task.controller && typeof task.controller.abort === 'function') {
+        try { task.controller.abort(); } catch (e) {}
+      }
+    }
+    function startTask(task) {
+      var request;
+      task.started = true;
+      task.controller = abortControllerCtor ? new abortControllerCtor() : null;
+      task.timeoutTimer = requestTimeoutMs > 0 ? setTimer(function () { timeoutTask(task); }, requestTimeoutMs) : null;
+      try {
+        request = fetchImpl(task.path, task.controller ? { signal: task.controller.signal } : undefined);
+      } catch (err) {
+        notifyFailure(task, err);
+        finishTask(task);
+        return;
+      }
+      Promise.resolve(request).then(function (response) {
+        if (!response || !response.ok) {
+          if (response && response.status === 429) {
+            var nextCooldown = now() + retryAfterMs(response);
+            if (nextCooldown > cooldownUntil) { cooldownUntil = nextCooldown; }
+          }
+          var httpErr = new Error('HTTP ' + (response && response.status));
+          httpErr.status = response && response.status;
+          throw httpErr;
+        }
+        return response.json();
+      }).then(function (data) {
+        if (task.cancelled || task.timedOut || task.seq !== currentSeq) { return; }
+        if (task.cb) { task.cb(data); }
+      }).catch(function (err) {
+        notifyFailure(task, err);
+      }).then(function () {
+        finishTask(task);
+      }, function () {
+        finishTask(task);
+      });
+    }
+    function pump() {
+      var currentNow = now();
+      if (wakeTimer !== null && wakeAt <= currentNow) {
+        clearTimer(wakeTimer);
+        wakeTimer = null;
+        wakeAt = 0;
+      }
+      if (currentNow < cooldownUntil) {
+        scheduleWake(cooldownUntil);
+        return;
+      }
+      while (activeCount < maxConcurrency) {
+        var selected = -1;
+        var waitUntil = 0;
+        for (var i = 0; i < queue.length; i++) {
+          var candidate = queue[i];
+          if (candidate.cancelled || candidate.seq !== currentSeq) {
+            removeFromQueue(candidate);
+            i--;
+            continue;
+          }
+          if (candidate.heavy && lastHeavyStartAt !== null &&
+              currentNow < lastHeavyStartAt + heavyGapMs) {
+            var heavyReadyAt = lastHeavyStartAt + heavyGapMs;
+            if (!waitUntil || heavyReadyAt < waitUntil) { waitUntil = heavyReadyAt; }
+            continue;
+          }
+          selected = i;
+          break;
+        }
+        if (selected === -1) {
+          if (waitUntil) { scheduleWake(waitUntil); }
+          return;
+        }
+        var task = queue.splice(selected, 1)[0];
+        if (tasksByKey[task.key] !== task) { continue; }
+        activeCount++;
+        if (task.heavy) { lastHeavyStartAt = now(); }
+        startTask(task);
+        currentNow = now();
+      }
+    }
+    function enqueue(seq, path, cb, errCb) {
+      if (seq !== currentSeq) { return null; }
+      var key = taskKey(seq, path);
+      var existing = tasksByKey[key];
+      if (existing) {
+        // 同一 seq+path 只保留最新一轮回调，避免慢请求期间每轮累积并重复写 state/报错。
+        if (!existing.timedOut) {
+          existing.cb = cb;
+          existing.errCb = errCb;
+        }
+        return existing;
+      }
+      var task = {
+        key: key, seq: seq, path: path, heavy: isHeavy(path),
+        cb: cb, errCb: errCb, controller: null, timeoutTimer: null,
+        started: false, released: false, cancelled: false, timedOut: false,
+        timeoutError: null, failureNotified: false
+      };
+      tasksByKey[key] = task;
+      queue.push(task);
+      pump();
+      return task;
+    }
+    function invalidate(seq) {
+      currentSeq = seq;
+      Object.keys(tasksByKey).forEach(function (key) {
+        var task = tasksByKey[key];
+        if (task.seq === currentSeq) { return; }
+        task.cancelled = true;
+        task.cb = null;
+        task.errCb = null;
+        if (task.controller && typeof task.controller.abort === 'function') {
+          try { task.controller.abort(); } catch (e) {}
+        }
+        // 不在此处减少 activeCount；必须等 fetch/json Promise 的 finally settle。
+        delete tasksByKey[key];
+      });
+      queue = queue.filter(function (task) { return task.seq === currentSeq && !task.cancelled; });
+      pump();
+    }
+    return {
+      enqueue: enqueue,
+      invalidate: invalidate,
+      isHeavy: isHeavy,
+      snapshot: function () {
+        return { queued: queue.length, active: activeCount, cooldownUntil: cooldownUntil, lastHeavyStartAt: lastHeavyStartAt };
+      }
+    };
+  }
+  // PERF-FE-20260909:SCHEDULER-END
+
+  var requestScheduler = createFetchJSONScheduler({
+    fetch: fetch,
+    initialSeq: state.reqSeq,
+    AbortController: typeof AbortController === 'undefined' ? null : AbortController
+  });
+  function nextReqSeq() {
+    state.reqSeq++;
+    requestScheduler.invalidate(state.reqSeq);
+  }
   // R-02：检查 r.ok——HTTP 5xx 时走 errCb（错误态），避免误报"暂无数据"
-  // RB-01/N-1：回调前校验请求序号——setRange/applyFilter 自增 state.reqSeq 后，
-  // 旧 range/旧 filter 的在途响应（尤其 30d 聚合 30s 超时窗口）一律丢弃，杜绝混合口径覆盖新 state。
+  // RB-01/N-1：回调前校验请求序号；nextReqSeq 同步 Abort 旧序列，
+  // 旧 range/旧 filter 的在途响应（尤其 30d 聚合 30s 超时窗口）一律丢弃。
   // DEV-FE-003 7.2：所有 errCb 统一调 noteFailure()（全局错误横幅连续失败计数）；summary 成功清零恢复
   function fetchJSON(path, cb, errCb) {
-    var seq = state.reqSeq;
-    fetch(path).then(function (r) {
-      if (!r.ok) { throw new Error('HTTP ' + r.status); }
-      return r.json();
-    }).then(function (d) {
-      if (seq !== state.reqSeq) { return; } // 过期响应丢弃（RB-01）
-      cb(d);
-    }).catch(function () {
-      if (seq !== state.reqSeq) { return; } // 过期失败同样丢弃
-      if (errCb) { errCb(); }
-    });
+    requestScheduler.enqueue(state.reqSeq, path, cb, errCb);
   }
   // DEV-FE-003 MA-1：connections 查询逻辑收敛（原 pollConns 与 applyFilter 双处重复，MA-01 修复）
   function fetchConns() {
@@ -1734,7 +1964,7 @@
     // 切回其他页签后 5s 内恢复（switchPanel 用缓存渲染 + 下轮 pollAll 刷新）。
     if (state.activePanel === 'export') { return; }
     pollOverview();
-    var minGap = (state.range === '30d') ? 30000 : 5000;
+    var minGap = (state.range === '7d' || state.range === '30d') ? 30000 : 5000;
     var now = Date.now();
     if (now - lastAttackPoll >= minGap) {
       lastAttackPoll = now;
@@ -1801,7 +2031,7 @@
   }
   // N-1：filter 变更同样存在旧响应迟到覆盖——与 setRange 共用 state.reqSeq 自增，fetchJSON 统一校验
   function applyFilter(f, from) {
-    state.reqSeq++;
+    nextReqSeq();
     state.filter = f;
     if (f) { f.from = from || ''; } // chip 文案带来源（方案 3.5）
     var chip = document.getElementById('filter-chip');
@@ -1828,10 +2058,13 @@
     var lb2 = document.querySelector('#today-sshfail') && document.querySelector('#today-sshfail').parentElement.querySelector('.l');
     if (lb1) { lb1.textContent = RANGE_LABEL[r] + '外部威胁事件'; }
     if (lb2) { lb2.textContent = RANGE_LABEL[r] + ' SSH 失败'; }
-    state.reqSeq++; // RB-01：请求序号自增——旧 range 在途响应全部作废
-    // 30d 降频提示（攻击页顶部弱显示；切到 30d 显示，切走隐藏）
+    nextReqSeq(); // 取消旧范围在途请求并清空排队项。
+    // 长范围攻击统计每 30 秒刷新；资源监控仍保持 5 秒。
     var hint = document.getElementById('rate-hint');
-    if (hint) { hint.style.display = (r === '30d') ? 'block' : 'none'; }
+    if (hint) {
+      hint.style.display = (r === '7d' || r === '30d') ? 'block' : 'none';
+      hint.textContent = '长范围攻击统计每 30 秒刷新，资源监控每 5 秒刷新';
+    }
     resetTablePages();
     // 重置明细缓存（避免旧范围数据闪回；summary 一并重置，
     // 否则新范围 summary 会与旧范围数据混合渲染态势条/风险评分）
@@ -2513,7 +2746,7 @@
   if (sshF) {
     sshF.addEventListener('change', function () {
       state.sshResult = sshF.value;
-      state.reqSeq++;
+      nextReqSeq();
       resetTablePages();
       state.tables['ssh-table'].rows = null; // 避免旧结果闪回
       pollAttack();
@@ -2523,7 +2756,7 @@
   if (fwF) {
     fwF.addEventListener('change', function () {
       state.fwAction = fwF.value;
-      state.reqSeq++;
+      nextReqSeq();
       resetTablePages();
       state.tables['fw-table'].rows = null;
       pollAttack();
@@ -2535,7 +2768,7 @@
   if (hpF) {
     hpF.addEventListener('change', function () {
       state.hp.proto = hpF.value;
-      state.reqSeq++;
+      nextReqSeq();
       resetTablePages();
       state.tables['hp-table'].rows = null;
       state.tables['hpd-table'].rows = null;

@@ -1,0 +1,24 @@
+{
+  "quick_check": [
+    [
+      "ok"
+    ]
+  ],
+  "backup_seconds": 140.641,
+  "firewall_count": 2391665,
+  "firewall_max_ts": 1788913963,
+  "indexes": [
+    [
+      "idx_fw_ts",
+      "CREATE INDEX idx_fw_ts     ON firewall_events(ts)"
+    ],
+    [
+      "idx_fw_dport",
+      "CREATE INDEX idx_fw_dport  ON firewall_events(dst_port)"
+    ],
+    [
+      "idx_fw_action",
+      "CREATE INDEX idx_fw_action ON firewall_events(action)"
+    ]
+  ]
+}

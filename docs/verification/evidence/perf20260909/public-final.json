@@ -1,0 +1,76 @@
+{
+  "scope": "single serial public read-only final acceptance",
+  "source_commit": "78e015831b5765e1eeaf193255436af69c8c78e1",
+  "base_url": "https://safeboard.touful.cn",
+  "started_at": "2026-09-10T02:35:42.552296+00:00",
+  "status": "PASS",
+  "requests": [
+    {
+      "path": "/api/v1/health",
+      "started_at": "2026-09-10T02:35:42.552296+00:00",
+      "gap_after_previous_seconds": null,
+      "status": 200,
+      "bytes": 149,
+      "ok": true,
+      "elapsed_seconds": 1.25
+    },
+    {
+      "path": "/",
+      "started_at": "2026-09-10T02:35:45.053441+00:00",
+      "gap_after_previous_seconds": 1.25,
+      "status": 200,
+      "bytes": 64966,
+      "sha256": "9f2b85b73f269ac4f8a766e6a59f3b55b7ae017b80c808bf41c53d5fde00ee18",
+      "expected_sha256": "9f2b85b73f269ac4f8a766e6a59f3b55b7ae017b80c808bf41c53d5fde00ee18",
+      "hash_matches": true,
+      "elapsed_seconds": 1.218
+    },
+    {
+      "path": "/app.js",
+      "started_at": "2026-09-10T02:35:47.521876+00:00",
+      "gap_after_previous_seconds": 1.25,
+      "status": 200,
+      "bytes": 116957,
+      "sha256": "7a00d18a03c4761bad0aa4873c2ad67b6cfe3c86aca27ee1ffa32b2c34dd7482",
+      "expected_sha256": "7a00d18a03c4761bad0aa4873c2ad67b6cfe3c86aca27ee1ffa32b2c34dd7482",
+      "hash_matches": true,
+      "elapsed_seconds": 1.282
+    },
+    {
+      "path": "/api/v1/summary?range=30d",
+      "started_at": "2026-09-10T02:35:50.045672+00:00",
+      "gap_after_previous_seconds": 1.25,
+      "status": 200,
+      "bytes": 273,
+      "elapsed_seconds": 8.078
+    },
+    {
+      "path": "/api/v1/attacks/top_ports?range=30d",
+      "started_at": "2026-09-10T02:35:59.384979+00:00",
+      "gap_after_previous_seconds": 1.265,
+      "status": 200,
+      "bytes": 322,
+      "elapsed_seconds": 3.375
+    },
+    {
+      "path": "/api/v1/attacks/top_sources?range=30d",
+      "started_at": "2026-09-10T02:36:04.012637+00:00",
+      "gap_after_previous_seconds": 1.25,
+      "status": 200,
+      "bytes": 364,
+      "elapsed_seconds": 3.516
+    },
+    {
+      "path": "/api/v1/firewall/timeline?range=30d",
+      "started_at": "2026-09-10T02:36:08.791698+00:00",
+      "gap_after_previous_seconds": 1.266,
+      "status": 200,
+      "bytes": 44762,
+      "elapsed_seconds": 4.578
+    }
+  ],
+  "business_body_saved": false,
+  "concurrency": 1,
+  "minimum_pause_seconds": 1.2,
+  "finished_at": "2026-09-10T02:36:13.373383+00:00"
+}

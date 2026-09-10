@@ -1,0 +1,142 @@
+[
+  {
+    "path": "/api/v1/summary?range=1h",
+    "status": 200,
+    "seconds": 1.858,
+    "bytes": 251,
+    "sha256": "db782b82906e73073175b38163ba5e680b70ac5290bf82d282092c47a454065e"
+  },
+  {
+    "path": "/api/v1/resources?range=1h",
+    "status": 200,
+    "seconds": 0.192,
+    "bytes": 7397,
+    "sha256": "5f9b95016b91da61fd405198b87a57809267b6333fba6f4f4c3029687909a696"
+  },
+  {
+    "path": "/api/v1/attacks/top_ports?range=1h",
+    "status": 200,
+    "seconds": 0.56,
+    "bytes": 291,
+    "sha256": "b3e82666ef231c7927f0d4c9b411954fedd15d61a65c35992306592a4f9b7626"
+  },
+  {
+    "path": "/api/v1/attacks/top_sources?range=1h",
+    "status": 200,
+    "seconds": 0.009,
+    "bytes": 339,
+    "sha256": "fc5e6d4e8ed06dbeaa9c8b4b608b314885aeb0609488277ca038edcfc606970b"
+  },
+  {
+    "path": "/api/v1/firewall/timeline?range=1h",
+    "status": 200,
+    "seconds": 0.041,
+    "bytes": 175,
+    "sha256": "918eb10e7f64efb27fa0d355dae65d231f39e985d62dc3fa2913020b7bf9ca1c"
+  },
+  {
+    "path": "/api/v1/summary?range=24h",
+    "status": 200,
+    "seconds": 10.216,
+    "bytes": 264,
+    "sha256": "842d0bde7398968e99cacf12412a5725bf3e1a5c78ee84b85a51baf53d91d3c8"
+  },
+  {
+    "path": "/api/v1/resources?range=24h",
+    "status": 200,
+    "seconds": 0.083,
+    "bytes": 185601,
+    "sha256": "573cd0b1d0f97ea5fddd3ed06171affdf91acefc278cb3dfb6d0e234a7530ef6"
+  },
+  {
+    "path": "/api/v1/attacks/top_ports?range=24h",
+    "status": 200,
+    "seconds": 0.576,
+    "bytes": 311,
+    "sha256": "1d4a850abba499dae0ebca4c3f6e18c9d90088688e92b677827ed8c36b5ef09c"
+  },
+  {
+    "path": "/api/v1/attacks/top_sources?range=24h",
+    "status": 200,
+    "seconds": 0.42,
+    "bytes": 355,
+    "sha256": "10716eb79b1ce8f8f8b5499ac0cffd87c311839c0c906a537de85eb840d8074f"
+  },
+  {
+    "path": "/api/v1/firewall/timeline?range=24h",
+    "status": 200,
+    "seconds": 0.686,
+    "bytes": 1675,
+    "sha256": "39feb02e4b4c01ae71909782e54d6c92623080b9cf79d8606bb4b37bf94fc118"
+  },
+  {
+    "path": "/api/v1/summary?range=7d",
+    "status": 500,
+    "seconds": 5.003,
+    "bytes": 55,
+    "sha256": "686908a719d352946b14b148f08dbcf7e0aed96c7c38dfc1a97ea7d72b3adb64"
+  },
+  {
+    "path": "/api/v1/resources?range=7d",
+    "status": 200,
+    "seconds": 1.67,
+    "bytes": 1291513,
+    "sha256": "489bfde866de6dc68626b97792ab962d80e7493ded9b84b473527f556f941c5b"
+  },
+  {
+    "path": "/api/v1/attacks/top_ports?range=7d",
+    "status": 500,
+    "seconds": 5.003,
+    "bytes": 55,
+    "sha256": "686908a719d352946b14b148f08dbcf7e0aed96c7c38dfc1a97ea7d72b3adb64"
+  },
+  {
+    "path": "/api/v1/attacks/top_sources?range=7d",
+    "status": 500,
+    "seconds": 5.004,
+    "bytes": 55,
+    "sha256": "686908a719d352946b14b148f08dbcf7e0aed96c7c38dfc1a97ea7d72b3adb64"
+  },
+  {
+    "path": "/api/v1/firewall/timeline?range=7d",
+    "status": 500,
+    "seconds": 5.005,
+    "bytes": 55,
+    "sha256": "686908a719d352946b14b148f08dbcf7e0aed96c7c38dfc1a97ea7d72b3adb64"
+  },
+  {
+    "path": "/api/v1/summary?range=30d",
+    "status": 500,
+    "seconds": 15.004,
+    "bytes": 55,
+    "sha256": "686908a719d352946b14b148f08dbcf7e0aed96c7c38dfc1a97ea7d72b3adb64"
+  },
+  {
+    "path": "/api/v1/resources?range=30d",
+    "status": 200,
+    "seconds": 1.767,
+    "bytes": 1338551,
+    "sha256": "04d2aa25e9aca519378a2e8367463a24028ad75f3f8e6a2cb711688020a24432"
+  },
+  {
+    "path": "/api/v1/attacks/top_ports?range=30d",
+    "status": 500,
+    "seconds": 15.004,
+    "bytes": 55,
+    "sha256": "686908a719d352946b14b148f08dbcf7e0aed96c7c38dfc1a97ea7d72b3adb64"
+  },
+  {
+    "path": "/api/v1/attacks/top_sources?range=30d",
+    "status": 500,
+    "seconds": 15.005,
+    "bytes": 55,
+    "sha256": "686908a719d352946b14b148f08dbcf7e0aed96c7c38dfc1a97ea7d72b3adb64"
+  },
+  {
+    "path": "/api/v1/firewall/timeline?range=30d",
+    "status": 500,
+    "seconds": 30.009,
+    "bytes": 55,
+    "sha256": "686908a719d352946b14b148f08dbcf7e0aed96c7c38dfc1a97ea7d72b3adb64"
+  }
+]
